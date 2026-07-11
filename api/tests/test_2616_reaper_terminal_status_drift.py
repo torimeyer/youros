@@ -45,10 +45,11 @@ def _backend_terminal_statuses() -> set[str]:
 
     Importing routers.agents pulls FastAPI plus the whole services graph,
     which is exactly why the reaper parses the file textually. The test uses
-    ast and only looks at MODULE-LEVEL assignments (tree.body, not ast.walk):
-    the file also contains function-local ``_TERMINAL_STATUSES`` copies and a
-    separate ``_LOCK_SWEEP_TERMINAL_STATUSES`` constant, none of which are the
-    →2615 source of truth.
+    ast and only looks at MODULE-LEVEL assignments (tree.body, not ast.walk).
+    Function-local ``_TERMINAL_STATUSES`` copies were removed in ->2625 and
+    are banned by test_no_function_local_terminal_statuses_copies; the
+    separate ``_LOCK_SWEEP_TERMINAL_STATUSES`` constant is intentionally a
+    different set and is not the ->2615 source of truth.
     """
     tree = ast.parse(AGENTS_ROUTER.read_text(encoding="utf-8"))
     found: list[set[str]] = []
@@ -193,6 +194,47 @@ def test_reaper_fallback_snapshot_matches_backend():
         "_TERMINAL_STATUSES.\n"
         f"  missing from fallback: {sorted(backend - fallback)}\n"
         f"  extra in fallback:     {sorted(fallback - backend)}"
+    )
+
+
+def test_no_function_local_terminal_statuses_copies():
+    """->2625: agents.py must define _TERMINAL_STATUSES exactly once.
+
+    The cancel-all endpoint kept a function-local copy of the list that was
+    missing "abandoned" and "completed_timeout", so bulk cancel could flip
+    already-finished agents back to "cancelled". The register endpoint kept
+    a second (still-matching) copy that was one edit away from the same bug.
+    Any assignment to _TERMINAL_STATUSES other than the single module-level
+    frozenset is drift by construction and fails here, whether or not its
+    contents still agree today.
+    """
+    tree = ast.parse(AGENTS_ROUTER.read_text(encoding="utf-8"))
+    module_level_lines = {
+        node.lineno
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        and any(
+            isinstance(t, ast.Name) and t.id == "_TERMINAL_STATUSES"
+            for t in node.targets
+        )
+    }
+    all_lines = {
+        node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign)
+        and any(
+            isinstance(t, ast.Name) and t.id == "_TERMINAL_STATUSES"
+            for t in node.targets
+        )
+    }
+    local_lines = sorted(all_lines - module_level_lines)
+    assert len(module_level_lines) == 1 and not local_lines, (
+        "api/routers/agents.py must have exactly ONE _TERMINAL_STATUSES "
+        "assignment (the ->2615 module-level frozenset).\n"
+        f"  module-level assignments at lines: {sorted(module_level_lines)}\n"
+        f"  function-local copies at lines:    {local_lines}\n"
+        "Function-local copies drift (->2625): reference the module-level "
+        "constant instead of redefining the set."
     )
 
 

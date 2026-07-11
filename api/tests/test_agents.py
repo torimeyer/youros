@@ -6866,6 +6866,58 @@ async def test_cancel_all_skips_chat_source():
 
 
 @pytest.mark.asyncio
+async def test_cancel_all_skips_abandoned_and_completed_timeout():
+    """->2625: cancel-all must leave abandoned / completed_timeout agents alone.
+
+    The endpoint kept a local copy of the finished-states list that was
+    missing these two states, so bulk cancel overwrote already-finished rows
+    with "cancelled". The check must use the module-level _TERMINAL_STATUSES.
+    """
+    from routers.agents import agent_metadata
+
+    names_to_clean = [
+        "ca-test-abandoned-1", "ca-test-timeout-1", "ca-test-running-ctl",
+    ]
+    for k in names_to_clean:
+        agent_metadata.pop(k, None)
+
+    agent_metadata["ca-test-abandoned-1"] = {
+        "status": "abandoned", "source": "claude-code",
+    }
+    agent_metadata["ca-test-timeout-1"] = {
+        "status": "completed_timeout", "source": "api",
+    }
+    # Control: a genuinely running agent must still be cancelled.
+    agent_metadata["ca-test-running-ctl"] = {
+        "status": "running", "source": "claude-code",
+    }
+
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            with patch("routers.agents._save_agent_state"), \
+                 patch("routers.agents._emit_audit_event"):
+                resp = await client.post("/api/agents/cancel-all")
+
+        assert resp.status_code == 200
+        cancelled_names = set(resp.json()["names"])
+
+        # Already-finished agents must NOT be re-cancelled.
+        assert "ca-test-abandoned-1" not in cancelled_names
+        assert "ca-test-timeout-1" not in cancelled_names
+        assert agent_metadata["ca-test-abandoned-1"]["status"] == "abandoned"
+        assert agent_metadata["ca-test-timeout-1"]["status"] == "completed_timeout"
+
+        # Control still works.
+        assert "ca-test-running-ctl" in cancelled_names
+        assert agent_metadata["ca-test-running-ctl"]["status"] == "cancelled"
+    finally:
+        for k in names_to_clean:
+            agent_metadata.pop(k, None)
+
+
+@pytest.mark.asyncio
 async def test_cancel_all_returns_zero_when_nothing_running():
     """POST /api/agents/cancel-all returns cancelled=0 when no eligible agents exist.
 

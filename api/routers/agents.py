@@ -7482,16 +7482,8 @@ async def register_agent(body: AgentSpawn, request: Request = None):
     # zombie process that kept running) must not reset the status. Doing so
     # would allow /complete to bypass its idempotency guard and emit another
     # agent.completed row -- the root cause of the summarizer-bot storm.
-    _TERMINAL_STATUSES = {
-        "completed",
-        "failed",
-        "cancelled",
-        "terminated_stale",
-        "completed_timeout",
-        "killed",
-        "stopped",
-        "abandoned",
-    }
+    # Uses the module-level _TERMINAL_STATUSES (->2625): a local copy of the
+    # list drifted once already and is banned by the drift-guard test.
     existing_status = existing.get("status", "")
     # Reject re-registration of a name that already holds a terminal status
     # as running. A Claude Code subprocess that keeps heartbeating after a
@@ -9160,13 +9152,14 @@ async def cancel_all_agents():
     and must never be cancelled here. Only agents with ``source='claude-code'``
     or ``source='api'`` (background work) are eligible.
 
-    Agents that are already in a terminal state (completed, failed, cancelled,
-    terminated_stale, killed, stopped) are left untouched.
+    Agents that are already in a terminal state (the module-level
+    ``_TERMINAL_STATUSES``) are left untouched. A local copy of that list
+    lived here until ->2625; it had drifted (missing "abandoned" and
+    "completed_timeout"), so bulk cancel overwrote already-finished rows.
 
     Returns the count of agents cancelled and their names so the frontend can
     show a meaningful confirmation message.
     """
-    _TERMINAL_STATUSES = {"completed", "failed", "cancelled", "terminated_stale", "killed", "stopped"}
     _BACKGROUND_SOURCES = {"claude-code", "api"}
 
     now_dt = datetime.now(timezone.utc)
