@@ -50,8 +50,8 @@ SCREENSHOT_DIR="${REPO_DIR}/e2e-screenshots"
 # user session that might be open.
 export AGENT_BROWSER_SESSION="e2e-torios"
 
-# Set to 1 when ab() first detects a stale daemon; subsequent ab() calls
-# return 1 silently so FAIL does not inflate per-command (→2739b).
+# Set to 1 when the post-kill pgrep check finds the helper still running;
+# subsequent ab() calls return 1 silently so FAIL does not inflate per-command.
 _AB_STALE_DAEMON=0
 
 PASS=0
@@ -182,27 +182,31 @@ while pgrep -f "agent-browser-darwin-arm64" > /dev/null 2>&1; do
     sleep 0.2
 done
 unset _ab_wait_deadline
+# →2739c: after the kill step, confirm the helper is truly gone.
+# "ignored: daemon already running" is printed by agent-browser on any command
+# that passes startup options while a daemon exists — including our own freshly
+# started daemon. It is NOT a reliable stale-daemon signal. The authoritative
+# check is this single pgrep immediately after the kill step.
+if pgrep -f "agent-browser-darwin-arm64" > /dev/null 2>&1; then
+    echo -e "  ${RED}FAIL${NC}  stale browser helper survived the kill step; remaining journeys will be skipped" >&2
+    FAIL=$((FAIL + 1))
+    _AB_STALE_DAEMON=1
+fi
 
 header "Browser e2e tests (agent-browser)"
 
 # Helper: run an agent-browser command and capture output.
 # Returns 0 on success, 1 on failure.
-# →2739b: First detection of "ignored: daemon already running" prints one FAIL
-# and sets _AB_STALE_DAEMON=1. Subsequent calls return 1 immediately without
-# incrementing FAIL; journey guards (see _ab_journey_guard) emit one SKIP line
-# per journey instead of a FAIL per command (smoke run 10: was 107 FAILs).
+# →2739c: _AB_STALE_DAEMON is set once, right after the pre-run kill step,
+# by a pgrep check. The "ignored: daemon already running" warning that
+# agent-browser prints is benign once our own daemon is running; we no longer
+# treat it as an error.
 ab() {
     local _ab_out
     if [ "$_AB_STALE_DAEMON" = "1" ]; then
         return 1
     fi
     _ab_out=$(agent-browser "$@" 2>&1)
-    if echo "$_ab_out" | grep -q "ignored: daemon already running"; then
-        echo -e "  ${RED}FAIL${NC}  agent-browser: startup options were ignored — stale daemon survived close; remaining journeys will be skipped" >&2
-        FAIL=$((FAIL + 1))
-        _AB_STALE_DAEMON=1
-        return 1
-    fi
     echo "$_ab_out"
 }
 
@@ -305,8 +309,9 @@ header "Journey 1: Dashboard loads with real data"
 if _ab_journey_guard "Journey 1"; then
 
 ab open "$FRONTEND_URL" > /dev/null 2>&1
-# Retry until real content is visible (skips boot screen, up to 15s)
-if wait_for_content "open|tasks|focus|agents|Home"; then
+# →2739c: allow 20s on first load — a cold helper + browser takes longer than
+# the default 15s. Same criteria; wider window only for this first open().
+if wait_for_content "open|tasks|focus|agents|Home" 20; then
     phase_pass "dashboard shows real content (not blank)"
 else
     phase_fail "dashboard appears blank or stuck on loading"
