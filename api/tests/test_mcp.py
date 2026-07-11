@@ -410,3 +410,84 @@ async def test_mcp_servers_endpoint_no_manual_servers(client, tmp_path):
     data = resp.json()
     assert len(data["ostk_servers"]) == 1
     assert data["manual_servers"] == []
+
+
+# --- Token masking on the list endpoint (→2686) ---
+# GET /api/settings/mcp-servers used to return manual_servers straight from
+# the settings file, including full auth_token values, while GET /api/settings
+# already masked them (→2684). These tests lock in the same treatment here:
+# tokens show only their last 4 characters, each entry carries a
+# has_auth_token flag so the UI can tell saved apart from never set, and an
+# echoed masked entry never corrupts the stored token or persists the flag.
+
+_RAW_MCP_TOKEN = "tok-mcp-secret-value-Zz77"
+
+
+@pytest.fixture
+def settings_file_with_mcp_token(tmp_path):
+    sf = tmp_path / "settings.json"
+    sf.write_text(json.dumps({
+        "os_name": "ToriOS",
+        "mcp_servers": [
+            {"name": "slack", "url": "https://mcp.example.com", "auth_token": _RAW_MCP_TOKEN, "enabled": True},
+        ],
+    }))
+    return sf
+
+
+@pytest.mark.asyncio
+async def test_mcp_servers_endpoint_masks_auth_tokens(client, settings_file_with_mcp_token):
+    """manual_servers entries show only the last 4 token characters and a
+    has_auth_token flag; the full token never appears in the response."""
+    with patch("services.settings_store.SETTINGS_PATH", settings_file_with_mcp_token), \
+         patch("routers.settings.ostk") as mock_ostk:
+        mock_ostk.mcp_list = AsyncMock(return_value=[])
+        resp = await client.get("/api/settings/mcp-servers")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    entry = body["manual_servers"][0]
+    assert entry["auth_token"] == "****Zz77"
+    assert entry["has_auth_token"] is True
+    assert _RAW_MCP_TOKEN not in json.dumps(body)
+    # Non-secret fields are untouched.
+    assert entry["name"] == "slack"
+    assert entry["url"] == "https://mcp.example.com"
+    assert entry["enabled"] is True
+
+
+@pytest.mark.asyncio
+async def test_mcp_servers_endpoint_empty_token_has_flag_false(client, settings_file_for_mcp_endpoint):
+    """An entry saved without a token reports has_auth_token=False so the
+    UI can say 'not set' without ever seeing a stored value."""
+    with patch("services.settings_store.SETTINGS_PATH", settings_file_for_mcp_endpoint), \
+         patch("routers.settings.ostk") as mock_ostk:
+        mock_ostk.mcp_list = AsyncMock(return_value=[])
+        resp = await client.get("/api/settings/mcp-servers")
+
+    assert resp.status_code == 200
+    entry = resp.json()["manual_servers"][0]
+    assert entry["auth_token"] == ""
+    assert entry["has_auth_token"] is False
+
+
+@pytest.mark.asyncio
+async def test_mcp_servers_endpoint_roundtrip_keeps_stored_token(client, settings_file_with_mcp_token):
+    """Echoing a masked entry from this endpoint back through PATCH
+    /api/settings must keep the stored real token and must not write the
+    response-only has_auth_token flag into the settings file."""
+    with patch("services.settings_store.SETTINGS_PATH", settings_file_with_mcp_token), \
+         patch("routers.settings.ostk") as mock_ostk:
+        mock_ostk.mcp_list = AsyncMock(return_value=[])
+        resp = await client.get("/api/settings/mcp-servers")
+        assert resp.status_code == 200
+        echoed = resp.json()["manual_servers"]
+        # The installer toggles a non-secret field and patches the list back.
+        echoed[0]["enabled"] = False
+        resp = await client.patch("/api/settings", json={"mcp_servers": echoed})
+        assert resp.status_code == 200
+
+    saved = json.loads(settings_file_with_mcp_token.read_text())
+    assert saved["mcp_servers"][0]["auth_token"] == _RAW_MCP_TOKEN
+    assert saved["mcp_servers"][0]["enabled"] is False
+    assert "has_auth_token" not in saved["mcp_servers"][0]

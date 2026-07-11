@@ -68,6 +68,14 @@ def _restore_masked_in_entry(entry: dict, stored_entry) -> dict:
     out = {}
     stored_entry = stored_entry if isinstance(stored_entry, dict) else {}
     for key, value in entry.items():
+        if (
+            isinstance(key, str)
+            and key.startswith("has_")
+            and _is_secret_name(key[len("has_"):])
+        ):
+            # Response-only saved-or-not flag echoed back from the list
+            # endpoint (→2686); never write it to the settings file.
+            continue
         if _is_secret_name(key) and isinstance(value, str) and (
             value == "" or _looks_masked(value)
         ):
@@ -299,9 +307,18 @@ async def list_mcp_servers():
     Combines servers from two sources:
     - ostk-managed servers (configured in HUMANFILE via ``ostk mcp list``)
     - Manually added servers (stored in settings.json)
+
+    Manual entries carry saved connection tokens, so each one is masked
+    the same way GET /settings is (→2684): the token shows only its last
+    4 characters and a has_auth_token flag says whether one is saved.
+    PATCH/PUT already treat masked values as write-only, so echoing a
+    masked entry back never corrupts the stored token (→2686).
     """
     ostk_servers = await ostk.mcp_list()
-    manual_servers = settings_store.get("mcp_servers", [])
+    manual_servers = [
+        _mask_secrets(server, top_level=True) if isinstance(server, dict) else server
+        for server in settings_store.get("mcp_servers", [])
+    ]
     return {
         "ostk_servers": ostk_servers,
         "manual_servers": manual_servers,
