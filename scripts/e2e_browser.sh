@@ -50,6 +50,10 @@ SCREENSHOT_DIR="${REPO_DIR}/e2e-screenshots"
 # user session that might be open.
 export AGENT_BROWSER_SESSION="e2e-torios"
 
+# Set to 1 when ab() first detects a stale daemon; subsequent ab() calls
+# return 1 silently so FAIL does not inflate per-command (→2739b).
+_AB_STALE_DAEMON=0
+
 PASS=0
 FAIL=0
 SKIP=0
@@ -163,23 +167,54 @@ trap _browser_cleanup EXIT INT TERM HUP
 # also ensures AGENT_BROWSER_IGNORE_HTTPS_ERRORS is picked up on the fresh
 # start; a still-running daemon ignores new startup options.
 agent-browser close 2>/dev/null || true
+# →2739b: close[--all] closes the browser session but the daemon process
+# (agent-browser-darwin-arm64) can linger. Poll up to 5s for it to exit;
+# if it does not, SIGTERM then SIGKILL so the next open() gets clean options.
+_ab_wait_deadline=$(($(date +%s) + 5))
+while pgrep -f "agent-browser-darwin-arm64" > /dev/null 2>&1; do
+    if [ "$(date +%s)" -ge "$_ab_wait_deadline" ]; then
+        pkill -TERM -f "agent-browser-darwin-arm64" 2>/dev/null || true
+        sleep 2
+        pkill -KILL -f "agent-browser-darwin-arm64" 2>/dev/null || true
+        sleep 0.3
+        break
+    fi
+    sleep 0.2
+done
+unset _ab_wait_deadline
 
 header "Browser e2e tests (agent-browser)"
 
 # Helper: run an agent-browser command and capture output.
 # Returns 0 on success, 1 on failure.
-# →2739: Detects the "options ignored" warning that fires when a stale daemon
-# is still alive and rejects the new startup flags; treats it as a hard failure
-# so it never scrolls by as noise.
+# →2739b: First detection of "ignored: daemon already running" prints one FAIL
+# and sets _AB_STALE_DAEMON=1. Subsequent calls return 1 immediately without
+# incrementing FAIL; journey guards (see _ab_journey_guard) emit one SKIP line
+# per journey instead of a FAIL per command (smoke run 10: was 107 FAILs).
 ab() {
     local _ab_out
+    if [ "$_AB_STALE_DAEMON" = "1" ]; then
+        return 1
+    fi
     _ab_out=$(agent-browser "$@" 2>&1)
     if echo "$_ab_out" | grep -q "ignored: daemon already running"; then
-        echo -e "  ${RED}FAIL${NC}  agent-browser: startup options were ignored — stale daemon is still alive after 'agent-browser close'; check for orphaned processes" >&2
+        echo -e "  ${RED}FAIL${NC}  agent-browser: startup options were ignored — stale daemon survived close; remaining journeys will be skipped" >&2
         FAIL=$((FAIL + 1))
+        _AB_STALE_DAEMON=1
         return 1
     fi
     echo "$_ab_out"
+}
+
+# Guard: if a stale daemon was detected, emit one SKIP line per journey and
+# return 1 so the caller can skip the journey body entirely (→2739b).
+# Returns 0 (run the journey) when _AB_STALE_DAEMON=0.
+_ab_journey_guard() {
+    if [ "$_AB_STALE_DAEMON" = "1" ]; then
+        phase_skip "$1: stale agent-browser daemon — previous close did not kill it"
+        return 1
+    fi
+    return 0
 }
 
 # Helper: get text content from a snapshot, grep for a pattern.
@@ -205,6 +240,10 @@ wait_for_content() {
     local grep_flags="${3:--qiE}"
     local deadline=$(($(date +%s) + timeout))
     WAIT_CONTENT_SNAP=""
+    # Fast-path: stale daemon means no browser is reachable (→2739b).
+    if [ "$_AB_STALE_DAEMON" = "1" ]; then
+        return 1
+    fi
     while true; do
         WAIT_CONTENT_SNAP=$(ab snapshot 2>&1)
         # Treat the boot screen as not-ready; keep retrying
@@ -263,6 +302,7 @@ ensure_no_onboarding_wizard() {
 # =============================================================================
 
 header "Journey 1: Dashboard loads with real data"
+if _ab_journey_guard "Journey 1"; then
 
 ab open "$FRONTEND_URL" > /dev/null 2>&1
 # Retry until real content is visible (skips boot screen, up to 15s)
@@ -288,11 +328,14 @@ else
     phase_pass "dashboard is not stuck on Loading"
 fi
 
+fi # Journey 1 stale-daemon guard
+
 # =============================================================================
 # Journey 2: Sidebar navigation works
 # =============================================================================
 
 header "Journey 2: Sidebar navigation"
+if _ab_journey_guard "Journey 2"; then
 
 # The sidebar has NavLinks. We test Tasks, Agents, and Ideas pages.
 # We use snapshot -i to find interactive elements, then click by link text.
@@ -333,6 +376,8 @@ else
 fi
 ab screenshot "$SCREENSHOT_DIR/settings.png" > /dev/null 2>&1
 
+fi # Journey 2 stale-daemon guard
+
 # =============================================================================
 # Journey 3: Create a task via UI
 # =============================================================================
@@ -343,7 +388,9 @@ ab open "${FRONTEND_URL}/tasks" > /dev/null 2>&1
 # Wait until the Tasks page input is present before interacting
 wait_for_content "What needs to be done|Open|Closed|tasks" > /dev/null 2>&1 || ab wait 2000 > /dev/null 2>&1
 
-if ensure_no_onboarding_wizard "Journey 3"; then
+if [ "$_AB_STALE_DAEMON" = "1" ]; then
+    phase_skip "Journey 3: stale agent-browser daemon — previous close did not kill it"
+elif ensure_no_onboarding_wizard "Journey 3"; then
     # The Tasks page has an input with placeholder "What needs to be done?"
     # and a round blue add button next to it.
     # →2688: title must end in a non-digit so the tasks router's
@@ -405,7 +452,9 @@ ab open "${FRONTEND_URL}" > /dev/null 2>&1
 # Wait until the home page renders real content before checking DOM
 wait_for_content "open|tasks|focus|agents|Home" > /dev/null 2>&1 || ab wait 2000 > /dev/null 2>&1
 
-if ensure_no_onboarding_wizard "Journey 4"; then
+if [ "$_AB_STALE_DAEMON" = "1" ]; then
+    phase_skip "Journey 4: stale agent-browser daemon — previous close did not kill it"
+elif ensure_no_onboarding_wizard "Journey 4"; then
     # The chat toggle button in the TopBar has title="Toggle Chat (⌘L)" / "Toggle Chat (Ctrl+L)".
     # Query it directly via DOM rather than parsing the snapshot, because agent-browser's
     # snapshot -i format does not wrap button text in double-quotes, so the old
@@ -454,7 +503,9 @@ capture_original_os_name
 ab open "${FRONTEND_URL}/settings" > /dev/null 2>&1
 wait_for_content "connect|Google|Slack|AI Provider|Connections|Preferences" > /dev/null 2>&1 || ab wait 2000 > /dev/null 2>&1
 
-if ensure_no_onboarding_wizard "Journey 5"; then
+if [ "$_AB_STALE_DAEMON" = "1" ]; then
+    phase_skip "Journey 5: stale agent-browser daemon — previous close did not kill it"
+elif ensure_no_onboarding_wizard "Journey 5"; then
     # Find the OS Identifier input and change it.
     # OS Identifier is in the Preferences tab (hidden by default, must click the tab first).
     TEST_OS_NAME="e2e-browser-os"
