@@ -148,7 +148,9 @@ restore_original_os_name() {
 # Also restores the OS name if Journey 5 captured one. This runs even on
 # SIGINT/SIGTERM, preventing the test value from leaking into real user settings.
 _browser_cleanup() {
-    agent-browser close --all 2>/dev/null || true
+    # →2688: close only the e2e-torios session, not every browser session on
+    # the machine; closing --all would yank sessions out from under other work.
+    agent-browser close 2>/dev/null || true
     # Restores ORIGINAL_OS_NAME through the guarded helper, which refuses to
     # write an empty value if the capture failed (→2685).
     restore_original_os_name
@@ -344,7 +346,10 @@ wait_for_content "What needs to be done|Open|Closed|tasks" > /dev/null 2>&1 || a
 if ensure_no_onboarding_wizard "Journey 3"; then
     # The Tasks page has an input with placeholder "What needs to be done?"
     # and a round blue add button next to it.
-    TASK_TITLE="e2e-browser-test-$(date +%s)"
+    # →2688: title must end in a non-digit so the tasks router's
+    # _sanitize_task_title does not strip the trailing timestamp and leave
+    # the cleanup search unable to match the stored title.
+    TASK_TITLE="e2e-browser-task-$(date +%s)x"
 
     # Set the input value via native setter (triggers React onChange) then click the add button.
     # ab find+fill does not reliably fire React's synthetic onChange in headless Chrome,
