@@ -1,4 +1,5 @@
-import { defineConfig } from 'vite'
+import { createLogger, defineConfig } from 'vite'
+import type { Logger } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import fs from 'node:fs'
@@ -82,7 +83,90 @@ function proxyErrLog(prefix: string, err: unknown) {
   }
 }
 
+// →2764 Vite 8 forwards browser console output to this process
+// (server.forwardConsole, enabled by default when vite detects an agent
+// environment, e.g. during agent-driven browser tests). The built-in
+// vite:forward-console plugin writes one logger line per browser console
+// call with NO limit; a crash-looping component can push hundreds of
+// "[console.error]" lines per second. Those writes are synchronous, so
+// they hit the same wall as →2521: when stdout is a full pipe or a slow
+// PTY, one blocked write holds the Node event loop forever (port stays
+// LISTEN, nothing is accepted, zero CPU). The primary defence is
+// scripts/dev-frontend.sh sending all vite output to a real file; this
+// cap is the in-process backstop, extending the proxyErrLog burst-window
+// mechanism to the relay. Relay lines are recognised by the plugin's own
+// markers and capped at RELAY_BUDGET lines per RELAY_WINDOW_MS window;
+// the dropped count is reported when the next window opens so nothing
+// vanishes silently.
+const RELAY_WINDOW_MS = 5_000
+const RELAY_BUDGET = 10
+let _relayWindowTs = 0
+let _relaySent = 0
+let _relayDropped = 0
+const baseLogger = createLogger()
+function relayLineAllowed(): boolean {
+  const now = Date.now()
+  if (now - _relayWindowTs > RELAY_WINDOW_MS) {
+    if (_relayDropped > 0) {
+      baseLogger.warn(
+        `[browser-console relay] ${_relayDropped} line(s) suppressed in the last burst (→2764 rate limit)`,
+        { timestamp: true },
+      )
+    }
+    _relayWindowTs = now
+    _relaySent = 0
+    _relayDropped = 0
+  }
+  if (_relaySent < RELAY_BUDGET) {
+    _relaySent++
+    return true
+  }
+  _relayDropped++
+  return false
+}
+// Markers written by vite's forwardConsole plugin
+// (vite/src/node/plugins/forwardConsole.ts): "[console.<level>] " for
+// relayed console calls, "[Unhandled error]" / "[Unhandled rejection]"
+// for forwarded page errors. ANSI colour codes wrap around these
+// strings but leave the bare substrings intact.
+function isRelayLine(msg: string): boolean {
+  return (
+    msg.includes('[console.') ||
+    msg.includes('[Unhandled error]') ||
+    msg.includes('[Unhandled rejection]')
+  )
+}
+const relayRateLimitedLogger: Logger = {
+  get hasWarned() {
+    return baseLogger.hasWarned
+  },
+  set hasWarned(v: boolean) {
+    baseLogger.hasWarned = v
+  },
+  info(msg, opts) {
+    if (!isRelayLine(msg) || relayLineAllowed()) baseLogger.info(msg, opts)
+  },
+  warn(msg, opts) {
+    if (!isRelayLine(msg) || relayLineAllowed()) baseLogger.warn(msg, opts)
+  },
+  warnOnce(msg, opts) {
+    baseLogger.warnOnce(msg, opts)
+  },
+  error(msg, opts) {
+    if (!isRelayLine(msg) || relayLineAllowed()) baseLogger.error(msg, opts)
+  },
+  clearScreen(type) {
+    baseLogger.clearScreen(type)
+  },
+  hasErrorLogged(error) {
+    return baseLogger.hasErrorLogged(error)
+  },
+}
+
 export default defineConfig({
+  // →2764 route every log line (including the browser-console relay)
+  // through the burst-window rate limiter above.
+  customLogger: relayRateLimitedLogger,
   plugins: [react(), tailwindcss()],
   // →1798 Vite 8 blank-page fix: three-part defence against CJS chunk hash
   // divergence.
