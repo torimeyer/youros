@@ -64,7 +64,9 @@ else
     if [ "$FIX" = "1" ]; then
         echo "  --fix: launching watch-frontend.sh in background..."
         SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-        nohup "$SCRIPT_DIR/watch-frontend.sh" >> /tmp/torios-frontend.log 2>&1 &
+        # →2726 the watcher owns its logging (~/.youros/logs/), so its
+        # stdout carries only a bounded handful of lines and can be dropped.
+        nohup "$SCRIPT_DIR/watch-frontend.sh" > /dev/null 2>&1 < /dev/null &
         echo "  Waiting up to 15 seconds for frontend to come up..."
         for i in $(seq 1 15); do
             sleep 1
@@ -77,10 +79,10 @@ else
             fi
         done
         if [ "$ok" != "0" ]; then
-            echo -e "  ${RED}[FAIL]${NC} Frontend still down after 15s. Check /tmp/torios-frontend.log"
+            echo -e "  ${RED}[FAIL]${NC} Frontend still down after 15s. Check ~/.youros/logs/vite-dev.log and ~/.youros/logs/frontend-watcher.log"
         fi
     else
-        echo "         Restart with: nohup scripts/watch-frontend.sh > /tmp/torios-frontend.log 2>&1 &"
+        echo "         Restart with: nohup scripts/watch-frontend.sh > /dev/null 2>&1 &"
         echo "         Or auto-fix:  scripts/health.sh --fix"
         ok=1
     fi

@@ -109,10 +109,18 @@ For long-running services, **use `mcp__ostk__spawn` instead of bash**:
 ```
 mcp__ostk__spawn(
   alias="frontend",
-  cmd="scripts/dev-frontend.sh",
+  cmd="scripts/watch-frontend.sh",
   wait_for="ready on port 3010"
 )
 ```
+
+For the frontend specifically, `scripts/watch-frontend.sh` is the default
+for anything long-lived (→2726): it restarts vite on crash AND probes the
+port to catch a wedged-but-alive process. Both frontend scripts own their
+logging (→2764): vite output always goes to `~/.youros/logs/vite-dev.log`
+and watcher state to `~/.youros/logs/frontend-watcher.log`, so their
+stdout is bounded and can never wedge a caller, no matter how they are
+started.
 
 `spawn` uses kernel-side process supervision, returns immediately, and never creates pipe
 inheritance issues. Use `interact(alias, action="kill")` to tear down the server cleanly.

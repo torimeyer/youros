@@ -96,7 +96,14 @@ sed "s|SCRIPT_DIR=\"\$(cd.*BASH_SOURCE.*\"|SCRIPT_DIR=\"$TMP_DIR\" #|" \
     "$WATCHER" > "$TMP_DIR/watch-frontend.sh"
 chmod +x "$TMP_DIR/watch-frontend.sh"
 
-"$TMP_DIR/watch-frontend.sh" >> /tmp/torios-frontend.log 2>&1 &
+# WATCH_LOG pins the watcher log to the path this test greps (the script's
+# default moved to ~/.youros/logs/ in →2726). FRONTEND_URL points at a
+# port nothing listens on so the health probe stays deterministic (the
+# mock never serves HTTP; the real vite on :3010 must not satisfy the
+# probe). The mock stays well inside PROBE_STARTUP_TIMEOUT, so the probe
+# never kills it during this test.
+WATCH_LOG="$WATCH_LOG" FRONTEND_URL="https://127.0.0.1:9/" \
+    "$TMP_DIR/watch-frontend.sh" >> /tmp/torios-frontend.log 2>&1 &
 WATCHER_PID=$!
 
 # --- Wait for 3 attempts to be recorded (up to 50 x 0.2s = 10 seconds) ---
