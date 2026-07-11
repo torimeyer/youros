@@ -78,8 +78,6 @@ export default function Settings() {
     darkMode,
     accentColor, setAccentColor,
     features, setFeatures,
-    setDefaultChatModel,
-    setUseOstkTerms,
     powerUserMode, setPowerUserMode,
     instanceMode,
     compactMode, setCompactMode,
@@ -236,11 +234,23 @@ export default function Settings() {
   useEffect(() => {
     const fetchSettings = async () => {
       // Snapshot before the request so a reply that raced a user edit can
-      // be detected below (→2777).
+      // be detected below (→2777, →2778).
       const osNameBeforeFetch = useAppStore.getState().osName;
+      const accentColorBeforeFetch = useAppStore.getState().accentColor;
+      const defaultChatModelBeforeFetch = useAppStore.getState().defaultChatModel;
+      const useOstkTermsBeforeFetch = useAppStore.getState().useOstkTerms;
       try {
         const data = await api.get<SettingsData>('/settings');
-        if (data.accent_color) setAccentColor(data.accent_color as AccentColor);
+        if (data.accent_color && useAppStore.getState().accentColor === accentColorBeforeFetch) {
+          // Apply the fetched color directly to the store, never through
+          // setAccentColor: that setter PATCHes its value straight back to
+          // the server, and a reply resolving after the user picked a new
+          // color overwrote the just-saved pick with the stale one (→2778,
+          // same echo as os_name in →2777). The snapshot guard skips a
+          // reply that raced a change made while the request was in flight.
+          localStorage.setItem('myos-accent-color', data.accent_color);
+          useAppStore.setState({ accentColor: data.accent_color as AccentColor });
+        }
         if (data.os_name && useAppStore.getState().osName === osNameBeforeFetch) {
           // Apply the fetched name directly to the store, never through
           // setOsName: that setter PATCHes its value straight back to the
@@ -273,14 +283,23 @@ export default function Settings() {
         if (data.provider) {
           setSelectedProvider(data.provider);
         }
-        // Load the default chat model from the saved default_model field
-        if ((data as any).default_model) {
-          const raw = (data as any).default_model.replace(/^@/, '');
-          setDefaultChatModel(raw);
-        } else if (data.provider) {
-          // Fall back to provider if default_model is not set
-          const chatModel = PROVIDER_TO_MODEL[data.provider] ?? 'claude';
-          setDefaultChatModel(chatModel);
+        // Load the default chat model from the saved default_model field.
+        // Applied directly to the store, never through setDefaultChatModel:
+        // that setter PATCHes default_model back to the server, echoing the
+        // fetched (or provider-derived) value on every page load (→2778).
+        // The snapshot guard skips a reply that raced a model change made
+        // while the request was in flight.
+        if (useAppStore.getState().defaultChatModel === defaultChatModelBeforeFetch) {
+          if ((data as any).default_model) {
+            const raw = (data as any).default_model.replace(/^@/, '');
+            localStorage.setItem('myos-default-chat-model', raw);
+            useAppStore.setState({ defaultChatModel: raw });
+          } else if (data.provider) {
+            // Fall back to provider if default_model is not set
+            const chatModel = PROVIDER_TO_MODEL[data.provider] ?? 'claude';
+            localStorage.setItem('myos-default-chat-model', chatModel);
+            useAppStore.setState({ defaultChatModel: chatModel });
+          }
         }
         // API keys are now stored in the system keychain, not in settings.
         // The input fields start empty. Users type a new key to save it.
@@ -317,7 +336,12 @@ export default function Settings() {
         if (typeof (data as any).standing_instructions === 'string') {
           setStandingInstructions((data as any).standing_instructions);
         }
-        if ((data as any).use_ostk_terms !== undefined) setUseOstkTerms((data as any).use_ostk_terms);
+        if ((data as any).use_ostk_terms !== undefined && useAppStore.getState().useOstkTerms === useOstkTermsBeforeFetch) {
+          // Same treatment as accent color above: setUseOstkTerms PATCHes
+          // back to the server, so apply the fetched toggle directly (→2778).
+          localStorage.setItem('myos-use-ostk-terms', String((data as any).use_ostk_terms));
+          useAppStore.setState({ useOstkTerms: (data as any).use_ostk_terms });
+        }
         const prefRaw = (data as any).chat_backend_preference;
         if (prefRaw === 'auto' || prefRaw === 'claude_code' || prefRaw === 'anthropic_api') {
           setChatBackendPreference(prefRaw);

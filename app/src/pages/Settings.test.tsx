@@ -1664,3 +1664,122 @@ describe('Settings load path never echoes os_name back to the server (→2777)',
     expect(staleWrites).toHaveLength(0)
   })
 })
+
+// ---------------------------------------------------------------------------
+// →2778: the same load-echo bug as →2777 remained for three more fields. The
+// settings GET applied accent_color, default_model, and use_ostk_terms via
+// their store setters (setAccentColor, setDefaultChatModel, setUseOstkTerms),
+// and every one of those setters PATCHes its value straight back to /settings.
+// On a busy backend the GET can resolve after the user already saved a new
+// value, so the stale reply overwrote the just-saved value on disk. The load
+// path must apply fetched values without writing anything back, and it must
+// skip a reply that raced a user edit (same snapshot guard as os_name).
+// ---------------------------------------------------------------------------
+describe('Settings load path never echoes accent color, default model, or terminology back to the server (→2778)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useAppStore.setState({
+      osName: 'yourOS',
+      darkMode: true,
+      accentColor: 'blue',
+      defaultChatModel: 'claude',
+      useOstkTerms: false,
+    })
+  })
+
+  function patchCallsWith(field: string) {
+    return mockedApiPatch.mock.calls.filter(
+      ([path, body]) =>
+        path === '/settings' &&
+        !!body &&
+        typeof body === 'object' &&
+        field in (body as Record<string, unknown>)
+    )
+  }
+
+  it('applies the fetched accent color to the store without PATCHing it back', async () => {
+    vi.mocked(api.get).mockImplementation((path: string) =>
+      path === '/settings' ? Promise.resolve({ accent_color: 'pink' }) : Promise.resolve({})
+    )
+    renderSettings()
+    // The fetched color reaches the store...
+    await waitFor(() => expect(useAppStore.getState().accentColor).toBe('pink'))
+    // ...but reading must never write: no accent_color PATCH may fire on load.
+    expect(patchCallsWith('accent_color')).toHaveLength(0)
+  })
+
+  it('applies the fetched default model to the store without PATCHing it back', async () => {
+    vi.mocked(api.get).mockImplementation((path: string) =>
+      path === '/settings' ? Promise.resolve({ default_model: '@gemini' }) : Promise.resolve({})
+    )
+    renderSettings()
+    await waitFor(() => expect(useAppStore.getState().defaultChatModel).toBe('gemini'))
+    expect(patchCallsWith('default_model')).toHaveLength(0)
+  })
+
+  it('the provider fallback for the default model also never PATCHes it back', async () => {
+    // No default_model saved yet: the load path derives one from provider.
+    // Deriving is fine; writing the derived value back to the server is not.
+    vi.mocked(api.get).mockImplementation((path: string) =>
+      path === '/settings' ? Promise.resolve({ provider: 'Google Gemini' }) : Promise.resolve({})
+    )
+    renderSettings()
+    await waitFor(() => expect(useAppStore.getState().defaultChatModel).toBe('gemini'))
+    expect(patchCallsWith('default_model')).toHaveLength(0)
+  })
+
+  it('applies the fetched terminology toggle to the store without PATCHing it back', async () => {
+    vi.mocked(api.get).mockImplementation((path: string) =>
+      path === '/settings' ? Promise.resolve({ use_ostk_terms: true }) : Promise.resolve({})
+    )
+    renderSettings()
+    await waitFor(() => expect(useAppStore.getState().useOstkTerms).toBe(true))
+    expect(patchCallsWith('use_ostk_terms')).toHaveLength(0)
+  })
+
+  it('a slow settings fetch never overwrites values changed while it was loading', async () => {
+    let resolveSettings: (v: unknown) => void = () => {}
+    vi.mocked(api.get).mockImplementation((path: string) =>
+      path === '/settings'
+        ? new Promise((r) => {
+            resolveSettings = r
+          })
+        : Promise.resolve({})
+    )
+    renderSettings()
+
+    // While GET /settings is still in flight the user changes all three:
+    // the accent color through the picker, the other two through their
+    // store setters (the paths ChatPanel and the terminology toggle use).
+    const orangeDots = screen.getAllByRole('button').filter((btn) =>
+      btn.className.includes('rounded-full') && btn.className.includes('bg-orange-500')
+    )
+    fireEvent.click(orangeDots[0])
+    useAppStore.getState().setDefaultChatModel('gemini')
+    useAppStore.getState().setUseOstkTerms(true)
+    expect(useAppStore.getState().accentColor).toBe('orange')
+
+    // The stale reply lands after those saves.
+    await act(async () => {
+      resolveSettings({ accent_color: 'pink', default_model: '@claude', use_ostk_terms: false })
+    })
+
+    // The user's picks win in the store...
+    expect(useAppStore.getState().accentColor).toBe('orange')
+    expect(useAppStore.getState().defaultChatModel).toBe('gemini')
+    expect(useAppStore.getState().useOstkTerms).toBe(true)
+    // ...and on the wire: nothing may have written the stale values back.
+    const staleAccent = patchCallsWith('accent_color').filter(
+      ([, body]) => (body as { accent_color?: string }).accent_color === 'pink'
+    )
+    const staleModel = patchCallsWith('default_model').filter(
+      ([, body]) => (body as { default_model?: string }).default_model === '@claude'
+    )
+    const staleTerms = patchCallsWith('use_ostk_terms').filter(
+      ([, body]) => (body as { use_ostk_terms?: boolean }).use_ostk_terms === false
+    )
+    expect(staleAccent).toHaveLength(0)
+    expect(staleModel).toHaveLength(0)
+    expect(staleTerms).toHaveLength(0)
+  })
+})
