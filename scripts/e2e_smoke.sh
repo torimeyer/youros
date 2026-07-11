@@ -508,9 +508,11 @@ _e2e_cleanup() {
         rm -rf "$_E2E_SPECS_TMP_PARENT" 2>/dev/null || true
     fi
     if [ -n "$_E2E_ORIGINAL_OS_NAME" ]; then
-        curl -sS $CURL_OPTS -X PATCH "${API_BASE}/api/settings" \
+        if ! curl -sS $CURL_OPTS -X PATCH "${API_BASE}/api/settings" \
             -H 'content-type: application/json' \
-            -d "{"os_name":"$_E2E_ORIGINAL_OS_NAME"}" > /dev/null 2>&1 || true
+            -d "{\"os_name\":\"$_E2E_ORIGINAL_OS_NAME\"}" > /dev/null 2>&1; then
+            echo "  FAIL  e2e cleanup: OS name restore to '$_E2E_ORIGINAL_OS_NAME' failed — check your Settings page and set it back manually" >&2
+        fi
     fi
     # →2492: Restore features if the journey feature-toggle test left them dirty.
     if [ -n "$_E2E_ORIGINAL_FEATURES" ]; then
@@ -919,10 +921,16 @@ print(d.get('label',{}).get('id', d.get('id','')))
         # Save the original name into the trap variable so _e2e_cleanup
         # can restore it even if the script is interrupted mid-test.
         _E2E_ORIGINAL_OS_NAME=$(curl -sS $CURL_OPTS "${API_BASE}/api/settings" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('os_name',''))" 2>/dev/null)
-        # Pollution guard: never restore "e2e-test-os" itself (means a prior run
-        # was interrupted between the PATCH and the restore). Fall back to "yourOS".
-        if [ "$_E2E_ORIGINAL_OS_NAME" = "e2e-test-os" ] || [ -z "$_E2E_ORIGINAL_OS_NAME" ]; then
-            _E2E_ORIGINAL_OS_NAME="yourOS"
+        # Pollution guard: never write back a value we did not actually capture.
+        # If "e2e-test-os" is already set, a prior run was interrupted before
+        # its restore and we no longer know the real name — skip loudly.
+        # If the read came back empty, the API call failed — also skip loudly
+        # rather than writing the factory default over the user's real name.
+        if [ "$_E2E_ORIGINAL_OS_NAME" = "e2e-test-os" ]; then
+            echo -e "  ${YELLOW}WARN${NC}  settings capture: OS name is 'e2e-test-os' (leftover from a prior interrupted run); real name unknown — skipping restore. Fix it manually in Settings." >&2
+            _E2E_ORIGINAL_OS_NAME=""
+        elif [ -z "$_E2E_ORIGINAL_OS_NAME" ]; then
+            echo -e "  ${YELLOW}WARN${NC}  settings capture: API returned empty OS name — skipping restore to avoid writing the factory default over your real name." >&2
         fi
         curl -sS $CURL_OPTS -X PATCH "${API_BASE}/api/settings" \
             -H 'content-type: application/json' \
