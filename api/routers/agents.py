@@ -2298,6 +2298,12 @@ def _sweep_stale_running_agents() -> bool:
         # the agent is working even if the HTTP channel is quiet.
         if _proc_handle_is_alive(name):
             continue
+        # →2659: the stored pid is ground truth too. A busy agent mid long
+        # tool call cannot heartbeat, but its process is demonstrably alive
+        # (os.kill(pid, 0) succeeds); it must never be reaped as stale.
+        _stored_pid = meta.get("pid")
+        if _stored_pid and _is_pid_alive(_stored_pid):
+            continue
         # Transcript-growth heuristic: if the transcript file was written
         # recently the agent is still active even with no HTTP heartbeat.
         # This catches Claude Code Agent-tool subagents that were never
@@ -2454,9 +2460,14 @@ def _autocomplete_exited_subagents() -> bool:
       and the UI for subagents that complete in under 5 minutes.
 
     Path B -- heartbeat-age fallback (for agents with no transcript):
-      No transcript was found AND the heartbeat / spawned_at is older than
-      STALE_AGENT_AUTOCOMPLETE_SECONDS (5 minutes). Covers agents that
-      registered but never wrote a transcript file.
+      No transcript was found AND the stored pid is confirmed dead AND the
+      heartbeat / spawned_at is older than STALE_AGENT_AUTOCOMPLETE_SECONDS
+      (5 minutes). Covers agents that registered but never wrote a
+      transcript file. →2659: rows without a pid on record are skipped —
+      heartbeat silence alone is not a death signal, and a busy agent mid
+      long tool call cannot heartbeat. Those rows fall to the 15-minute
+      _sweep_stale_running_agents, which records an honest terminated_stale
+      reason instead of a false "completed".
 
     We never auto-complete source='chat' or source='api' agents. Those are
     explicitly spawned and may still be in-flight even with no HTTP heartbeat.
@@ -2565,6 +2576,16 @@ def _autocomplete_exited_subagents() -> bool:
         # its 15-minute ceiling.
         if meta.get("hook_preregister"):
             continue
+        # →2659: with no transcript there is nothing to measure, so the only
+        # positive death signal left is a confirmed-dead pid. An alive pid was
+        # already skipped above; no pid at all means we know NOTHING about
+        # this agent, and heartbeat silence alone must never flip a row to
+        # "completed" — saa-2650-slack-chat was mid-pytest (quiet heartbeat,
+        # output growing) when the idle pipeline marked it finished. True
+        # zombies are still reaped by _sweep_stale_running_agents at the
+        # 15-minute ceiling with an honest terminated_stale reason.
+        if not pid:
+            continue
         last_seen_raw = meta.get("last_heartbeat_at") or meta.get("spawned_at")
         last_seen = _parse_iso(last_seen_raw) if isinstance(last_seen_raw, str) else None
         if last_seen is None:
@@ -2572,7 +2593,8 @@ def _autocomplete_exited_subagents() -> bool:
         age_seconds = (now - last_seen).total_seconds()
         if age_seconds <= STALE_AGENT_AUTOCOMPLETE_SECONDS:
             continue
-        # All checks passed: agent exited without calling /complete.
+        # All checks passed: the agent's process is confirmed dead and it
+        # exited without calling /complete.
         # →2607: per-flip timestamp, never the sweep's shared `now`.
         _flip_ts_b = datetime.now(timezone.utc).isoformat()
         # Ghost check: transcript absent + no tokens = quota cap.

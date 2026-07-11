@@ -11714,6 +11714,11 @@ async def test_autocomplete_completes_non_preregister_with_no_transcript(tmp_pat
     """Symmetric case: a row WITHOUT hook_preregister=True should still be
     Path-B-completed at the 5-minute threshold. The new guard must not
     leak and block legitimate auto-completes.
+
+    →2659: Path B additionally requires a confirmed-dead pid — heartbeat
+    silence alone must never flip a row to completed (saa-2650-slack-chat
+    was alive and mid-pytest when it was flipped). The fixture carries a
+    pid and _is_pid_alive is patched False, i.e. proven dead.
     """
     from routers.agents import (
         agent_metadata,
@@ -11738,6 +11743,8 @@ async def test_autocomplete_completes_non_preregister_with_no_transcript(tmp_pat
         # real work and just never called /complete (legitimate Path B case).
         "tokens_used": 250,
         # hook_preregister NOT set / False
+        # →2659: Path B needs a pid it can prove dead (patched below).
+        "pid": 4242,
     }
 
     try:

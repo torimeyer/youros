@@ -298,24 +298,47 @@ def test_find_transcript_allows_quoted_name(tmp_path):
 
 
 def test_decide_to_complete_fires_on_spawn_age_ceiling_without_transcript():
-    """Belt-and-suspenders: even when no transcript is found, an agent older
-    than the spawn-age ceiling must be marked for completion so zombies can
-    never live forever."""
+    """Belt-and-suspenders: when no transcript is found, an agent older than
+    the spawn-age ceiling is marked for completion — but only past a pid
+    confirmed dead. →2659: with no pid on record there is no positive death
+    signal, and silence alone must keep the agent running (saa-2650-slack-chat
+    was flipped at exactly spawn+918s while alive and mid-pytest)."""
+    import subprocess
+    proc = subprocess.Popen(["/bin/sleep", "0"])
+    proc.wait()
+    dead_pid = proc.pid
+
     now = time.time()
     assert decide_to_complete(
         None,
         threshold_seconds=120,
         spawned_at_epoch=now - 1000,
         spawn_age_ceiling_seconds=900,
+        pid=dead_pid,
         _now=now,
     ) is True
+    # No pid = no death evidence = keep running, regardless of age (→2659).
+    assert decide_to_complete(
+        None,
+        threshold_seconds=120,
+        spawned_at_epoch=now - 1000,
+        spawn_age_ceiling_seconds=900,
+        _now=now,
+    ) is False
 
 
 def test_decide_to_complete_fires_on_spawn_age_ceiling_even_with_active_transcript(tmp_path):
     """If the transcript looks active but the agent is past the spawn-age
-    ceiling, still complete. This is the exact case the live bug hit:
-    a busy unrelated JSONL was masquerading as the probe's transcript, so the
-    idle-check alone could never trip. The ceiling trips regardless."""
+    ceiling AND its pid is confirmed dead, still complete. This is the
+    zombie case: a busy unrelated JSONL masquerading as the probe's
+    transcript, so the idle-check alone could never trip. →2659: without a
+    confirmed-dead pid the active-looking transcript wins and the agent is
+    kept — an active file is liveness evidence, not death evidence."""
+    import subprocess
+    proc = subprocess.Popen(["/bin/sleep", "0"])
+    proc.wait()
+    dead_pid = proc.pid
+
     f = tmp_path / "active_but_wrong.jsonl"
     f.write_text("{}\n")
     now = time.time()
@@ -327,8 +350,17 @@ def test_decide_to_complete_fires_on_spawn_age_ceiling_even_with_active_transcri
         threshold_seconds=120,
         spawned_at_epoch=now - 1000,
         spawn_age_ceiling_seconds=900,
+        pid=dead_pid,
         _now=now,
     ) is True
+    # Same shape with no pid: no positive death signal, keep running (→2659).
+    assert decide_to_complete(
+        f,
+        threshold_seconds=120,
+        spawned_at_epoch=now - 1000,
+        spawn_age_ceiling_seconds=900,
+        _now=now,
+    ) is False
 
 
 def test_decide_to_complete_no_ceiling_when_agent_young():

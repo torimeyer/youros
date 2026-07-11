@@ -188,6 +188,9 @@ def test_crashed_agent_path_b_does_not_queue_task_close():
         "needle_id": needle,
         "needle_ids": ["990004"],
         "tokens_used": 42,
+        # →2659: Path B requires a confirmed-dead pid (_is_pid_alive is
+        # patched False below = dead). Pid-less rows are skipped.
+        "pid": 4242,
     }
     agents_module._pending_needle_closes.clear()
     try:

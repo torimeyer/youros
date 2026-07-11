@@ -17,6 +17,13 @@ from transcript mtime and spawn age only. Completion now requires a liveness
 probe to FAIL: a live pid, transcript growth since the previous check, or a
 recent heartbeat each veto completion — including the spawn-age ceiling.
 
+→2659: vetoes are not enough — a POSITIVE death signal is also required.
+On 2026-07-10 the spawn-age ceiling completed saa-2650-slack-chat (live,
+mid-pytest, output growing) because none of the probes could SEE it: pid
+unknown, transcript unresolved, heartbeat quiet. "No data" now keeps the
+agent running; only a confirmed-dead pid or a resolved-but-idle transcript
+may complete it.
+
 Pure functions are exported for direct import by tests.
 """
 from __future__ import annotations
@@ -294,14 +301,17 @@ def decide_to_complete(
       ``heartbeat_grace_seconds`` (default: ``threshold_seconds``) means the
       agent is alive between tool calls; never complete.
 
-    Two independent signals can then trigger completion:
+    Two independent signals can then trigger completion, and each is a
+    POSITIVE death observation (→2659 — "no data" never completes):
 
     1. Transcript-idle (primary): ``transcript_path`` exists and its mtime is
-       at least ``threshold_seconds`` seconds old.
-    2. Spawn-age ceiling (belt-and-suspenders): ``spawned_at_epoch`` is at
-       least ``spawn_age_ceiling_seconds`` seconds old. Fires regardless of
-       transcript state — but never past a live pid, transcript growth, or a
-       recent heartbeat.
+       at least ``threshold_seconds`` seconds old — a resolved file observed
+       unwritten for the full window.
+    2. Spawn-age ceiling: ``spawned_at_epoch`` is at least
+       ``spawn_age_ceiling_seconds`` seconds old AND the pid is confirmed
+       dead (``os.kill`` raised ``ProcessLookupError``). Without a pid on
+       record the ceiling never fires; a silent row with no resolvable
+       transcript is left to the backend's 15-minute terminated_stale sweep.
 
     Returns False when:
     - any liveness signal above says the agent is alive.
@@ -313,7 +323,8 @@ def decide_to_complete(
     now = _now if _now is not None else time.time()
 
     # ---- Liveness gate (→2607) --------------------------------------------
-    if _pid_is_alive(pid):
+    pid_alive = _pid_is_alive(pid)
+    if pid_alive:
         return False
     if transcript_grew:
         return False
@@ -326,8 +337,21 @@ def decide_to_complete(
         if (now - last_heartbeat_epoch) < grace:
             return False
 
-    # Signal 2: spawn-age ceiling. Pure age check, independent of file state.
-    if spawned_at_epoch is not None and spawn_age_ceiling_seconds > 0:
+    # ---- Positive death signal required (→2659) ---------------------------
+    # Passing every veto above only proves the agent is SILENT, and silence
+    # is not death: on 2026-07-10 saa-2650-slack-chat was mid-pytest (unable
+    # to heartbeat, pid never recorded, transcript unresolved) when the
+    # ceiling below flipped it to completed at spawn+918s while its output
+    # was demonstrably growing. Completion now needs positive evidence:
+    # a pid confirmed dead (os.kill -> ProcessLookupError), or a RESOLVED
+    # transcript observed unwritten for the full idle threshold.
+    pid_confirmed_dead = pid_alive is False
+
+    # Signal 2: spawn-age ceiling — only past a confirmed-dead pid. With no
+    # pid on record the ceiling can no longer complete anyone; unresolved
+    # rows are left to the backend's 15-minute stale sweep, which reaps with
+    # an honest terminated_stale reason instead of a false "completed".
+    if pid_confirmed_dead and spawned_at_epoch is not None and spawn_age_ceiling_seconds > 0:
         if (now - spawned_at_epoch) >= spawn_age_ceiling_seconds:
             return True
 

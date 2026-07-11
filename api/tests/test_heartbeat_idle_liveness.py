@@ -122,8 +122,11 @@ def test_spawn_age_ceiling_fires_when_pid_dead():
 
 
 def test_no_pid_signal_preserves_existing_behavior(tmp_path):
-    """With no pid available the old decision logic stands (backward compat
-    for callers that cannot supply one)."""
+    """With no pid available, a RESOLVED idle transcript still completes
+    (it is a positive no-output observation). But the spawn-age ceiling no
+    longer fires without a confirmed-dead pid — →2659: no pid + no
+    transcript is NO data, and silence alone completed the live
+    saa-2650-slack-chat at spawn+918s."""
     f = _stale_transcript(tmp_path)
     assert decide_to_complete(f, threshold_seconds=120) is True
     now = time.time()
@@ -133,7 +136,7 @@ def test_no_pid_signal_preserves_existing_behavior(tmp_path):
         spawned_at_epoch=now - 1000,
         spawn_age_ceiling_seconds=900,
         _now=now,
-    ) is True
+    ) is False
 
 
 # ---------------------------------------------------------------------------

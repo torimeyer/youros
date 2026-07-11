@@ -157,6 +157,9 @@ class TestAutocompleteGhostDetection:
                 "isolation": "none",
                 "recovery_count": 0,
                 "last_heartbeat_at": old,
+                # →2659: Path B requires a confirmed-dead pid (_is_pid_alive
+                # is patched False below = dead). Pid-less rows are skipped.
+                "pid": 4242,
             }
         }
 
@@ -186,6 +189,8 @@ class TestAutocompleteGhostDetection:
                 "isolation": "none",
                 "recovery_count": 0,
                 "last_heartbeat_at": old,
+                # →2659: Path B requires a confirmed-dead pid.
+                "pid": 4242,
             }
         }
 

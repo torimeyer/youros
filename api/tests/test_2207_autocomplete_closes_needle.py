@@ -165,6 +165,9 @@ class TestAutocompletePendingNeedleCloses:
                 # →2620: closes require landing evidence (worktree commits).
                 "isolation": "worktree",
                 "worktree_path": str(tmp_path / "wt-no-transcript"),
+                # →2659: Path B requires a confirmed-dead pid (_is_pid_alive
+                # is patched False below = dead). Pid-less rows are skipped.
+                "pid": 4242,
             }
 
             with (
