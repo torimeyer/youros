@@ -155,12 +155,29 @@ _browser_cleanup() {
 }
 trap _browser_cleanup EXIT INT TERM HUP
 
+# →2739: Always start with a fresh browser helper. A daemon left running from
+# a prior test run can hold stale connections to a dead frontend process,
+# causing pages to come up blank and silently failing checks. Closing here
+# also ensures AGENT_BROWSER_IGNORE_HTTPS_ERRORS is picked up on the fresh
+# start; a still-running daemon ignores new startup options.
+agent-browser close 2>/dev/null || true
+
 header "Browser e2e tests (agent-browser)"
 
 # Helper: run an agent-browser command and capture output.
 # Returns 0 on success, 1 on failure.
+# →2739: Detects the "options ignored" warning that fires when a stale daemon
+# is still alive and rejects the new startup flags; treats it as a hard failure
+# so it never scrolls by as noise.
 ab() {
-    agent-browser "$@" 2>&1
+    local _ab_out
+    _ab_out=$(agent-browser "$@" 2>&1)
+    if echo "$_ab_out" | grep -q "ignored: daemon already running"; then
+        echo -e "  ${RED}FAIL${NC}  agent-browser: startup options were ignored — stale daemon is still alive after 'agent-browser close'; check for orphaned processes" >&2
+        FAIL=$((FAIL + 1))
+        return 1
+    fi
+    echo "$_ab_out"
 }
 
 # Helper: get text content from a snapshot, grep for a pattern.
