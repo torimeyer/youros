@@ -425,10 +425,16 @@ async def task_counts():
         return t.get("status") not in ("closed", "shelved")
 
     try:
-        # Active-only: in_progress is an overlay applied by the router; ostk
-        # stores those tasks as "open". Passing status="open" avoids loading
-        # ~1400 closed needles just to count the active ones (→1694).
-        tasks = await ostk.list_tasks(status="open")
+        # →2641: read with status=None, same as the default GET /tasks view
+        # (→2640, 9afe457d). in_progress is not just a router overlay — ostk
+        # stores it directly in issues.jsonl when an agent claims a task, and
+        # the service exact-matches the status string, so a status="open"
+        # read undercounted every claimed task. The →1694 payload guard
+        # lives inside ostk.list_tasks (active-store reconcile, →2477), so
+        # rotated-archive closed needles never reach this handler; closed
+        # and shelved rows still in the active store are dropped by the
+        # _is_active gate below.
+        tasks = await ostk.list_tasks(status=None)
         open_count = sum(
             1 for t in tasks
             if _is_active(t)

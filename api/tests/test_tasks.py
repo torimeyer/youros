@@ -3147,10 +3147,12 @@ async def test_delete_all_returns_count(client):
 async def test_task_counts_returns_open_count(client):
     """counts endpoint returns the number of visible open tasks.
 
-    After →1694 the endpoint calls ostk.list_tasks(status="open") instead
-    of list_tasks() so it doesn't load ~1400 closed needles just to count
-    the active ones. in_progress tasks are stored as "open" in ostk and
-    get the in_progress overlay in the router.
+    After →2641 the endpoint calls ostk.list_tasks(status=None), the same
+    read as the default GET /tasks view (→2640): ostk stores in_progress
+    directly in issues.jsonl and the service exact-matches the status
+    string, so a status="open" read undercounted claimed tasks. The →1694
+    payload guard lives inside ostk.list_tasks (active-store reconcile,
+    →2477); closed and shelved rows are dropped in Python here.
     """
     tasks = [
         _make_task(id="t-1", title="Write report", status="open"),
@@ -3163,7 +3165,7 @@ async def test_task_counts_returns_open_count(client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["open"] == 2
-    mock_ostk.list_tasks.assert_called_once_with(status="open")
+    mock_ostk.list_tasks.assert_called_once_with(status=None)
 
 
 @pytest.mark.asyncio
