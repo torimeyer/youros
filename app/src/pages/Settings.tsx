@@ -472,7 +472,12 @@ export default function Settings() {
   };
 
   const handleOsNameBlur = () => {
-    api.patch('/settings', { os_name: osName }).catch(() => {});
+    // Read the name fresh at save time, never from the render closure.
+    // Typing updates the store synchronously, but the re-render that
+    // refreshes this handler can lag on a loaded machine; an Enter that
+    // arrives before that commit used to save the PREVIOUS name half a
+    // second after the keystroke's own save, overwriting it (→2777).
+    api.patch('/settings', { os_name: useAppStore.getState().osName }).catch(() => {});
   };
 
   const handleFeatureToggle = (index: number) => {

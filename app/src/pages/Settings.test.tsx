@@ -1635,4 +1635,32 @@ describe('Settings load path never echoes os_name back to the server (→2777)',
     )
     expect(staleEchoes).toHaveLength(0)
   })
+
+  // →2777 round 3: typing updates the store synchronously, but the
+  // re-render that refreshes the Enter/blur handler's closure can lag on
+  // a loaded machine. When Enter arrives before that re-render commits,
+  // the handler still holds the PREVIOUS name and saves it 400-600ms
+  // after the keystroke's own save, overwriting the fresh name on disk.
+  it('a fast Enter saves the name just typed, never the previous render’s name (→2777)', () => {
+    vi.mocked(api.get).mockImplementation(() => Promise.resolve({}))
+    useAppStore.setState({ osName: 'oldOS' })
+    renderSettings()
+    const input = screen.getByDisplayValue('oldOS')
+
+    // Update the store the way a keystroke does, but WITHOUT letting React
+    // commit the re-render first (no act wrapper, on purpose): the key
+    // event below dispatches against the last committed render, whose
+    // handler closure still holds 'oldOS'.
+    useAppStore.setState({ osName: 'newOS' })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    const osPatches = osNamePatchCalls()
+    // The save fired by Enter must carry the name that was just typed...
+    expect(osPatches[osPatches.length - 1]).toEqual(['/settings', { os_name: 'newOS' }])
+    // ...and the previous name must never be written at all.
+    const staleWrites = osPatches.filter(
+      ([, body]) => (body as { os_name?: string }).os_name === 'oldOS'
+    )
+    expect(staleWrites).toHaveLength(0)
+  })
 })
