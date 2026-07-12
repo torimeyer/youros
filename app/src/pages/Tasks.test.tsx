@@ -1812,10 +1812,9 @@ describe('Tasks page', () => {
       fireEvent.click(checkboxes[0])
       fireEvent.click(checkboxes[1])
 
-      // The bulk toolbar's "Implement all" button appears.
-      const implementAll = await screen.findByRole('button', {
-        name: /implement all/i,
-      })
+      // The bulk toolbar's three-dot menu holds "Implement all" (→2881).
+      fireEvent.click(await screen.findByTestId('bulk-actions-menu'))
+      const implementAll = await screen.findByTestId('bulk-implement-all')
       fireEvent.click(implementAll)
 
       await waitFor(() => {
@@ -1828,6 +1827,105 @@ describe('Tasks page', () => {
           expect(body.template).toBe('comprehensive')
         }
       })
+    })
+  })
+
+  // ── Needle 2881: Plan all / Implement all live behind a three-dot menu ──
+  //
+  // The bulk action bar used to show two standalone buttons ("Plan all",
+  // "Implement all") next to Select all/Clear all. They now live inside
+  // a three-dot (more_vert) menu, reusing the same open/close/outside-click
+  // pattern as the per-row action menu.
+  describe('Bulk actions menu (→2881)', () => {
+    async function selectTwoTasks() {
+      renderTasks()
+      await waitFor(() => {
+        expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+      })
+      const checkboxes = screen
+        .getAllByRole('checkbox')
+        .filter((el) => (el as HTMLInputElement).type === 'checkbox')
+      fireEvent.click(checkboxes[0])
+      fireEvent.click(checkboxes[1])
+      await waitFor(() => {
+        expect(screen.getByTestId('bulk-actions-menu')).toBeInTheDocument()
+      })
+    }
+
+    it('does not render standalone Plan all / Implement all buttons in the bar', async () => {
+      await selectTwoTasks()
+      expect(screen.queryByRole('button', { name: /^plan all$/i })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /^implement all$/i })).not.toBeInTheDocument()
+    })
+
+    it('opens on click and shows both entries', async () => {
+      await selectTwoTasks()
+      expect(screen.queryByTestId('bulk-plan-all')).not.toBeInTheDocument()
+
+      fireEvent.click(screen.getByTestId('bulk-actions-menu'))
+
+      expect(screen.getByTestId('bulk-plan-all')).toBeInTheDocument()
+      expect(screen.getByTestId('bulk-implement-all')).toBeInTheDocument()
+    })
+
+    it('clicking Plan all fires the plan bulk action and closes the menu', async () => {
+      await selectTwoTasks()
+      fireEvent.click(screen.getByTestId('bulk-actions-menu'))
+      fireEvent.click(screen.getByTestId('bulk-plan-all'))
+
+      await waitFor(() => {
+        const spawnCalls = mockedApiPost.mock.calls.filter((c) => c[0] === '/agents/spawn')
+        expect(spawnCalls.length).toBeGreaterThanOrEqual(1)
+        for (const call of spawnCalls) {
+          // Plan mode never sets body.template (only "comprehensive" does, see
+          // spawnAgentForTask) — it's identified by locks:["*"] + isolation:"none",
+          // matching the single-task "plan mode sends locks..." contract test above.
+          const body = call[1] as { locks: string[]; isolation?: string }
+          expect(body.locks).toEqual(['*'])
+          expect(body.isolation).toBe('none')
+        }
+      })
+
+      // Menu closes after selecting an entry.
+      expect(screen.queryByTestId('bulk-plan-all')).not.toBeInTheDocument()
+    })
+
+    it('disables both entries while a bulk action is loading', async () => {
+      // Hold the spawn call open so actionLoading stays "bulk" while we inspect.
+      let resolveSpawn: (() => void) | undefined
+      mockedApiPost.mockImplementation((path: string) => {
+        if (path === '/agents/spawn') {
+          return new Promise((resolve) => {
+            resolveSpawn = () => resolve({})
+          })
+        }
+        return Promise.resolve({})
+      })
+
+      await selectTwoTasks()
+      fireEvent.click(screen.getByTestId('bulk-actions-menu'))
+      fireEvent.click(screen.getByTestId('bulk-plan-all'))
+
+      await waitFor(() => {
+        expect(mockedApiPost).toHaveBeenCalledWith('/agents/spawn', expect.anything())
+      })
+
+      // Re-open the menu (it closed after firing the action) to inspect disabled state.
+      fireEvent.click(screen.getByTestId('bulk-actions-menu'))
+      expect(screen.getByTestId('bulk-plan-all')).toBeDisabled()
+      expect(screen.getByTestId('bulk-implement-all')).toBeDisabled()
+
+      resolveSpawn?.()
+    })
+
+    it('closes the menu when clicking outside', async () => {
+      await selectTwoTasks()
+      fireEvent.click(screen.getByTestId('bulk-actions-menu'))
+      expect(screen.getByTestId('bulk-plan-all')).toBeInTheDocument()
+
+      fireEvent.click(document.body)
+
+      expect(screen.queryByTestId('bulk-plan-all')).not.toBeInTheDocument()
     })
   })
 

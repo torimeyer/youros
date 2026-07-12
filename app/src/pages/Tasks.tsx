@@ -361,6 +361,7 @@ export default function Tasks() {
   const buildHelpRef = useRef<HTMLDivElement | null>(null);
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [showBulkActionsMenu, setShowBulkActionsMenu] = useState(false);
   const [auditModalOpen, setAuditModalOpen] = useState(false);
   const [wavesModalOpen, setWavesModalOpen] = useState(false);
   // task_id → wave number from the last planning run. Empty when never planned.
@@ -720,17 +721,18 @@ export default function Tasks() {
 
   // Close dropdowns when clicking outside
   useEffect(() => {
-    if (!openPriorityDropdown && !openLabelDropdown && !openLinkDropdown && !openActionMenu) return;
+    if (!openPriorityDropdown && !openLabelDropdown && !openLinkDropdown && !openActionMenu && !showBulkActionsMenu) return;
     const handleClick = () => {
       setOpenPriorityDropdown(null);
       setOpenLabelDropdown(null);
       setOpenLinkDropdown(null);
       setOpenActionMenu(null);
       setOpenBuildHelp(null);
+      setShowBulkActionsMenu(false);
     };
     document.addEventListener("click", handleClick);
     return () => document.removeEventListener("click", handleClick);
-  }, [openPriorityDropdown, openLabelDropdown, openLinkDropdown, openActionMenu]);
+  }, [openPriorityDropdown, openLabelDropdown, openLinkDropdown, openActionMenu, showBulkActionsMenu]);
 
   // Overflow menu closes on outside click.
   useEffect(() => {
@@ -1070,10 +1072,13 @@ export default function Tasks() {
   // We post "comprehensive" from the UI to keep telemetry clean.
   type SpawnMode = "plan" | "comprehensive" | "quick";
 
-  const spawnAgentForTask = async (taskId: string, mode: SpawnMode) => {
+  const spawnAgentForTask = async (taskId: string, mode: SpawnMode, opts?: { bulk?: boolean }) => {
     const task = tasks.find((t) => t.id === taskId);
     if (!task) return;
-    setActionLoading(taskId);
+    const isBulk = opts?.bulk === true;
+    // Bulk callers already set actionLoading("bulk") for the whole run; don't
+    // let a per-task spawn clobber that sentinel (→2881 disabled-state fix).
+    if (!isBulk) setActionLoading(taskId);
     try {
       let prompt: string;
       let namePrefix: string;
@@ -1164,7 +1169,7 @@ export default function Tasks() {
       }
       setTimeout(() => setBanner(null), 4000);
     } finally {
-      setActionLoading(null);
+      if (!isBulk) setActionLoading(null);
       setOpenActionMenu(null);
       setOpenBuildHelp(null);
     }
@@ -1202,9 +1207,9 @@ export default function Tasks() {
     try {
       for (const id of ids) {
         if (mode === "plan") {
-          await spawnAgentForTask(id, "plan");
+          await spawnAgentForTask(id, "plan", { bulk: true });
         } else if (mode === "implement") {
-          await spawnAgentForTask(id, "comprehensive");
+          await spawnAgentForTask(id, "comprehensive", { bulk: true });
         }
       }
       setSelectedTaskIds(new Set());
@@ -2104,22 +2109,50 @@ export default function Tasks() {
                   >
                     {allVisibleSelected ? "Clear all" : "Select all"}
                   </button>
-                  <button
-                    onClick={() => bulkAction("plan")}
-                    disabled={actionLoading === "bulk"}
-                    className="flex items-center gap-1.5 px-3 py-1 bg-purple-500/20 hover:bg-purple-500/30 text-purple-700 dark:text-purple-300 text-xs rounded-lg border border-purple-500/30 disabled:opacity-50"
-                  >
-                    <Icon name="description" className="text-sm" />
-                    Plan all
-                  </button>
-                  <button
-                    onClick={() => bulkAction("implement")}
-                    disabled={actionLoading === "bulk"}
-                    className="flex items-center gap-1.5 px-3 py-1 bg-green-500/20 hover:bg-green-500/30 text-green-700 dark:text-green-300 text-xs rounded-lg border border-green-500/30 disabled:opacity-50"
-                  >
-                    <Icon name="code" className="text-sm" />
-                    Implement all
-                  </button>
+                  <div className="relative">
+                    <button
+                      data-testid="bulk-actions-menu"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowBulkActionsMenu((v) => !v);
+                      }}
+                      className="p-1 text-slate-600 hover:text-slate-600 dark:hover:text-slate-400 transition-colors"
+                      title="Bulk actions"
+                    >
+                      <Icon name="more_vert" className="text-sm text-slate-600 dark:text-slate-400" />
+                    </button>
+                    {showBulkActionsMenu && (
+                      <div
+                        className="absolute right-0 top-full mt-1 z-50 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl py-1 min-w-[180px]"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <button
+                          data-testid="bulk-plan-all"
+                          onClick={() => {
+                            setShowBulkActionsMenu(false);
+                            bulkAction("plan");
+                          }}
+                          disabled={actionLoading === "bulk"}
+                          className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-slate-700 dark:text-slate-300 disabled:opacity-50"
+                        >
+                          <Icon name="description" className="text-sm" />
+                          Plan all
+                        </button>
+                        <button
+                          data-testid="bulk-implement-all"
+                          onClick={() => {
+                            setShowBulkActionsMenu(false);
+                            bulkAction("implement");
+                          }}
+                          disabled={actionLoading === "bulk"}
+                          className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-slate-700 dark:text-slate-300 disabled:opacity-50"
+                        >
+                          <Icon name="code" className="text-sm" />
+                          Implement all
+                        </button>
+                      </div>
+                    )}
+                  </div>
                   <button
                     onClick={() => setSelectedTaskIds(new Set())}
                     className="p-1 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
