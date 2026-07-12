@@ -161,6 +161,7 @@ interface AppState {
   setAccentColor: (color: AccentColor) => void
   features: FeatureToggle[]
   setFeatures: (features: FeatureToggle[]) => void
+  hideFeature: (label: string) => void
   isFeatureEnabled: (label: string) => boolean
   navOrder: string[]
   setNavOrder: (order: string[]) => void
@@ -572,6 +573,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   setFeatures: (features) => {
     lsSet(LS_KEYS.featureOrder, JSON.stringify(features.map((f) => f.label)))
     set({ features })
+  },
+  // One-click hide from the sidebar x (→2883). Persists the full features
+  // object, the same shape the Settings Features card saves.
+  hideFeature: (label) => {
+    const features = get().features.map((f) =>
+      f.label === label ? { ...f, enabled: false } : f,
+    )
+    get().setFeatures(features)
+    const featuresObj: Record<string, boolean> = {}
+    features.forEach((f) => { featuresObj[f.label] = f.enabled })
+    patchServer({ features: featuresObj })
   },
   navOrder: initialNavOrder,
   setNavOrder: (navOrder) => {

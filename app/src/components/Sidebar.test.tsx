@@ -16,6 +16,7 @@ vi.mock('../lib/api', () => ({
 import { api } from '../lib/api'
 import { _resetSidebarBus } from '../lib/sidebarBus'
 import { useRunningAgentsStore } from '../stores/runningAgents'
+import { useNotificationStore } from '../stores/notifications'
 
 const mockedApiGet = vi.mocked(api.get)
 
@@ -1614,5 +1615,56 @@ describe('nav rename and reorder', () => {
     expect(agentsIdx).toBeGreaterThan(-1)
     expect(tasksIdx).toBeLessThan(agentsIdx)
     expect(specsIdx).toBeLessThan(agentsIdx)
+  })
+
+  describe('hide nav items from the sidebar (→2883)', () => {
+    beforeEach(() => {
+      useNotificationStore.setState({
+        notifications: [],
+        toastIds: [],
+        persistentToastIds: new Set<string>(),
+        firedKeys: new Set<string>(),
+      })
+    })
+
+    it('every nav item backed by a feature switch has a hide button; Home does not', () => {
+      renderSidebar()
+      expandAllGroups()
+      expect(screen.getByLabelText('Hide Tasks from the sidebar')).toBeTruthy()
+      expect(screen.getByLabelText('Hide Messages from the sidebar')).toBeTruthy()
+      expect(screen.getByLabelText('Hide Usage from the sidebar')).toBeTruthy()
+      expect(screen.getByLabelText('Hide The Arcade from the sidebar')).toBeTruthy()
+      expect(screen.queryByLabelText('Hide Home from the sidebar')).toBeNull()
+    })
+
+    it('clicking the hide button removes the item and saves the change to the server', async () => {
+      renderSidebar()
+      expandAllGroups()
+      fireEvent.click(screen.getByLabelText('Hide Messages from the sidebar'))
+      await waitFor(() => {
+        expect(screen.queryByText('Messages')).toBeNull()
+      })
+      expect(api.patch).toHaveBeenCalledWith(
+        '/settings',
+        expect.objectContaining({
+          features: expect.objectContaining({ iMessage: false }),
+        }),
+      )
+    })
+
+    it('hiding an item leaves a note telling the user where to turn it back on', () => {
+      renderSidebar()
+      fireEvent.click(screen.getByLabelText('Hide Tasks from the sidebar'))
+      const notes = useNotificationStore.getState().notifications
+      expect(notes.length).toBeGreaterThan(0)
+      expect(`${notes[0].agentName} ${notes[0].body}`).toMatch(/Settings/)
+    })
+
+    it('clicking the hide button hides the item instead of navigating to its page', () => {
+      renderSidebar('/')
+      fireEvent.click(screen.getByLabelText('Hide Tasks from the sidebar'))
+      const homeLink = screen.getByRole('link', { name: /Home/ })
+      expect(homeLink.className).toContain('accent-highlight')
+    })
   })
 })

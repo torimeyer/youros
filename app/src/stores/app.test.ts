@@ -328,6 +328,23 @@ describe('useAppStore', () => {
       expect(api.patch).toHaveBeenCalledWith('/settings', { use_ostk_terms: true })
     })
 
+    it('hideFeature turns one feature off and writes the whole features list to the server', () => {
+      useAppStore.setState({
+        features: [
+          { label: 'Tasks', enabled: true },
+          { label: 'Gmail', enabled: true },
+        ],
+      })
+      useAppStore.getState().hideFeature('Gmail')
+      expect(useAppStore.getState().features).toEqual([
+        { label: 'Tasks', enabled: true },
+        { label: 'Gmail', enabled: false },
+      ])
+      expect(api.patch).toHaveBeenCalledWith('/settings', {
+        features: { Tasks: true, Gmail: false },
+      })
+    })
+
     it('setTourComplete writes to the server', () => {
       useAppStore.getState().setTourComplete(true)
       expect(useAppStore.getState().tourComplete).toBe(true)

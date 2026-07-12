@@ -23,6 +23,7 @@ import AdminSection from './AdminSection'
 import { api } from '../lib/api'
 import { onTasksChange, onSpecsChange } from '../lib/sidebarBus'
 import { useRunningAgentsStore } from '../stores/runningAgents'
+import { useNotificationStore } from '../stores/notifications'
 
 // ------------- types -------------
 
@@ -118,9 +119,36 @@ function groupForPath(pathname: string): string | null {
   return null
 }
 
-// ------------- SortableNavItem (unchanged logic) -------------
+// ------------- HideItemButton -------------
 
-function SortableNavItem({ item, linkClass, activeAgents, gmailUnread, openTasksCount, unfinishedSpecs, onNavigate, iconFilled }: {
+// Small x that appears when hovering a nav item. Hides the item using the
+// same feature switch the Settings Features card flips (→2883).
+function HideItemButton({ item, onHide, className = '' }: {
+  item: NavItem
+  onHide: (item: NavItem) => void
+  className?: string
+}) {
+  if (!item.featureLabel) return null
+  return (
+    <button
+      type="button"
+      aria-label={`Hide ${item.label} from the sidebar`}
+      title={`Hide ${item.label} from the sidebar. Turn it back on in Settings.`}
+      onClick={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        onHide(item)
+      }}
+      className={`opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-slate-500 hover:text-red-400 transition-opacity duration-150 shrink-0 flex items-center ${className}`}
+    >
+      <Icon name="close" className="text-sm" />
+    </button>
+  )
+}
+
+// ------------- SortableNavItem -------------
+
+function SortableNavItem({ item, linkClass, activeAgents, gmailUnread, openTasksCount, unfinishedSpecs, onNavigate, iconFilled, onHide }: {
   item: NavItem
   linkClass: (isActive: boolean) => string
   activeAgents: number
@@ -129,6 +157,7 @@ function SortableNavItem({ item, linkClass, activeAgents, gmailUnread, openTasks
   unfinishedSpecs: number
   onNavigate?: () => void
   iconFilled: 'filled' | 'outlined'
+  onHide: (item: NavItem) => void
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.to })
   const style: React.CSSProperties = {
@@ -157,35 +186,38 @@ function SortableNavItem({ item, linkClass, activeAgents, gmailUnread, openTasks
           <>
             <Icon name={item.icon} filled={iconFilled === 'filled' ? true : isActive} className={`text-xl ${!isActive && item.iconColor ? item.iconColor : ''}`} />
             <span className="text-sm font-medium">{item.label}</span>
-            {item.badge && activeAgents > 0 && (
-              <span className="ml-auto flex items-center gap-1 bg-green-500/20 text-green-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-                {activeAgents}
-              </span>
-            )}
-            {item.gmailBadge && gmailUnread > 0 && (
-              <span className="ml-auto bg-red-500/20 text-red-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                {gmailUnread}
-              </span>
-            )}
-            {item.tasksBadge && openTasksCount > 0 && (
-              <span className="ml-auto flex items-center gap-1 bg-green-500/20 text-green-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-                {openTasksCount}
-              </span>
-            )}
-            {item.specsBadge && unfinishedSpecs > 0 && (
-              <span className="ml-auto flex items-center gap-1 bg-green-500/20 text-green-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-                {unfinishedSpecs}
-              </span>
-            )}
-            {item.backlogBadge && (openTasksCount + unfinishedSpecs) > 0 && (
-              <span className="ml-auto flex items-center gap-1 bg-green-500/20 text-green-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-                {openTasksCount + unfinishedSpecs}
-              </span>
-            )}
+            <span className="ml-auto flex items-center gap-1.5">
+              {item.badge && activeAgents > 0 && (
+                <span className="flex items-center gap-1 bg-green-500/20 text-green-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                  <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                  {activeAgents}
+                </span>
+              )}
+              {item.gmailBadge && gmailUnread > 0 && (
+                <span className="bg-red-500/20 text-red-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                  {gmailUnread}
+                </span>
+              )}
+              {item.tasksBadge && openTasksCount > 0 && (
+                <span className="flex items-center gap-1 bg-green-500/20 text-green-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                  <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                  {openTasksCount}
+                </span>
+              )}
+              {item.specsBadge && unfinishedSpecs > 0 && (
+                <span className="flex items-center gap-1 bg-green-500/20 text-green-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                  <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                  {unfinishedSpecs}
+                </span>
+              )}
+              {item.backlogBadge && (openTasksCount + unfinishedSpecs) > 0 && (
+                <span className="flex items-center gap-1 bg-green-500/20 text-green-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                  <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                  {openTasksCount + unfinishedSpecs}
+                </span>
+              )}
+              <HideItemButton item={item} onHide={onHide} />
+            </span>
           </>
         )}
       </NavLink>
@@ -208,6 +240,7 @@ interface SidebarGroupProps {
   onNavigate?: () => void
   iconFilled: 'filled' | 'outlined'
   setNavOrder: (order: string[]) => void
+  onHide: (item: NavItem) => void
 }
 
 function SidebarGroup({
@@ -223,6 +256,7 @@ function SidebarGroup({
   onNavigate,
   iconFilled,
   setNavOrder,
+  onHide,
 }: SidebarGroupProps) {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
@@ -308,6 +342,7 @@ function SidebarGroup({
                   unfinishedSpecs={unfinishedSpecs}
                   onNavigate={onNavigate}
                   iconFilled={iconFilled}
+                  onHide={onHide}
                 />
               ))}
             </SortableContext>
@@ -326,6 +361,7 @@ export function Sidebar() {
   const features = useAppStore((s) => s.features)
   const navOrder = useAppStore((s) => s.navOrder)
   const setNavOrder = useAppStore((s) => s.setNavOrder)
+  const hideFeature = useAppStore((s) => s.hideFeature)
   const powerUserMode = useAppStore((s) => s.powerUserMode)
   const enterpriseUser = useAppStore((s) => s.enterpriseUser)
   const sidebarPosition = useAppStore((s) => s.sidebarPosition)
@@ -343,6 +379,20 @@ export function Sidebar() {
   const handleSidebarMouseDown = useCallback(() => {
     setIsSidebarResizing(true)
   }, [setIsSidebarResizing])
+
+  // Hide a nav item from its hover x and leave a note about where to turn
+  // it back on (→2883).
+  const handleHide = useCallback((item: NavItem) => {
+    if (!item.featureLabel) return
+    hideFeature(item.featureLabel)
+    useNotificationStore.getState().addPersistentToast({
+      id: `nav-hidden-${item.featureLabel}-${Date.now()}`,
+      type: 'nav_item_hidden',
+      title: `${item.label} is now hidden`,
+      body: 'Turn it back on any time in Settings, under Preferences, in the Features list.',
+      action_url: '/settings',
+    })
+  }, [hideFeature])
 
   const activeAgents = useRunningAgentsStore((s) => s.count)
   const [openTasksCount, setOpenTasksCount] = useState(0)
@@ -754,25 +804,27 @@ export function Sidebar() {
               <>
                 <Icon name={item.icon} filled={iconStyle === 'filled' ? true : isActive} className={`text-xl ${!isActive && item.iconColor ? item.iconColor : ''}`} />
                 <span className="text-sm font-medium">{item.label}</span>
-                {item.badge && activeAgents > 0 && (
-                  <span className="ml-auto flex items-center gap-1 bg-green-500/20 text-green-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                    <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-                    {activeAgents}
-                  </span>
-                )}
-                {item.tasksBadge && openTasksCount > 0 && (
-                  <span className="ml-auto flex items-center gap-1 bg-green-500/20 text-green-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                    <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-                    {openTasksCount}
-                  </span>
-                )}
-                {item.specsBadge && Math.max(0, unfinishedSpecs + pendingSpecDelta) > 0 && (
-                  <span className="ml-auto flex items-center gap-1 bg-green-500/20 text-green-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                    <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-                    {Math.max(0, unfinishedSpecs + pendingSpecDelta)}
-                  </span>
-                )}
-
+                <span className="ml-auto flex items-center gap-1.5">
+                  {item.badge && activeAgents > 0 && (
+                    <span className="flex items-center gap-1 bg-green-500/20 text-green-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                      <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                      {activeAgents}
+                    </span>
+                  )}
+                  {item.tasksBadge && openTasksCount > 0 && (
+                    <span className="flex items-center gap-1 bg-green-500/20 text-green-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                      <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                      {openTasksCount}
+                    </span>
+                  )}
+                  {item.specsBadge && Math.max(0, unfinishedSpecs + pendingSpecDelta) > 0 && (
+                    <span className="flex items-center gap-1 bg-green-500/20 text-green-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                      <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                      {Math.max(0, unfinishedSpecs + pendingSpecDelta)}
+                    </span>
+                  )}
+                  <HideItemButton item={item} onHide={handleHide} />
+                </span>
               </>
             )}
           </NavLink>
@@ -800,6 +852,7 @@ export function Sidebar() {
               onNavigate={() => setMobileOpen(false)}
               iconFilled={iconStyle}
               setNavOrder={setNavOrder}
+              onHide={handleHide}
             />
           )
         })}
@@ -863,6 +916,7 @@ export function Sidebar() {
               <>
                 <Icon name={ARCADE_NAV_ITEM.icon} filled={iconStyle === 'filled' ? true : isActive} className="text-lg" />
                 <span className="text-xs font-medium">{ARCADE_NAV_ITEM.label}</span>
+                <HideItemButton item={ARCADE_NAV_ITEM} onHide={handleHide} className="ml-auto" />
               </>
             )}
           </NavLink>
@@ -878,6 +932,7 @@ export function Sidebar() {
               <>
                 <Icon name={USAGE_NAV_ITEM.icon} filled={iconStyle === 'filled' ? true : isActive} className="text-lg" />
                 <span className="text-xs font-medium">{USAGE_NAV_ITEM.label}</span>
+                <HideItemButton item={USAGE_NAV_ITEM} onHide={handleHide} className="ml-auto" />
               </>
             )}
           </NavLink>
