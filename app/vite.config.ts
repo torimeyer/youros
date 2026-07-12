@@ -52,7 +52,21 @@ const httpsConfig = fs.existsSync(keyPath) && fs.existsSync(certPath)
 const backendAgent = new https.Agent({
   keepAlive: true,
   keepAliveMsecs: 5_000,
-  maxSockets: 10,
+  // →2777: 24, up from 10. The pool used to be shared with the app's 8
+  // long-lived /api/ws streams per tab; two tabs alone exhausted it and
+  // ordinary saves queued inside the agent with no socket, no timer, and
+  // no error — a silent black hole. Streams now ride their own agent
+  // (below), and HTTP keeps headroom for burst mounts.
+  maxSockets: 24,
+  rejectUnauthorized: false,
+})
+
+// →2777: dedicated agent for the /api/ws live-update streams. Each stream
+// is one long-lived connection; pooling buys nothing and lets streams pin
+// pool slots that HTTP saves need. No keepAlive: one handshake per stream
+// open is cheap, and stream sockets never enter a reuse pool to go stale.
+const wsAgent = new https.Agent({
+  keepAlive: false,
   rejectUnauthorized: false,
 })
 
@@ -249,6 +263,22 @@ export default defineConfig({
             } catch {
               // response already torn down
             }
+          })
+        },
+      },
+      // →2777: live-update streams get their own lane. This entry must sit
+      // ABOVE '/api' (vite picks the first matching key in insertion order)
+      // so the 8 per-tab /api/ws streams never occupy the pooled HTTP
+      // agent's slots. proxyTimeout stays unset: streams are idle by design.
+      '^/api/ws/': {
+        target: 'https://127.0.0.1:8000',
+        secure: false,
+        changeOrigin: true,
+        ws: true,
+        agent: wsAgent,
+        configure: (proxy) => {
+          proxy.on('error', (err) => {
+            proxyErrLog('[vite proxy /api/ws] error:', err)
           })
         },
       },

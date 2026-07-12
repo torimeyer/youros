@@ -446,12 +446,19 @@ if [ "${RELEASE_MODE:-0}" = "1" ]; then
         --port $UVICORN_PORT \
         --workers 1 \
         --no-access-log \
+        --timeout-keep-alive 75 \
         $SSL_ARGS
 fi
 
+# →2777: keep idle connections open 75s (default is 5s). The vite proxy
+# pools connections for reuse; a backend that hangs up on any 5s-idle
+# connection turns that pool into a corpse farm, and saves written into a
+# half-closed connection vanish without an error. 75s means the pool's
+# sockets stay live across normal interaction gaps.
 exec uvicorn main:app \
     --host 127.0.0.1 \
     --port $UVICORN_PORT \
+    --timeout-keep-alive 75 \
     --reload \
     --reload-dir "$API_DIR" \
     --reload-exclude 'api/tests/*' \
