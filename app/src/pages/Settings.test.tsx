@@ -23,12 +23,18 @@ vi.mock('../lib/pushNotifications', () => ({
 }))
 
 // Mock notification store so Settings handler error toasts are observable (→2777 CHANGE 2).
-const mockAddPersistentToast = vi.fn()
-vi.mock('../stores/notifications', () => ({
-  useNotificationStore: {
-    getState: () => ({ addPersistentToast: mockAddPersistentToast }),
-  },
-}))
+// The mock must be CALLABLE: TopBar (rendered inside Settings) uses it as a
+// hook with a selector, while the handlers reach it via getState(). A plain
+// object here crashes every render in this file.
+const { mockAddPersistentToast } = vi.hoisted(() => ({ mockAddPersistentToast: vi.fn() }))
+vi.mock('../stores/notifications', () => {
+  const state = { addPersistentToast: mockAddPersistentToast, toasts: [], notifications: [] }
+  const useNotificationStore = Object.assign(
+    (selector?: (s: typeof state) => unknown) => (selector ? selector(state) : state),
+    { getState: () => state },
+  )
+  return { useNotificationStore, shouldSuppressAgentToast: () => false }
+})
 
 // jsdom does not provide window.matchMedia. Provide a minimal stub
 // so the responsive detection in TopBar (rendered by Settings) does not crash.

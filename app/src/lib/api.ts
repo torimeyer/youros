@@ -121,7 +121,7 @@ async function requestOnce<T>(method: string, path: string, body?: unknown, time
     // whose name is "AbortError". Convert it to our own typed error so
     // the UI can detect timeouts specifically and surface plain language.
     if (err instanceof DOMException && err.name === 'AbortError') {
-      throw new ApiTimeoutError(REQUEST_TIMEOUT_MS)
+      throw new ApiTimeoutError(timeoutMs)
     }
     throw err
   } finally {
@@ -138,16 +138,22 @@ async function request<T>(method: string, path: string, body?: unknown, options:
       return await requestOnce<T>(method, path, body, timeoutMs)
     } catch (err) {
       lastErr = err
-      // Only retry transient gateway failures and raw network errors.
-      // Intentional HTTP errors (401, 403, 404, etc.) should throw immediately.
+      // Only retry transient failures: gateway 502s, raw network errors,
+      // and timeouts. A hung dev-proxy socket surfaces as a timeout and a
+      // fresh attempt gets a live connection (→2777). Intentional HTTP
+      // errors (401, 403, 404, etc.) should throw immediately.
       const isRetryable =
         (err instanceof ApiError && err.status === 502) ||
-        (err instanceof TypeError)
+        (err instanceof TypeError) ||
+        (err instanceof ApiTimeoutError)
       if (!isRetryable || attempt >= retryOn502) throw err
     }
   }
   throw lastErr
 }
+
+// Per-attempt timeout for settings saves; see patchWithSettingsBarrier.
+export const SETTINGS_SAVE_TIMEOUT_MS = 5000
 
 // →2777: every PATCH /settings records its keys with the write barrier so
 // a settings fetch that raced the save cannot overwrite the newer local
@@ -159,7 +165,10 @@ function patchWithSettingsBarrier<T>(path: string, body: unknown): Promise<T> {
   }
   const keys = Object.keys(body as Record<string, unknown>)
   recordSettingsWriteStart(keys)
-  const req = request<T>('PATCH', path, body, { retryOn502: 2, retryDelayMs: 300 })
+  // Short per-attempt timeout: a hung save gives up after 5s and retries
+  // on a fresh connection instead of eating the full default timeout
+  // before anyone notices (→2777).
+  const req = request<T>('PATCH', path, body, { retryOn502: 2, retryDelayMs: 300, timeoutMs: SETTINGS_SAVE_TIMEOUT_MS })
   const settle = () => recordSettingsWriteSettled(keys)
   req.then(settle, settle)
   return req

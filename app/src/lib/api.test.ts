@@ -250,6 +250,45 @@ describe('api client', () => {
       expect(calls).toBe(2)
     })
 
+    it('retries when an attempt times out and succeeds on the retry (→2777)', async () => {
+      // A hung dev-proxy socket surfaces as an abort at the request
+      // timeout. That is exactly the transient class retries exist for.
+      let calls = 0
+      global.fetch = vi.fn().mockImplementation(() => {
+        calls++
+        if (calls === 1) return Promise.reject(new DOMException('The operation was aborted', 'AbortError'))
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ saved: true }),
+        })
+      }) as unknown as typeof fetch
+
+      const result = await api.get('/status/clock', { retryOn502: 1, retryDelayMs: 0 })
+      expect(result).toEqual({ saved: true })
+      expect(calls).toBe(2)
+    })
+
+    it('settings PATCH retries a timed-out save by default (→2777)', async () => {
+      // The proven →2777 failure: the save hangs, aborts at the timeout,
+      // and was previously lost with zero retries. A settings PATCH with
+      // no explicit options must retry on its own.
+      let calls = 0
+      global.fetch = vi.fn().mockImplementation(() => {
+        calls++
+        if (calls === 1) return Promise.reject(new DOMException('The operation was aborted', 'AbortError'))
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ result: 'updated' }),
+        })
+      }) as unknown as typeof fetch
+
+      const result = await api.patch('/settings', { os_name: 'timeout-retry-test' })
+      expect(result).toEqual({ result: 'updated' })
+      expect(calls).toBe(2)
+    })
+
     it('does NOT retry on 401 — intentional auth failures throw immediately', async () => {
       let calls = 0
       global.fetch = vi.fn().mockImplementation(() => {
