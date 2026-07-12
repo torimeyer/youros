@@ -359,5 +359,34 @@ describe('api client', () => {
 
       expect(fetchedSettingsValueIsStale('title', 0)).toBe(false)
     })
+
+    it('settings PATCHes retry on 502 and settle fires once when retry succeeds (→2777)', async () => {
+      let calls = 0
+      global.fetch = vi.fn().mockImplementation(() => {
+        calls++
+        if (calls === 1) {
+          return Promise.resolve({
+            ok: false,
+            status: 502,
+            text: () => Promise.resolve('Bad Gateway'),
+          })
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ ok: true }),
+          text: () => Promise.resolve('{"ok":true}'),
+        })
+      }) as unknown as typeof fetch
+
+      const started = Date.now()
+      await api.patch('/settings', { os_name: 'retryOS' })
+
+      // Two fetch calls: first 502, then 200
+      expect(calls).toBe(2)
+      // Barrier was settled: stale for fetches that started before the patch, clean for later ones
+      expect(fetchedSettingsValueIsStale('os_name', started)).toBe(true)
+      expect(fetchedSettingsValueIsStale('os_name', Date.now() + 10_000)).toBe(false)
+    })
   })
 })

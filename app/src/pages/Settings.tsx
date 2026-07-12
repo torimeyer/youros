@@ -9,6 +9,20 @@ import { useConfirm } from '../hooks/useConfirm';
 import { api } from '../lib/api';
 import { fetchedSettingsValueIsStale } from '../lib/settingsWriteBarrier';
 import { reportError } from '../lib/reportError';
+import { useNotificationStore } from '../stores/notifications';
+
+// →2777 CHANGE 3: tracks the os_name value most recently queued for saving
+// via onChange so handleOsNameBlur can skip a duplicate PATCH on blur/navigate.
+let lastQueuedOsName: string | undefined = undefined
+
+function notifySettingsSaveError(): void {
+  useNotificationStore.getState().addPersistentToast({
+    id: `settings-save-error-${Date.now()}`,
+    type: 'error',
+    title: "Couldn't save",
+    body: "Couldn't save your settings change. Check that the app is running and try again.",
+  })
+}
 import { isPushSupported, isSubscribed, subscribe as pushSubscribe, unsubscribe as pushUnsubscribe } from '../lib/pushNotifications';
 import SlackConnect from '../components/SlackConnect';
 import TextYourOS from '../components/TextYourOS';
@@ -495,16 +509,18 @@ export default function Settings() {
 
   const handleAccentColor = (name: string) => {
     setAccentColor(name as AccentColor);
-    api.patch('/settings', { accent_color: name }).catch(() => {});
+    api.patch('/settings', { accent_color: name }).catch(notifySettingsSaveError);
   };
 
   const handleOsNameBlur = () => {
-    // Read the name fresh at save time, never from the render closure.
-    // Typing updates the store synchronously, but the re-render that
-    // refreshes this handler can lag on a loaded machine; an Enter that
-    // arrives before that commit used to save the PREVIOUS name half a
-    // second after the keystroke's own save, overwriting it (→2777).
-    api.patch('/settings', { os_name: useAppStore.getState().osName }).catch(() => {});
+    // →2777 CHANGE 3: skip if onChange already queued this value — setOsName
+    // fires patchServer on every keystroke, so blur is only a backstop for
+    // values that slipped through without an onChange (e.g. navigate-away
+    // while the input had focus but no new typing happened).
+    const currentOsName = useAppStore.getState().osName
+    if (currentOsName === lastQueuedOsName) return
+    lastQueuedOsName = currentOsName
+    api.patch('/settings', { os_name: currentOsName }).catch(notifySettingsSaveError);
   };
 
   const handleFeatureToggle = (index: number) => {
@@ -516,22 +532,22 @@ export default function Settings() {
     updated.forEach((f: { label: string; enabled: boolean }) => {
       featuresObj[f.label] = f.enabled;
     });
-    api.patch('/settings', { features: featuresObj }).catch(() => {});
+    api.patch('/settings', { features: featuresObj }).catch(notifySettingsSaveError);
   };
 
   const handleProviderSelect = (name: string) => {
     setSelectedProvider(name);
-    api.patch('/settings', { provider: name }).catch(() => {});
+    api.patch('/settings', { provider: name }).catch(notifySettingsSaveError);
   };
 
   const handleChatBackendPreferenceChange = (value: 'auto' | 'claude_code' | 'anthropic_api') => {
     setChatBackendPreference(value);
-    api.patch('/settings', { chat_backend_preference: value }).catch(() => {});
+    api.patch('/settings', { chat_backend_preference: value }).catch(notifySettingsSaveError);
   };
 
   const handleDefaultProviderChange = (value: 'claude' | 'gemini') => {
     setDefaultProvider(value);
-    api.patch('/settings', { default_provider: value }).catch(() => {});
+    api.patch('/settings', { default_provider: value }).catch(notifySettingsSaveError);
   };
 
   const handleRecheckClaudeStatus = () => {
@@ -558,7 +574,7 @@ export default function Settings() {
 
   const handleUseGeminiCliToggle = (value: boolean) => {
     setUseGeminiCli(value);
-    api.patch('/settings', { use_gemini_cli: value }).catch(() => {});
+    api.patch('/settings', { use_gemini_cli: value }).catch(notifySettingsSaveError);
   };
 
 
@@ -588,7 +604,7 @@ export default function Settings() {
 
   const handleModelChange = (model: string) => {
     setSelectedModel(model);
-    api.patch('/settings', { model }).catch(() => {});
+    api.patch('/settings', { model }).catch(notifySettingsSaveError);
   };
 
   const handleNotificationToggle = (index: number) => {
@@ -600,69 +616,69 @@ export default function Settings() {
     updated.forEach((n) => {
       notifObj[n.label] = n.enabled;
     });
-    api.patch('/settings', { notifications: notifObj }).catch(() => {});
+    api.patch('/settings', { notifications: notifObj }).catch(notifySettingsSaveError);
   };
 
   const handleQuietHoursToggle = () => {
     const next = !quietHours;
     setQuietHours(next);
-    api.patch('/settings', { quiet_hours: next }).catch(() => {});
+    api.patch('/settings', { quiet_hours: next }).catch(notifySettingsSaveError);
   };
 
   const handleShortcutEdit = (label: string, keys: string) => {
     const updated = { ...customShortcuts, [label]: keys };
     setCustomShortcuts(updated);
     setEditingShortcut(null);
-    api.patch('/settings', { shortcuts: updated }).catch(() => {});
+    api.patch('/settings', { shortcuts: updated }).catch(notifySettingsSaveError);
   };
 
   const handleShortcutReset = (label: string) => {
     const updated = { ...customShortcuts };
     delete updated[label];
     setCustomShortcuts(updated);
-    api.patch('/settings', { shortcuts: updated }).catch(() => {});
+    api.patch('/settings', { shortcuts: updated }).catch(notifySettingsSaveError);
   };
 
   const handleAutoTemplateMatchingToggle = () => {
     const next = !autoTemplateMatching;
     setAutoTemplateMatching(next);
-    api.patch('/settings', { auto_template_matching: next }).catch(() => {});
+    api.patch('/settings', { auto_template_matching: next }).catch(notifySettingsSaveError);
   };
 
   const handleBriefingToggle = () => {
     const next = !briefingEnabled;
     setBriefingEnabled(next);
-    api.patch('/settings', { briefing_enabled: next }).catch(() => {});
+    api.patch('/settings', { briefing_enabled: next }).catch(notifySettingsSaveError);
   };
 
   const handleChatMemoryToggle = () => {
     const next = !chatMemoryEnabled;
     setChatMemoryEnabled(next);
-    api.patch('/settings', { chat_memory_enabled: next }).catch(() => {});
+    api.patch('/settings', { chat_memory_enabled: next }).catch(notifySettingsSaveError);
   };
 
   const handleReceiptsGateToggle = () => {
     const next = !chatReceiptsGateEnabled;
     setChatReceiptsGateEnabled(next);
-    api.patch('/settings', { chat_receipts_gate_enabled: next }).catch(() => {});
+    api.patch('/settings', { chat_receipts_gate_enabled: next }).catch(notifySettingsSaveError);
   };
 
   const handleAdhdToggle = () => {
     const next = !adhdEnabled;
     setAdhdEnabled(next);
-    api.patch('/adhd/config', { enabled: next }).catch(() => {});
+    api.patch('/adhd/config', { enabled: next }).catch(notifySettingsSaveError);
   };
 
   const handleAdhdIntervalChange = (seconds: number) => {
     const clamped = Math.max(10, Math.min(120, seconds));
     setAdhdCheckInSeconds(clamped);
-    api.patch('/adhd/config', { check_in_seconds: clamped }).catch(() => {});
+    api.patch('/adhd/config', { check_in_seconds: clamped }).catch(notifySettingsSaveError);
   };
 
   const handleAdhdFocusModeToggle = () => {
     const next = !adhdFocusMode;
     setAdhdFocusMode(next);
-    api.patch('/adhd/config', { focus_mode: next }).catch(() => {});
+    api.patch('/adhd/config', { focus_mode: next }).catch(notifySettingsSaveError);
   };
 
   const handleSaveStandingInstructions = async () => {
@@ -904,7 +920,7 @@ export default function Settings() {
                 <Toggle checked={plansBecomesSpecs} onChange={() => {
                   const next = !plansBecomesSpecs;
                   setPlansBecomesSpecs(next);
-                  api.patch('/settings', { plans_become_specs: next }).catch(() => {});
+                  api.patch('/settings', { plans_become_specs: next }).catch(notifySettingsSaveError);
                 }} testId="plans-become-specs-toggle" />
               </div>
               {/* iMessage routing toggle */}
@@ -916,7 +932,7 @@ export default function Settings() {
                 <Toggle checked={inboundImessageRoutingEnabled} onChange={() => {
                   const next = !inboundImessageRoutingEnabled;
                   setInboundImessageRoutingEnabled(next);
-                  api.patch('/settings', { inbound_imessage_routing_enabled: next }).catch(() => {});
+                  api.patch('/settings', { inbound_imessage_routing_enabled: next }).catch(notifySettingsSaveError);
                 }} testId="inbound-imessage-toggle" />
               </div>
               {/* Text-to-agent (formerly "Channel Routing Rules") */}
@@ -943,13 +959,13 @@ export default function Settings() {
                     type="text"
                     value={filesDir}
                     onChange={(e) => setFilesDir(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') api.patch('/settings', { files_dir: filesDir }).catch(() => {}); }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') api.patch('/settings', { files_dir: filesDir }).catch(notifySettingsSaveError); }}
                     placeholder="~/.youros/files"
                     data-testid="files-dir-input"
                     className="flex-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white font-mono focus:outline-none focus:border-blue-500 transition-colors"
                   />
                   <button
-                    onClick={() => api.patch('/settings', { files_dir: filesDir }).catch(() => {})}
+                    onClick={() => api.patch('/settings', { files_dir: filesDir }).catch(notifySettingsSaveError)}
                     data-testid="files-dir-save"
                     className="px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors"
                   >
@@ -966,13 +982,13 @@ export default function Settings() {
                     type="text"
                     value={projectsDir}
                     onChange={(e) => setProjectsDir(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') api.patch('/settings', { projects_dir: projectsDir }).catch(() => {}); }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') api.patch('/settings', { projects_dir: projectsDir }).catch(notifySettingsSaveError); }}
                     placeholder="~/.youros/projects"
                     data-testid="projects-dir-input"
                     className="flex-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white font-mono focus:outline-none focus:border-blue-500 transition-colors"
                   />
                   <button
-                    onClick={() => api.patch('/settings', { projects_dir: projectsDir }).catch(() => {})}
+                    onClick={() => api.patch('/settings', { projects_dir: projectsDir }).catch(notifySettingsSaveError)}
                     data-testid="projects-dir-save"
                     className="px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors"
                   >
@@ -1153,7 +1169,7 @@ export default function Settings() {
               <input
                 type="text"
                 value={osName}
-                onChange={(e) => setOsName(e.target.value)}
+                onChange={(e) => { setOsName(e.target.value); lastQueuedOsName = e.target.value; }}
                 onBlur={handleOsNameBlur}
                 onKeyDown={(e) => { if (e.key === "Enter") handleOsNameBlur(); }}
                 className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 transition-colors"
@@ -1961,13 +1977,13 @@ export default function Settings() {
                         type="text"
                         value={defaultConfluenceSpace}
                         onChange={(e) => setDefaultConfluenceSpace(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === 'Enter') api.patch('/settings', { default_confluence_space: defaultConfluenceSpace.trim() }).catch(() => {}); }}
+                        onKeyDown={(e) => { if (e.key === 'Enter') api.patch('/settings', { default_confluence_space: defaultConfluenceSpace.trim() }).catch(notifySettingsSaveError); }}
                         placeholder="e.g. IAM"
                         data-testid="default-confluence-space-input"
                         className="flex-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white placeholder:text-slate-500 outline-none focus:border-blue-500/50"
                       />
                       <button
-                        onClick={() => api.patch('/settings', { default_confluence_space: defaultConfluenceSpace.trim() }).catch(() => {})}
+                        onClick={() => api.patch('/settings', { default_confluence_space: defaultConfluenceSpace.trim() }).catch(notifySettingsSaveError)}
                         data-testid="confluence-space-save"
                         className="px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors"
                       >
