@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { api } from '../lib/api'
+import { fetchedSettingsValueIsStale } from '../lib/settingsWriteBarrier'
 
 export type AccentColor = 'blue' | 'pink' | 'purple' | 'cyan' | 'orange'
 
@@ -754,6 +755,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     // reply reverts the input and the next blur/Enter save then writes the
     // reverted name to disk.
     const osNameAtFetchStart = get().osName
+    // →2777: the moment this fetch left. The write barrier compares it
+    // against settings saves still on the wire when the reply lands.
+    const fetchStartedAt = Date.now()
     let server: Record<string, unknown> = {}
     try {
       server = await api.get<Record<string, unknown>>('/settings', { timeoutMs: HYDRATION_SETTINGS_TIMEOUT_MS })
@@ -829,7 +833,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     // wins and the user's own save (already on the wire) will bring the
     // server up to date (→2777).
     if (hasValue(server.os_name)) {
-      if (state.osName === osNameAtFetchStart) {
+      if (state.osName === osNameAtFetchStart && !fetchedSettingsValueIsStale('os_name', fetchStartedAt)) {
         const v = String(server.os_name)
         updates.osName = v
         lsSet(LS_KEYS.osName, v)

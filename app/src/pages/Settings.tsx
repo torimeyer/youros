@@ -7,6 +7,7 @@ import TopNavTabs from '../components/TopNavTabs';
 import ConfirmModal from '../components/ConfirmModal';
 import { useConfirm } from '../hooks/useConfirm';
 import { api } from '../lib/api';
+import { fetchedSettingsValueIsStale } from '../lib/settingsWriteBarrier';
 import { reportError } from '../lib/reportError';
 import { isPushSupported, isSubscribed, subscribe as pushSubscribe, unsubscribe as pushUnsubscribe } from '../lib/pushNotifications';
 import SlackConnect from '../components/SlackConnect';
@@ -236,6 +237,8 @@ export default function Settings() {
       // Snapshot before the request so a reply that raced a user edit can
       // be detected below (→2777, →2778).
       const osNameBeforeFetch = useAppStore.getState().osName;
+      // →2777: used below to drop replies that raced a save on the wire.
+      const fetchStartedAt = Date.now();
       const accentColorBeforeFetch = useAppStore.getState().accentColor;
       const defaultChatModelBeforeFetch = useAppStore.getState().defaultChatModel;
       const useOstkTermsBeforeFetch = useAppStore.getState().useOstkTerms;
@@ -251,7 +254,7 @@ export default function Settings() {
           localStorage.setItem('myos-accent-color', data.accent_color);
           useAppStore.setState({ accentColor: data.accent_color as AccentColor });
         }
-        if (data.os_name && useAppStore.getState().osName === osNameBeforeFetch) {
+        if (data.os_name && useAppStore.getState().osName === osNameBeforeFetch && !fetchedSettingsValueIsStale('os_name', fetchStartedAt)) {
           // Apply the fetched name directly to the store, never through
           // setOsName: that setter PATCHes its value straight back to the
           // server, and when this GET resolves after the user saved a new

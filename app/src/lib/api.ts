@@ -1,4 +1,5 @@
 import { bumpAgents, bumpTasks, bumpSpecs, bumpCalendar } from './sidebarBus'
+import { recordSettingsWriteStart, recordSettingsWriteSettled } from './settingsWriteBarrier'
 
 const BASE = '/api'
 
@@ -148,10 +149,26 @@ async function request<T>(method: string, path: string, body?: unknown, options:
   throw lastErr
 }
 
+// →2777: every PATCH /settings records its keys with the write barrier so
+// a settings fetch that raced the save cannot overwrite the newer local
+// value. Recording lives here, at the single chokepoint every caller
+// (store setters, Settings handlers, wizard) already goes through.
+function patchWithSettingsBarrier<T>(path: string, body: unknown): Promise<T> {
+  if (path !== '/settings' || !body || typeof body !== 'object') {
+    return request<T>('PATCH', path, body)
+  }
+  const keys = Object.keys(body as Record<string, unknown>)
+  recordSettingsWriteStart(keys)
+  const req = request<T>('PATCH', path, body)
+  const settle = () => recordSettingsWriteSettled(keys)
+  req.then(settle, settle)
+  return req
+}
+
 export const api = {
   get: <T>(path: string, options?: RequestOptions) => request<T>('GET', path, undefined, options),
   post: <T>(path: string, body?: unknown, options?: RequestOptions) => request<T>('POST', path, body, options),
   put: <T>(path: string, body: unknown) => request<T>('PUT', path, body),
-  patch: <T>(path: string, body: unknown) => request<T>('PATCH', path, body),
+  patch: <T>(path: string, body: unknown) => patchWithSettingsBarrier<T>(path, body),
   delete: <T>(path: string) => request<T>('DELETE', path),
 }

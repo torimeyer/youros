@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { api, ApiTimeoutError } from './api'
+import { api, ApiError, ApiTimeoutError } from './api'
+import { fetchedSettingsValueIsStale, resetSettingsWriteBarrier } from './settingsWriteBarrier'
 
 describe('api client', () => {
   beforeEach(() => {
@@ -308,6 +309,55 @@ describe('api client', () => {
       global.fetch = vi.fn().mockRejectedValue(networkError) as unknown as typeof fetch
 
       await expect(api.get('/broken')).rejects.toBe(networkError)
+    })
+  })
+
+  describe('settings write barrier (→2777)', () => {
+    beforeEach(() => {
+      resetSettingsWriteBarrier()
+    })
+
+    it('a PATCH /settings marks its keys stale for fetches that started before it settled', async () => {
+      mockFetch({ ok: true })
+      const started = Date.now()
+      await api.patch('/settings', { os_name: 'newOS' })
+
+      expect(fetchedSettingsValueIsStale('os_name', started)).toBe(true)
+      expect(fetchedSettingsValueIsStale('os_name', Date.now() + 10_000)).toBe(false)
+    })
+
+    it('keys stay stale while the PATCH is still in flight', async () => {
+      let resolveFetch: (v: unknown) => void = () => {}
+      global.fetch = vi.fn().mockImplementation(
+        () => new Promise((r) => { resolveFetch = r })
+      ) as unknown as typeof fetch
+
+      const req = api.patch('/settings', { os_name: 'newOS' })
+      expect(fetchedSettingsValueIsStale('os_name', Date.now() + 10_000)).toBe(true)
+
+      resolveFetch({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({}),
+        text: () => Promise.resolve('{}'),
+      })
+      await req
+    })
+
+    it('a failed PATCH still marks the key, the save may have landed server-side', async () => {
+      mockFetch('boom', false, 500)
+      const started = Date.now()
+      await expect(api.patch('/settings', { os_name: 'newOS' })).rejects.toBeInstanceOf(ApiError)
+
+      expect(fetchedSettingsValueIsStale('os_name', started)).toBe(true)
+      expect(fetchedSettingsValueIsStale('os_name', Date.now() + 10_000)).toBe(false)
+    })
+
+    it('PATCHes to other endpoints do not touch the barrier', async () => {
+      mockFetch({ ok: true })
+      await api.patch('/tasks/1', { title: 'x' })
+
+      expect(fetchedSettingsValueIsStale('title', 0)).toBe(false)
     })
   })
 })

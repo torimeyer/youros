@@ -1,6 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { useAppStore, TEAM_MODE_VISIBLE, DEFAULT_DASHBOARD_WIDGETS, FIRST_RUN_DASHBOARD_WIDGETS, readInitialDashboardWidgets, DASHBOARD_WIDGET_LABELS, HYDRATION_SETTINGS_TIMEOUT_MS, HYDRATION_ENTERPRISE_TIMEOUT_MS, HYDRATION_RETRY_DELAYS_MS, cancelHydrationRetry } from './app'
 import { api } from '../lib/api'
+import {
+  recordSettingsWriteStart,
+  recordSettingsWriteSettled,
+  resetSettingsWriteBarrier,
+} from '../lib/settingsWriteBarrier'
 
 // Mock the api module so no real network calls fire and we can assert
 // on what the store wrote to the server.
@@ -22,6 +27,8 @@ describe('useAppStore', () => {
     // Kill any settings-retry timer a previous test's failed hydration
     // left behind so it cannot fire mid-test and mutate the store.
     cancelHydrationRetry()
+    // Clear write-barrier state a previous test may have armed (→2777).
+    resetSettingsWriteBarrier()
     // Reset store to initial state before each test
     useAppStore.setState({
       onboarded: false,
@@ -415,6 +422,51 @@ describe('useAppStore', () => {
         // end of the test. The retry chain re-arms itself forever with real
         // timers, so a leaked one fires during later tests and steals their
         // queued mock responses.
+        cancelHydrationRetry()
+      }
+    })
+
+    // →2777 fix #4: the snapshot guard above only catches an edit made
+    // while the reply was in flight. The browser pre-release check kept
+    // failing the other way around: a hydration RETRY (armed by a slow
+    // backend, →2687) starts a fresh GET just after the user typed a new
+    // name, the GET is answered from the server's pre-save state while
+    // the save is still on the wire, and because the name did not change
+    // during THIS request the snapshot matches and the stale reply is
+    // applied. The write barrier closes that side of the race.
+    it('a hydration reply never overwrites an os_name whose save is still on the wire (→2777)', async () => {
+      recordSettingsWriteStart(['os_name'])
+      try {
+        useAppStore.setState({ osName: 'freshly-typed' })
+        vi.mocked(api.get).mockResolvedValueOnce({ onboarded: true, os_name: 'staleOS' })
+
+        await useAppStore.getState().hydrateFromServer()
+
+        expect(useAppStore.getState().osName).toBe('freshly-typed')
+      } finally {
+        recordSettingsWriteSettled(['os_name'])
+        cancelHydrationRetry()
+      }
+    })
+
+    it('a hydration reply from before a save confirmed mid-flight does not roll the name back (→2777)', async () => {
+      try {
+        useAppStore.setState({ osName: 'freshly-typed' })
+        let resolveSettings: (v: unknown) => void = () => {}
+        vi.mocked(api.get).mockImplementationOnce(
+          () => new Promise((r) => { resolveSettings = r })
+        )
+
+        const hydration = useAppStore.getState().hydrateFromServer()
+        // The save both starts and is confirmed while the GET is in
+        // flight: the GET's reply was read from the world before it.
+        recordSettingsWriteStart(['os_name'])
+        recordSettingsWriteSettled(['os_name'])
+        resolveSettings({ onboarded: true, os_name: 'staleOS' })
+        await hydration
+
+        expect(useAppStore.getState().osName).toBe('freshly-typed')
+      } finally {
         cancelHydrationRetry()
       }
     })
