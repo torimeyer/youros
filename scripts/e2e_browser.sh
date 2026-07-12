@@ -72,6 +72,9 @@ ORIGINAL_OS_NAME=""
 # Set to 1 when Journey 5's capture came back empty twice. The restore paths
 # use it to warn loudly instead of writing an empty OS name (→2685).
 OS_NAME_CAPTURE_FAILED=0
+# Set to 1 after a verified successful OS name restore, so the EXIT trap's
+# second call is a no-op (→2779).
+_OS_NAME_RESTORE_DONE=0
 
 phase_pass() {
     echo -e "  ${GREEN}PASS${NC}  $1"
@@ -145,6 +148,12 @@ capture_original_os_name() {
         ORIGINAL_OS_NAME=$(curl -sS ${CURL_OPTS} --connect-timeout 3 -m 5 "${API_BASE}/api/settings" 2>/dev/null \
             | python3 -c "import sys,json; print(json.load(sys.stdin).get('os_name',''))" 2>/dev/null)
         if [ -n "$ORIGINAL_OS_NAME" ]; then
+            if [ "$ORIGINAL_OS_NAME" = "e2e-browser-os" ]; then
+                echo -e "  ${YELLOW}WARN${NC}  captured OS name is 'e2e-browser-os' — this is the e2e test value, not the user's real name; a previous run leaked it into settings. Skipping restore so the test value is not re-planted as the original." >&2
+                ORIGINAL_OS_NAME=""
+                OS_NAME_CAPTURE_FAILED=1
+                return 1
+            fi
             return 0
         fi
         [ "$attempt" = "1" ] && sleep 1
@@ -158,16 +167,29 @@ capture_original_os_name() {
 # an empty ORIGINAL_OS_NAME means the capture failed (backend hiccup) or
 # Journey 5 never ran, and PATCHing "" would wipe the user's real OS name.
 restore_original_os_name() {
+    if [ "${_OS_NAME_RESTORE_DONE:-0}" = "1" ]; then
+        return 0
+    fi
     if [ -z "${ORIGINAL_OS_NAME:-}" ]; then
         if [ "${OS_NAME_CAPTURE_FAILED:-0}" = "1" ]; then
             echo -e "  ${YELLOW}WARN${NC}  OS name restore SKIPPED: the original value was never captured. If Settings now shows 'e2e-browser-os', set your OS name back by hand in Settings > Preferences." >&2
         fi
         return 0
     fi
+    local body
+    body=$(python3 -c "import json,sys; print(json.dumps({'os_name': sys.argv[1]}))" "$ORIGINAL_OS_NAME")
     curl -sS ${CURL_OPTS} --connect-timeout 3 -m 5 \
         -X PATCH "${API_BASE}/api/settings" \
         -H 'content-type: application/json' \
-        -d "{\"os_name\":\"${ORIGINAL_OS_NAME}\"}" > /dev/null 2>&1 || true
+        -d "$body" > /dev/null 2>&1 || true
+    local restored
+    restored=$(curl -sS ${CURL_OPTS} --connect-timeout 3 -m 5 "${API_BASE}/api/settings" 2>/dev/null \
+        | python3 -c "import sys,json; d=sys.stdin.read(); print(json.loads(d).get('os_name','') if d.strip() else '')" 2>/dev/null || true)
+    if [ "$restored" = "$ORIGINAL_OS_NAME" ]; then
+        _OS_NAME_RESTORE_DONE=1
+    else
+        echo -e "  ${RED:-}WARN${NC}  OS name restore MISMATCH: API now shows '${restored}', expected '${ORIGINAL_OS_NAME}'. If you see the wrong name in Settings, update it manually." >&2
+    fi
 }
 
 # Clean up browser session on exit so we do not leave a headless Chrome running.
