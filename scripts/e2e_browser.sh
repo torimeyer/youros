@@ -552,6 +552,35 @@ elif ensure_no_onboarding_wizard "Journey 5"; then
         " > /dev/null 2>&1
         ab wait 1000 > /dev/null 2>&1
 
+        # →2777 diagnostics (off by default): record every /settings request the
+        # page makes from here on, so a failing run shows what each save carried.
+        if [ "${E2E_SPY:-0}" = "1" ]; then
+            ab eval "
+              window.__spy = [];
+              if (!window.__spyInstalled) {
+                window.__spyInstalled = true;
+                const of = window.fetch;
+                window.fetch = function(u, o) {
+                  let entry = null;
+                  try {
+                    if (String(u).includes('/settings')) {
+                      entry = { t: Date.now(), m: (o && o.method) || 'GET', b: (o && o.body) ? String(o.body) : null };
+                      window.__spy.push(entry);
+                    }
+                  } catch (e) {}
+                  const p = of.apply(this, arguments);
+                  if (entry) {
+                    p.then(
+                      (r) => { entry.s = r.status; entry.dt = Date.now() - entry.t; },
+                      (err) => { entry.err = String(err); entry.dt = Date.now() - entry.t; }
+                    );
+                  }
+                  return p;
+                };
+              }
+            " > /dev/null 2>&1
+        fi
+
         # Step 2: Set the input value via native setter and fire 'input' event.
         # This triggers React's onChange (setOsName) in the same React batch.
         # We do NOT fire blur here: React 18 batches setState calls inside a synthetic
@@ -577,12 +606,34 @@ elif ensure_no_onboarding_wizard "Journey 5"; then
         ab press Enter > /dev/null 2>&1
         ab wait 1000 > /dev/null 2>&1
 
-        # Verify the change persisted by reading from the API
-        settings_after=$(curl -sS ${CURL_OPTS} "${API_BASE}/api/settings" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('os_name',''))" 2>/dev/null)
+        # Verify the change persisted by reading from the API. The save may
+        # retry once or twice on a dropped connection (→2777), so poll up to
+        # 10s for the value to land instead of reading exactly once. The
+        # contract under test is "the rename eventually persists", and a
+        # single early read marked healthy retries as failures.
+        settings_after=""
+        # 15s covers the full retry envelope: two 5s hung attempts plus
+        # delays plus one clean save.
+        _persist_deadline=$(($(date +%s) + 15))
+        while true; do
+            settings_after=$(curl -sS ${CURL_OPTS} --connect-timeout 3 -m 5 "${API_BASE}/api/settings" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('os_name',''))" 2>/dev/null)
+            [ "$settings_after" = "$TEST_OS_NAME" ] && break
+            [ "$(date +%s)" -ge "$_persist_deadline" ] && break
+            sleep 0.5
+        done
+        unset _persist_deadline
         if [ "$settings_after" = "$TEST_OS_NAME" ]; then
             phase_pass "OS name changed via browser UI"
         else
-            phase_fail "OS name did not persist (got: $settings_after, expected: $TEST_OS_NAME)"
+            phase_fail "OS name did not persist within 15s (got: $settings_after, expected: $TEST_OS_NAME)"
+        fi
+
+        # →2777 diagnostics dump (only with E2E_SPY=1): what the page actually
+        # sent, what the input holds now, and where focus is.
+        if [ "${E2E_SPY:-0}" = "1" ]; then
+            echo "SPY-INPUT: $(ab eval "(Array.from(document.querySelectorAll('input[type=text]')).find(i => i.closest('div.mb-5')?.querySelector('label')?.textContent?.includes('OS Identifier')) || {}).value" 2>&1 | tail -1)"
+            echo "SPY-FOCUS: $(ab eval "document.activeElement ? document.activeElement.tagName : 'none'" 2>&1 | tail -1)"
+            echo "SPY-REQS: $(ab eval 'JSON.stringify(window.__spy)' 2>&1 | tail -1)"
         fi
 
         # Restore the original name through the guarded helper: it never

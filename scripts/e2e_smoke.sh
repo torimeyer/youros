@@ -1852,14 +1852,31 @@ fi
 SKIP_BROWSER="${SKIP_BROWSER:-0}"
 if [ "$SKIP_BROWSER" != "1" ] && [ "$SKIP_LIVE" != "1" ]; then
     header "Browser e2e tests"
+    # →2804: this is the pre-release gate, so a missing browser tool or an
+    # unreachable frontend is a FAILURE by default, never a silent skip. A
+    # green release run must mean browser coverage actually ran. Set
+    # E2E_REQUIRE_BROWSER=0 (or SKIP_BROWSER=1 above) to opt out explicitly.
+    E2E_REQUIRE_BROWSER="${E2E_REQUIRE_BROWSER:-1}"
     if ! command -v agent-browser > /dev/null 2>&1; then
-        phase_skip "agent-browser not installed (install: brew install agent-browser)"
+        if [ "$E2E_REQUIRE_BROWSER" = "1" ]; then
+            phase_fail "agent-browser not installed and the release gate requires browser coverage (install: brew install agent-browser)"
+        else
+            phase_skip "agent-browser not installed (install: brew install agent-browser)"
+        fi
     elif ! curl -sS ${CURL_OPTS} --connect-timeout 3 -m 5 -o /dev/null -w "%{http_code}" "${API_BASE%%:*}://localhost:${FRONTEND_PORT:-3010}" 2>/dev/null | grep -q "^200$"; then
-        phase_skip "frontend not reachable on port ${FRONTEND_PORT:-3010}"
+        if [ "$E2E_REQUIRE_BROWSER" = "1" ]; then
+            phase_fail "frontend not reachable on port ${FRONTEND_PORT:-3010} and the release gate requires browser coverage"
+        else
+            phase_skip "frontend not reachable on port ${FRONTEND_PORT:-3010}"
+        fi
     elif [ ! -f "$REPO_DIR/scripts/e2e_browser.sh" ]; then
-        # Helper script has been retired or moved. Skip cleanly; the
-        # orphan-reference-sweep phase at the end will flag the drift.
-        phase_skip "browser e2e tests (scripts/e2e_browser.sh not present)"
+        # Helper script has been retired or moved. When browser coverage is
+        # required this is missing coverage, not benign drift.
+        if [ "$E2E_REQUIRE_BROWSER" = "1" ]; then
+            phase_fail "browser e2e tests missing: scripts/e2e_browser.sh not present but the release gate requires browser coverage"
+        else
+            phase_skip "browser e2e tests (scripts/e2e_browser.sh not present)"
+        fi
     else
         BROWSER_OUTPUT=$(API_PORT="$API_PORT" E2E_REQUIRE_BROWSER=1 bash "$REPO_DIR/scripts/e2e_browser.sh" 2>&1) || true
         echo "$BROWSER_OUTPUT"
