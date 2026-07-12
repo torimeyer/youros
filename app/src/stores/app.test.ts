@@ -6,7 +6,6 @@ import {
   recordSettingsWriteSettled,
   resetSettingsWriteBarrier,
 } from '../lib/settingsWriteBarrier'
-
 // Mock the api module so no real network calls fire and we can assert
 // on what the store wrote to the server.
 vi.mock('../lib/api', () => ({
@@ -19,11 +18,20 @@ vi.mock('../lib/api', () => ({
   },
 }))
 
+// Mock the notification store so patchServer failure toasts are observable.
+const mockAddPersistentToast = vi.fn()
+vi.mock('./notifications', () => ({
+  useNotificationStore: {
+    getState: () => ({ addPersistentToast: mockAddPersistentToast }),
+  },
+}))
+
 describe('useAppStore', () => {
   beforeEach(() => {
     // Reset mocks so each test starts with a clean call history
     vi.mocked(api.get).mockReset().mockResolvedValue({})
     vi.mocked(api.patch).mockReset().mockResolvedValue({})
+    mockAddPersistentToast.mockReset()
     // Kill any settings-retry timer a previous test's failed hydration
     // left behind so it cannot fire mid-test and mutate the store.
     cancelHydrationRetry()
@@ -339,6 +347,16 @@ describe('useAppStore', () => {
       useAppStore.getState().setCustomAgentTemplates(templates)
       expect(useAppStore.getState().customAgentTemplates).toEqual(templates)
       expect(api.patch).toHaveBeenCalledWith('/settings', { custom_agent_templates: templates })
+    })
+
+    it('patchServer shows a toast when the API call fails (→2777)', async () => {
+      vi.mocked(api.patch).mockRejectedValueOnce(new Error('network error'))
+      useAppStore.getState().setOsName('ToriOS')
+      // Flush the microtask queue so the catch handler fires
+      await new Promise<void>((resolve) => setTimeout(resolve, 0))
+      expect(mockAddPersistentToast).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Couldn't save" })
+      )
     })
   })
 

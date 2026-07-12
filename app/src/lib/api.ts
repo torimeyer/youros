@@ -159,7 +159,7 @@ function patchWithSettingsBarrier<T>(path: string, body: unknown): Promise<T> {
   }
   const keys = Object.keys(body as Record<string, unknown>)
   recordSettingsWriteStart(keys)
-  const req = request<T>('PATCH', path, body)
+  const req = request<T>('PATCH', path, body, { retryOn502: 2, retryDelayMs: 300 })
   const settle = () => recordSettingsWriteSettled(keys)
   req.then(settle, settle)
   return req

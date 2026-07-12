@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { api } from '../lib/api'
 import { fetchedSettingsValueIsStale } from '../lib/settingsWriteBarrier'
+import { useNotificationStore } from './notifications'
 
 export type AccentColor = 'blue' | 'pink' | 'purple' | 'cyan' | 'orange'
 
@@ -344,7 +345,14 @@ function lsSet(key: string, value: string): void {
 
 // Fire and forget server patch. We never want to throw from a setter.
 function patchServer(body: Record<string, unknown>): void {
-  api.patch('/settings', body)?.catch((e) => console.error('settings patch failed:', e))
+  api.patch('/settings', body)?.catch(() => {
+    useNotificationStore.getState().addPersistentToast({
+      id: `settings-save-error-${Date.now()}`,
+      type: 'error',
+      title: "Couldn't save",
+      body: "Couldn't save your settings change. Check that the app is running and try again.",
+    })
+  })
 }
 
 // Translate between UI model key ("claude") and server model string ("@claude").

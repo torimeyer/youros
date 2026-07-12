@@ -22,6 +22,14 @@ vi.mock('../lib/pushNotifications', () => ({
   unsubscribe: vi.fn().mockResolvedValue(false),
 }))
 
+// Mock notification store so Settings handler error toasts are observable (→2777 CHANGE 2).
+const mockAddPersistentToast = vi.fn()
+vi.mock('../stores/notifications', () => ({
+  useNotificationStore: {
+    getState: () => ({ addPersistentToast: mockAddPersistentToast }),
+  },
+}))
+
 // jsdom does not provide window.matchMedia. Provide a minimal stub
 // so the responsive detection in TopBar (rendered by Settings) does not crash.
 Object.defineProperty(window, 'matchMedia', {
@@ -156,6 +164,44 @@ describe('Settings', () => {
       fireEvent.change(input, { target: { value: 'MyOS' } })
       fireEvent.blur(input)
       expect(mockedApiPatch).toHaveBeenCalledWith('/settings', { os_name: 'MyOS' })
+    })
+
+    // →2777 CHANGE 3: blur must not re-send what onChange already queued.
+    it('blur skips the PATCH when onChange already queued the same value (→2777 CHANGE 3)', () => {
+      renderSettings()
+      const input = screen.getByDisplayValue('yourOS')
+      // onChange queues the value; blur fires immediately after (navigate-away pattern).
+      fireEvent.change(input, { target: { value: 'ToriOS' } })
+      const patchCallsBeforeBlur = mockedApiPatch.mock.calls.length
+      fireEvent.blur(input)
+      // No additional PATCH from blur — it saw lastQueuedOsName === 'ToriOS' and skipped.
+      expect(mockedApiPatch.mock.calls.length).toBe(patchCallsBeforeBlur)
+    })
+
+    it('blur DOES send a PATCH for a value that was never queued via onChange (→2777 CHANGE 3)', () => {
+      // Simulate a value arriving in the store without going through onChange
+      // (e.g. the module-level lastQueuedOsName was reset by a previous test cleanup).
+      // Directly set the store so lastQueuedOsName is undefined for this fresh render.
+      useAppStore.setState({ osName: 'DirectlySetOS' })
+      renderSettings()
+      const input = screen.getByDisplayValue('DirectlySetOS')
+      // Blur without any onChange — value was never queued, so blur must send it.
+      fireEvent.blur(input)
+      expect(mockedApiPatch).toHaveBeenCalledWith('/settings', { os_name: 'DirectlySetOS' })
+    })
+
+    // →2777 CHANGE 2: a failed blur PATCH must surface a toast, not swallow the error.
+    it('handleOsNameBlur shows a toast when the save fails (→2777 CHANGE 2)', async () => {
+      mockAddPersistentToast.mockReset()
+      mockedApiPatch.mockRejectedValueOnce(new Error('network error'))
+      useAppStore.setState({ osName: 'yourOS' })
+      renderSettings()
+      const input = screen.getByDisplayValue('yourOS')
+      // Blur with an unsent value so handleOsNameBlur actually fires the PATCH.
+      fireEvent.blur(input)
+      await waitFor(() => expect(mockAddPersistentToast).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Couldn't save" })
+      ))
     })
   })
 
