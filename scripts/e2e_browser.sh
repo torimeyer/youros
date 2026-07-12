@@ -16,6 +16,8 @@
 # Usage:
 #   ./scripts/e2e_browser.sh             # run all browser tests
 #   SKIP_BROWSER=1 ./scripts/e2e_browser.sh  # skip (exit 0)
+#   E2E_REQUIRE_BROWSER=1 ./scripts/e2e_browser.sh  # pre-flight misses FAIL
+#                                                    # (exit 1) instead of SKIP (→2804)
 #
 # The script is idempotent: all test data is cleaned up via the API.
 
@@ -44,6 +46,11 @@ API_BASE="${SCHEME}://localhost:${API_PORT}"
 FRONTEND_PORT="${FRONTEND_PORT:-3010}"
 FRONTEND_URL="${SCHEME}://localhost:${FRONTEND_PORT}"
 SKIP_BROWSER="${SKIP_BROWSER:-0}"
+# →2804: when set, the pre-flight checks below fail loudly (exit 1) instead of
+# silently skipping (exit 0). The release gate (e2e_smoke.sh) sets this so an
+# unreachable frontend/backend or a missing agent-browser cannot produce a
+# hollow green release.
+E2E_REQUIRE_BROWSER="${E2E_REQUIRE_BROWSER:-0}"
 SCREENSHOT_DIR="${REPO_DIR}/e2e-screenshots"
 
 # Use a dedicated agent-browser session so we do not collide with any
@@ -90,21 +97,36 @@ header() {
 # --- Pre-flight checks -------------------------------------------------------
 
 if [ "$SKIP_BROWSER" = "1" ]; then
+    if [ "$E2E_REQUIRE_BROWSER" = "1" ]; then
+        echo -e "${YELLOW}WARNING${NC}  SKIP_BROWSER=1 is an explicit operator skip; honoring it even though E2E_REQUIRE_BROWSER=1 requires browser coverage"
+    fi
     echo -e "${YELLOW}SKIP${NC}  Browser tests skipped (SKIP_BROWSER=1)"
     exit 0
 fi
 
 if ! command -v agent-browser > /dev/null 2>&1; then
+    if [ "$E2E_REQUIRE_BROWSER" = "1" ]; then
+        echo -e "${RED}FAIL${NC}  agent-browser not installed. Install with: brew install agent-browser && agent-browser install"
+        exit 1
+    fi
     echo -e "${YELLOW}SKIP${NC}  agent-browser not installed. Install with: brew install agent-browser && agent-browser install"
     exit 0
 fi
 
 if ! curl -sS ${CURL_OPTS} --connect-timeout 3 -m 5 -o /dev/null -w "%{http_code}" "${FRONTEND_URL}" 2>/dev/null | grep -q "^200$"; then
+    if [ "$E2E_REQUIRE_BROWSER" = "1" ]; then
+        echo -e "${RED}FAIL${NC}  Frontend not reachable on ${FRONTEND_URL}. Start it first."
+        exit 1
+    fi
     echo -e "${YELLOW}SKIP${NC}  Frontend not reachable on ${FRONTEND_URL}. Start it first."
     exit 0
 fi
 
 if ! curl -sS ${CURL_OPTS} --connect-timeout 3 -m 5 -o /dev/null -w "%{http_code}" "${API_BASE}/api/settings" 2>/dev/null | grep -q "^200$"; then
+    if [ "$E2E_REQUIRE_BROWSER" = "1" ]; then
+        echo -e "${RED}FAIL${NC}  Backend not reachable on ${API_BASE}. Start it first."
+        exit 1
+    fi
     echo -e "${YELLOW}SKIP${NC}  Backend not reachable on ${API_BASE}. Start it first."
     exit 0
 fi

@@ -1861,7 +1861,7 @@ if [ "$SKIP_BROWSER" != "1" ] && [ "$SKIP_LIVE" != "1" ]; then
         # orphan-reference-sweep phase at the end will flag the drift.
         phase_skip "browser e2e tests (scripts/e2e_browser.sh not present)"
     else
-        BROWSER_OUTPUT=$(API_PORT="$API_PORT" bash "$REPO_DIR/scripts/e2e_browser.sh" 2>&1) || true
+        BROWSER_OUTPUT=$(API_PORT="$API_PORT" E2E_REQUIRE_BROWSER=1 bash "$REPO_DIR/scripts/e2e_browser.sh" 2>&1) || true
         echo "$BROWSER_OUTPUT"
         # Parse pass/fail/skip counts from the browser script output.
         # Strip ANSI color codes first so the regex can match cleanly.
