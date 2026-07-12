@@ -859,9 +859,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     // Defaults to the product name ("yourOS") so every surface reads
     // correctly for a user who has not renamed their copy.
     if (hasValue(server.instance_name)) {
-      const v = String(server.instance_name)
-      updates.instanceName = v
-      lsSet(LS_KEYS.instanceName, v)
+      if (!fetchedSettingsValueIsStale('instance_name', fetchStartedAt)) {
+        const v = String(server.instance_name)
+        updates.instanceName = v
+        lsSet(LS_KEYS.instanceName, v)
+      }
     } else if (state.instanceName && state.instanceName !== 'yourOS') {
       backfill.instance_name = state.instanceName
     }
@@ -881,45 +883,55 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     // dark_mode
     if (hasValue(server.dark_mode)) {
-      const v = Boolean(server.dark_mode)
-      updates.darkMode = v
-      lsSet(LS_KEYS.darkMode, String(v))
+      if (!fetchedSettingsValueIsStale('dark_mode', fetchStartedAt)) {
+        const v = Boolean(server.dark_mode)
+        updates.darkMode = v
+        lsSet(LS_KEYS.darkMode, String(v))
+      }
     } else {
       backfill.dark_mode = state.darkMode
     }
 
     // accent_color
     if (hasValue(server.accent_color)) {
-      const v = server.accent_color as AccentColor
-      updates.accentColor = v
-      lsSet(LS_KEYS.accentColor, v)
+      if (!fetchedSettingsValueIsStale('accent_color', fetchStartedAt)) {
+        const v = server.accent_color as AccentColor
+        updates.accentColor = v
+        lsSet(LS_KEYS.accentColor, v)
+      }
     } else if (state.accentColor && state.accentColor !== 'blue') {
       backfill.accent_color = state.accentColor
     }
 
     // default_model (server uses "@claude" form, store uses "claude")
     if (hasValue(server.default_model)) {
-      const v = serverModelToKey(String(server.default_model))
-      updates.defaultChatModel = v
-      lsSet(LS_KEYS.defaultChatModel, v)
+      if (!fetchedSettingsValueIsStale('default_model', fetchStartedAt)) {
+        const v = serverModelToKey(String(server.default_model))
+        updates.defaultChatModel = v
+        lsSet(LS_KEYS.defaultChatModel, v)
+      }
     } else if (state.defaultChatModel && state.defaultChatModel !== 'claude') {
       backfill.default_model = modelKeyToServer(state.defaultChatModel)
     }
 
     // side_by_side_enabled
     if (hasValue(server.side_by_side_enabled)) {
-      const v = Boolean(server.side_by_side_enabled)
-      updates.sideBySideEnabled = v
-      lsSet(LS_KEYS.sideBySideEnabled, String(v))
+      if (!fetchedSettingsValueIsStale('side_by_side_enabled', fetchStartedAt)) {
+        const v = Boolean(server.side_by_side_enabled)
+        updates.sideBySideEnabled = v
+        lsSet(LS_KEYS.sideBySideEnabled, String(v))
+      }
     } else if (state.sideBySideEnabled) {
       backfill.side_by_side_enabled = state.sideBySideEnabled
     }
 
     // use_ostk_terms
     if (hasValue(server.use_ostk_terms)) {
-      const v = Boolean(server.use_ostk_terms)
-      updates.useOstkTerms = v
-      lsSet(LS_KEYS.useOstkTerms, String(v))
+      if (!fetchedSettingsValueIsStale('use_ostk_terms', fetchStartedAt)) {
+        const v = Boolean(server.use_ostk_terms)
+        updates.useOstkTerms = v
+        lsSet(LS_KEYS.useOstkTerms, String(v))
+      }
     } else if (state.useOstkTerms) {
       backfill.use_ostk_terms = state.useOstkTerms
     }
@@ -1009,11 +1021,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     ]
     for (const field of appearanceFields) {
       if (hasValue(server[field.serverKey])) {
-        const v = typeof field.defaultVal === 'boolean'
-          ? Boolean(server[field.serverKey])
-          : String(server[field.serverKey])
-        ;(updates as Record<string, unknown>)[field.storeKey] = v
-        lsSet(field.lsKey, String(v))
+        if (!fetchedSettingsValueIsStale(field.serverKey, fetchStartedAt)) {
+          const v = typeof field.defaultVal === 'boolean'
+            ? Boolean(server[field.serverKey])
+            : String(server[field.serverKey])
+          ;(updates as Record<string, unknown>)[field.storeKey] = v
+          lsSet(field.lsKey, String(v))
+        }
       } else {
         const current = state[field.storeKey]
         if (current !== field.defaultVal) {

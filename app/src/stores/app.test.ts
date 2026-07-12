@@ -552,6 +552,99 @@ describe('useAppStore', () => {
         expect.objectContaining({ custom_agent_templates: templates }),
       )
     })
+
+    // →2778: write-barrier protection extended to all user-editable settings fields
+
+    it('a hydration reply never overwrites accent_color whose save is still on the wire (→2778)', async () => {
+      recordSettingsWriteStart(['accent_color'])
+      try {
+        useAppStore.setState({ accentColor: 'orange' })
+        vi.mocked(api.get).mockResolvedValueOnce({ onboarded: true, accent_color: 'blue' })
+        await useAppStore.getState().hydrateFromServer()
+        expect(useAppStore.getState().accentColor).toBe('orange')
+      } finally {
+        recordSettingsWriteSettled(['accent_color'])
+        cancelHydrationRetry()
+      }
+    })
+
+    it('a hydration reply never overwrites dark_mode whose save is still on the wire (→2778)', async () => {
+      recordSettingsWriteStart(['dark_mode'])
+      try {
+        useAppStore.setState({ darkMode: false })
+        vi.mocked(api.get).mockResolvedValueOnce({ onboarded: true, dark_mode: true })
+        await useAppStore.getState().hydrateFromServer()
+        expect(useAppStore.getState().darkMode).toBe(false)
+      } finally {
+        recordSettingsWriteSettled(['dark_mode'])
+        cancelHydrationRetry()
+      }
+    })
+
+    it('a hydration reply never overwrites default_model whose save is still on the wire (→2778)', async () => {
+      recordSettingsWriteStart(['default_model'])
+      try {
+        useAppStore.setState({ defaultChatModel: 'gemini' })
+        vi.mocked(api.get).mockResolvedValueOnce({ onboarded: true, default_model: '@claude' })
+        await useAppStore.getState().hydrateFromServer()
+        expect(useAppStore.getState().defaultChatModel).toBe('gemini')
+      } finally {
+        recordSettingsWriteSettled(['default_model'])
+        cancelHydrationRetry()
+      }
+    })
+
+    it('a hydration reply never overwrites use_ostk_terms whose save is still on the wire (→2778)', async () => {
+      recordSettingsWriteStart(['use_ostk_terms'])
+      try {
+        useAppStore.setState({ useOstkTerms: true })
+        vi.mocked(api.get).mockResolvedValueOnce({ onboarded: true, use_ostk_terms: false })
+        await useAppStore.getState().hydrateFromServer()
+        expect(useAppStore.getState().useOstkTerms).toBe(true)
+      } finally {
+        recordSettingsWriteSettled(['use_ostk_terms'])
+        cancelHydrationRetry()
+      }
+    })
+
+    it('a hydration reply never overwrites instance_name whose save is still on the wire (→2778)', async () => {
+      recordSettingsWriteStart(['instance_name'])
+      try {
+        useAppStore.setState({ instanceName: 'my-laptop' })
+        vi.mocked(api.get).mockResolvedValueOnce({ onboarded: true, instance_name: 'stale-name' })
+        await useAppStore.getState().hydrateFromServer()
+        expect(useAppStore.getState().instanceName).toBe('my-laptop')
+      } finally {
+        recordSettingsWriteSettled(['instance_name'])
+        cancelHydrationRetry()
+      }
+    })
+
+    it('a hydration reply never overwrites side_by_side_enabled whose save is still on the wire (→2778)', async () => {
+      recordSettingsWriteStart(['side_by_side_enabled'])
+      try {
+        useAppStore.setState({ sideBySideEnabled: true })
+        vi.mocked(api.get).mockResolvedValueOnce({ onboarded: true, side_by_side_enabled: false })
+        await useAppStore.getState().hydrateFromServer()
+        expect(useAppStore.getState().sideBySideEnabled).toBe(true)
+      } finally {
+        recordSettingsWriteSettled(['side_by_side_enabled'])
+        cancelHydrationRetry()
+      }
+    })
+
+    it('a hydration reply never overwrites an appearance field whose save is still on the wire (→2778)', async () => {
+      recordSettingsWriteStart(['compact_mode'])
+      try {
+        useAppStore.setState({ compactMode: true })
+        vi.mocked(api.get).mockResolvedValueOnce({ onboarded: true, compact_mode: false })
+        await useAppStore.getState().hydrateFromServer()
+        expect(useAppStore.getState().compactMode).toBe(true)
+      } finally {
+        recordSettingsWriteSettled(['compact_mode'])
+        cancelHydrationRetry()
+      }
+    })
   })
 })
 

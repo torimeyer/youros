@@ -258,13 +258,15 @@ export default function Settings() {
       const useOstkTermsBeforeFetch = useAppStore.getState().useOstkTerms;
       try {
         const data = await api.get<SettingsData>('/settings');
-        if (data.accent_color && useAppStore.getState().accentColor === accentColorBeforeFetch) {
+        if (data.accent_color && useAppStore.getState().accentColor === accentColorBeforeFetch && !fetchedSettingsValueIsStale('accent_color', fetchStartedAt)) {
           // Apply the fetched color directly to the store, never through
           // setAccentColor: that setter PATCHes its value straight back to
           // the server, and a reply resolving after the user picked a new
           // color overwrote the just-saved pick with the stale one (→2778,
           // same echo as os_name in →2777). The snapshot guard skips a
           // reply that raced a change made while the request was in flight.
+          // The barrier guard (→2778) skips a reply whose fetch started after
+          // a save had already landed.
           localStorage.setItem('myos-accent-color', data.accent_color);
           useAppStore.setState({ accentColor: data.accent_color as AccentColor });
         }
@@ -279,7 +281,7 @@ export default function Settings() {
           localStorage.setItem('myos-os-name', data.os_name);
           useAppStore.setState({ osName: data.os_name });
         }
-        if (data.dark_mode !== undefined && data.dark_mode !== darkMode) {
+        if (data.dark_mode !== undefined && data.dark_mode !== darkMode && !fetchedSettingsValueIsStale('dark_mode', fetchStartedAt)) {
           // Set directly via store to avoid a toggle flash
           localStorage.setItem('myos-dark-mode', String(data.dark_mode));
           useAppStore.setState({ darkMode: data.dark_mode });
@@ -306,7 +308,7 @@ export default function Settings() {
         // fetched (or provider-derived) value on every page load (→2778).
         // The snapshot guard skips a reply that raced a model change made
         // while the request was in flight.
-        if (useAppStore.getState().defaultChatModel === defaultChatModelBeforeFetch) {
+        if (useAppStore.getState().defaultChatModel === defaultChatModelBeforeFetch && !fetchedSettingsValueIsStale('default_model', fetchStartedAt)) {
           if ((data as any).default_model) {
             const raw = (data as any).default_model.replace(/^@/, '');
             localStorage.setItem('myos-default-chat-model', raw);
@@ -353,9 +355,11 @@ export default function Settings() {
         if (typeof (data as any).standing_instructions === 'string') {
           setStandingInstructions((data as any).standing_instructions);
         }
-        if ((data as any).use_ostk_terms !== undefined && useAppStore.getState().useOstkTerms === useOstkTermsBeforeFetch) {
+        if ((data as any).use_ostk_terms !== undefined && useAppStore.getState().useOstkTerms === useOstkTermsBeforeFetch && !fetchedSettingsValueIsStale('use_ostk_terms', fetchStartedAt)) {
           // Same treatment as accent color above: setUseOstkTerms PATCHes
           // back to the server, so apply the fetched toggle directly (→2778).
+          // Barrier guard (→2778) additionally discards replies whose fetch
+          // started after a save had already landed.
           localStorage.setItem('myos-use-ostk-terms', String((data as any).use_ostk_terms));
           useAppStore.setState({ useOstkTerms: (data as any).use_ostk_terms });
         }
