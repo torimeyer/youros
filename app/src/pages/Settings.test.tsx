@@ -53,6 +53,11 @@ Object.defineProperty(window, 'matchMedia', {
 })
 
 import { api } from '../lib/api'
+import {
+  recordSettingsWriteStart,
+  recordSettingsWriteSettled,
+  resetSettingsWriteBarrier,
+} from '../lib/settingsWriteBarrier'
 
 const mockedApiPatch = vi.mocked(api.patch)
 const mockedApiPost = vi.mocked(api.post)
@@ -1718,6 +1723,7 @@ describe('Settings load path never echoes os_name back to the server (→2777)',
 describe('Settings load path never echoes accent color, default model, or terminology back to the server (→2778)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    resetSettingsWriteBarrier()
     useAppStore.setState({
       osName: 'yourOS',
       darkMode: true,
@@ -1821,5 +1827,86 @@ describe('Settings load path never echoes accent color, default model, or termin
     expect(staleAccent).toHaveLength(0)
     expect(staleModel).toHaveLength(0)
     expect(staleTerms).toHaveLength(0)
+  })
+
+  // →2778: barrier tests — a save on the wire before fetchStartedAt must block
+  // the fetched reply even when the local value did not change during the request
+
+  it('a fetch reply that arrived while an accent_color save was on the wire is discarded (→2778)', async () => {
+    let resolveSettings: (v: unknown) => void = () => {}
+    vi.mocked(api.get).mockImplementation((path: string) =>
+      path === '/settings'
+        ? new Promise((r) => { resolveSettings = r })
+        : Promise.resolve({})
+    )
+    // Arm barrier before the component mounts so fetchStartedAt is captured after it
+    recordSettingsWriteStart(['accent_color'])
+    try {
+      renderSettings()
+      await act(async () => {
+        resolveSettings({ accent_color: 'pink' })
+      })
+      expect(useAppStore.getState().accentColor).toBe('blue')
+    } finally {
+      recordSettingsWriteSettled(['accent_color'])
+    }
+  })
+
+  it('a fetch reply that arrived while a dark_mode save was on the wire is discarded (→2778)', async () => {
+    let resolveSettings: (v: unknown) => void = () => {}
+    vi.mocked(api.get).mockImplementation((path: string) =>
+      path === '/settings'
+        ? new Promise((r) => { resolveSettings = r })
+        : Promise.resolve({})
+    )
+    recordSettingsWriteStart(['dark_mode'])
+    try {
+      renderSettings()
+      await act(async () => {
+        resolveSettings({ dark_mode: false })
+      })
+      // dark_mode was true in beforeEach; barrier should have blocked the stale false
+      expect(useAppStore.getState().darkMode).toBe(true)
+    } finally {
+      recordSettingsWriteSettled(['dark_mode'])
+    }
+  })
+
+  it('a fetch reply that arrived while a default_model save was on the wire is discarded (→2778)', async () => {
+    let resolveSettings: (v: unknown) => void = () => {}
+    vi.mocked(api.get).mockImplementation((path: string) =>
+      path === '/settings'
+        ? new Promise((r) => { resolveSettings = r })
+        : Promise.resolve({})
+    )
+    recordSettingsWriteStart(['default_model'])
+    try {
+      renderSettings()
+      await act(async () => {
+        resolveSettings({ default_model: '@gemini' })
+      })
+      expect(useAppStore.getState().defaultChatModel).toBe('claude')
+    } finally {
+      recordSettingsWriteSettled(['default_model'])
+    }
+  })
+
+  it('a fetch reply that arrived while a use_ostk_terms save was on the wire is discarded (→2778)', async () => {
+    let resolveSettings: (v: unknown) => void = () => {}
+    vi.mocked(api.get).mockImplementation((path: string) =>
+      path === '/settings'
+        ? new Promise((r) => { resolveSettings = r })
+        : Promise.resolve({})
+    )
+    recordSettingsWriteStart(['use_ostk_terms'])
+    try {
+      renderSettings()
+      await act(async () => {
+        resolveSettings({ use_ostk_terms: true })
+      })
+      expect(useAppStore.getState().useOstkTerms).toBe(false)
+    } finally {
+      recordSettingsWriteSettled(['use_ostk_terms'])
+    }
   })
 })
