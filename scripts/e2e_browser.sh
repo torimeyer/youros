@@ -188,7 +188,7 @@ restore_original_os_name() {
     if [ "$restored" = "$ORIGINAL_OS_NAME" ]; then
         _OS_NAME_RESTORE_DONE=1
     else
-        echo -e "  ${RED}WARN${NC}  OS name restore MISMATCH: API now shows '${restored}', expected '${ORIGINAL_OS_NAME}'. If you see the wrong name in Settings, update it manually." >&2
+        echo -e "  ${RED:-}WARN${NC}  OS name restore MISMATCH: API now shows '${restored}', expected '${ORIGINAL_OS_NAME}'. If you see the wrong name in Settings, update it manually." >&2
     fi
 }
 
