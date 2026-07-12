@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { NavLink } from 'react-router-dom';
-import { useAppStore, PROVIDER_TO_MODEL, type AccentColor } from '../stores/app';
+import { useAppStore, PROVIDER_TO_MODEL, TEXT_YOUROS_VISIBLE, type AccentColor } from '../stores/app';
 import Icon from '../components/Icon';
 import PageShell from '../components/PageShell';
 import TopNavTabs from '../components/TopNavTabs';
@@ -1819,8 +1819,8 @@ export default function Settings() {
               </div>
             )}
 
-            {/* Text yourOS pill */}
-            <button
+            {/* Text yourOS pill (hidden while the feature is paused) */}
+            {TEXT_YOUROS_VISIBLE && <button
               onClick={() => setExpandedConnection(expandedConnection === 'text-youros' ? null : 'text-youros')}
               className="w-full flex items-center gap-3 px-4 py-3 bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/50 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/70 transition-colors text-left"
               data-testid="pill-text-youros"
@@ -1831,8 +1831,8 @@ export default function Settings() {
                 <p className="text-xs text-slate-600 dark:text-slate-400">Send a text to start agents or create tasks</p>
               </div>
               <Icon name={expandedConnection === 'text-youros' ? 'expand_less' : 'expand_more'} size={18} className="text-slate-600 dark:text-slate-400 flex-shrink-0" />
-            </button>
-            {expandedConnection === 'text-youros' && (
+            </button>}
+            {TEXT_YOUROS_VISIBLE && expandedConnection === 'text-youros' && (
               <div className={cardClass} data-testid="text-youros-section">
                 <div className="flex items-center gap-2 mb-4">
                   <Icon name="sms" size={18} className="text-green-600 dark:text-green-400" />
@@ -1842,8 +1842,8 @@ export default function Settings() {
               </div>
             )}
 
-            {/* iMessage pill */}
-            <button
+            {/* iMessage pill (hidden while Text yourOS is paused) */}
+            {TEXT_YOUROS_VISIBLE && <button
               onClick={() => setExpandedConnection(expandedConnection === 'imessage' ? null : 'imessage')}
               className="w-full flex items-center gap-3 px-4 py-3 bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/50 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/70 transition-colors text-left"
               data-testid="pill-imessage"
@@ -1863,8 +1863,8 @@ export default function Settings() {
                 <p className="text-xs text-slate-600 dark:text-slate-400">{connectionStatus.iMessage.connected ? 'Connected' : 'Set up iMessage'}</p>
               </div>
               <Icon name={expandedConnection === 'imessage' ? 'expand_less' : 'expand_more'} size={18} className="text-slate-600 dark:text-slate-400 flex-shrink-0" />
-            </button>
-            {expandedConnection === 'imessage' && (
+            </button>}
+            {TEXT_YOUROS_VISIBLE && expandedConnection === 'imessage' && (
               <div className={cardClass} data-testid="imessage-connect-section">
                 <div className="flex items-center gap-2 mb-4">
                   <Icon name="chat_bubble" size={18} className="text-green-600 dark:text-green-400" />
@@ -2003,7 +2003,8 @@ export default function Settings() {
               <CustomVerbs />
             </div>
 
-            {/* Text yourOS section (->1872) */}
+            {/* Text yourOS section (->1872; hidden while the feature is paused) */}
+            {TEXT_YOUROS_VISIBLE && (
             <div className={cardClass} data-testid="text-bridge-section">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
@@ -2170,6 +2171,7 @@ export default function Settings() {
                 </div>
               )}
             </div>
+            )}
 
           </div>
 

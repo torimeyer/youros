@@ -685,16 +685,27 @@ describe('Settings', () => {
       })
     })
 
-    it('renders all five connection pills: Google, Slack, iMessage, GitHub, Atlassian', async () => {
+    it('renders the four active connection pills: Google, Slack, GitHub, Atlassian', async () => {
       renderSettings()
 
       await waitFor(() => {
         expect(screen.getByTestId('pill-google')).toBeInTheDocument()
         expect(screen.getByTestId('pill-slack')).toBeInTheDocument()
-        expect(screen.getByTestId('pill-imessage')).toBeInTheDocument()
         expect(screen.getByTestId('pill-github')).toBeInTheDocument()
         expect(screen.getByTestId('pill-atlassian')).toBeInTheDocument()
       })
+    })
+
+    it('hides every Text yourOS surface while the feature is paused (TEXT_YOUROS_VISIBLE=false)', async () => {
+      renderSettings()
+
+      await waitFor(() => {
+        expect(screen.getByTestId('pill-google')).toBeInTheDocument()
+      })
+      expect(screen.queryByTestId('pill-text-youros')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('pill-imessage')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('text-youros-section')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('text-bridge-section')).not.toBeInTheDocument()
     })
 
     it('expands Google pill details when clicked', async () => {
@@ -797,34 +808,11 @@ describe('Settings', () => {
       })
     })
 
-    it('iMessage status dot is green when iMessage is connected (→1695)', async () => {
-      vi.mocked(api.get).mockImplementation((path: string) => {
-        if (path === '/imessage/status') return Promise.resolve({ available: true, reason: '' })
-        return Promise.resolve({})
-      })
-
-      renderSettings()
-
-      await waitFor(() => {
-        const dot = screen.getByTestId('imessage-status-dot')
-        expect(dot.className).toContain('bg-emerald-400')
-      })
-    })
-
-    it('iMessage status dot is gray when iMessage is not connected (→1695)', async () => {
-      vi.mocked(api.get).mockImplementation((path: string) => {
-        if (path === '/imessage/status') return Promise.resolve({ available: false, reason: 'not available' })
-        return Promise.resolve({})
-      })
-
-      renderSettings()
-
-      await waitFor(() => {
-        const dot = screen.getByTestId('imessage-status-dot')
-        expect(dot.className).not.toContain('bg-emerald-400')
-        expect(dot.className).toContain('bg-slate-600')
-      })
-    })
+    // The →1695 iMessage status-dot tests lived here. The dot sits inside
+    // the iMessage pill, hidden while Text yourOS is paused
+    // (TEXT_YOUROS_VISIBLE=false in stores/app.ts). They come back with the
+    // pill when the flag flips; the paused state itself is covered by the
+    // "hides every Text yourOS surface" test above.
   })
 
   describe('Chat backend section (Fix 2: separate card)', () => {
