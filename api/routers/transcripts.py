@@ -34,7 +34,18 @@ _MAILBOX_BOILERPLATE_RE = re.compile(
     # excised structurally via the mailbox sentinels below; this keyword only
     # protects old files.
     r"never\s+wait\s+for\s+a\s+response|"
-    r"post\s*/api/agents)"
+    r"post\s*/api/agents|"
+    # →2892 belt for the remaining legacy-block sentences that passed every
+    # other filter and became titles on old, frozen transcripts: the
+    # "### Coordination primitives" intro, the Atlassian tail paragraph
+    # (matched via its endpoint paths so real briefs that merely mention
+    # Atlassian are unaffected), and the preamble families that can also
+    # appear mid-message.
+    r"use\s+these\s+primitives|"
+    r"/api/atlassian|"
+    r"the\s+`bash`\s+tool\s+is\s+blocked|"
+    r"\[worktree\s+(cwd|commit)|"
+    r"having\s+a\s+real\s+back\s+and\s+forth)"
 )
 
 # Structural containment (→2891): the mailbox-instruction builder in
@@ -83,6 +94,63 @@ def _strip_sentinel_mailbox_regions(text: str) -> str:
     while lines and _is_seam(lines[-1]):
         lines.pop()
     return "\n".join(lines)
+
+
+# Known preamble paragraphs (→2892): text the harness or a template puts at
+# the START of a message, with the real content following it in the same
+# message. Each pattern is matched against the first non-seam line; when it
+# hits, the whole leading paragraph (up to the first blank line) is dropped,
+# repeatedly, until the message no longer starts with a known preamble.
+_KNOWN_PREAMBLE_RES = [
+    # Worktree cwd/commit header injected by the spawn path in
+    # routers/agents.py (→1240/→2503).
+    re.compile(r"(?i)^\[worktree\s+(cwd|commit)\b"),
+    # Tooling notice at the top of some spawn briefs.
+    re.compile(r"(?i)^the\s+`bash`\s+tool\s+is\s+blocked\s+globally"),
+    # Multi-AI chat-bridge template (services/chat_providers.py), as stored
+    # in transcripts with a "User: " prefix. The opener, the round-1
+    # nothing-said-yet notice, the transcript header line, and the closing
+    # reply instructions are all template; the conversation content between
+    # them is what a title should come from.
+    re.compile(r"(?i)^(user:\s*)?you\s+are\s+\w+\.\s+you\s+are\s+having\s+a\s+real\s+back\s+and\s+forth\b"),
+    re.compile(r"(?i)^conversation\s+so\s+far:\s*$"),
+    re.compile(r"(?i)^this\s+is\s+the\s+first\s+message\s+in\s+the\s+conversation\b"),
+    re.compile(r"(?i)^reply\s+directly\s+to\s+the\s+previous\s+speaker\b"),
+]
+
+
+def _is_seam_line(line: str) -> bool:
+    """True for lines that only separate content: blank or a --- rule."""
+    stripped = line.strip()
+    return not stripped or set(stripped) == {"-"}
+
+
+def _strip_known_preambles(text: str) -> str:
+    """Drop known leading preamble paragraphs from a message (→2892).
+
+    Old transcripts carry leading paragraphs injected by the spawn harness
+    (worktree cwd headers, Bash-blocked tooling notices) or by the multi-AI
+    chat-bridge template; the real task or conversation text follows them
+    in the same message. Repeats until the text no longer starts with a
+    known preamble, trimming seam lines (blanks, --- rules) between rounds.
+    Text that starts with none of the known preambles is returned untouched.
+    """
+    while True:
+        lines = text.splitlines()
+        start = 0
+        while start < len(lines) and _is_seam_line(lines[start]):
+            start += 1
+        if start >= len(lines):
+            return ""
+        first = lines[start].strip()
+        if not any(r.match(first) for r in _KNOWN_PREAMBLE_RES):
+            return "\n".join(lines[start:]) if start else text
+        # Drop the whole leading paragraph: everything up to the next
+        # blank line belongs to the preamble.
+        end = start
+        while end < len(lines) and lines[end].strip():
+            end += 1
+        text = "\n".join(lines[end:])
 
 
 def _is_meaningful_prose(candidate: str) -> bool:
@@ -185,11 +253,15 @@ TORIOS_PROJECT_DIR = PROJECTS_DIR / str(PROJECT_ROOT).replace("/", "-").lstrip("
 def _skip_mailbox_boilerplate(text: str) -> str:
     """Return the meaningful portion of a prompt text, skipping mailbox/registration blocks.
 
-    Strategy (→2888, →2891):
+    Strategy (→2888, →2891, →2892):
     0. Excise every sentinel-delimited region (``<!-- mailbox:begin -->`` …
        ``<!-- mailbox:end -->``) wholesale before anything else. Newly
        generated instruction blocks are wrapped in these sentinels, so no
        future wording change inside the block can leak into a title.
+    0.5 Strip known leading preamble paragraphs (worktree cwd headers,
+       Bash-blocked tooling notices, chat-bridge template openers) until
+       the message no longer starts with one; the real content follows
+       them in the same message (→2892).
     1. Locate the start of a legacy (sentinel-free) mailbox block: the
        '## Agent registration', '## Bootstrap', or '## Mailbox (mandatory)'
        heading.
@@ -199,12 +271,17 @@ def _skip_mailbox_boilerplate(text: str) -> str:
     3. Otherwise scan forward for the NEXT top-level '##' heading that is
        NOT itself a registration/mailbox heading and return the first
        prose line under it.
-    4. If no such heading exists, hunt for the first line after the block
-       that is clearly free of mailbox vocabulary. If nothing qualifies,
-       return "" so callers advance to the next user message.
-    5. If the input has no mailbox block at all, return it unchanged.
+    4. If no such heading exists, only prose AFTER the last line the
+       boilerplate belt recognizes can be the task text (→2892): the
+       block extends through its last recognizable line, so a sentence
+       sandwiched INSIDE it ("Use these primitives…") can never win,
+       while a brief appended BELOW the block still can. If nothing
+       qualifies, return "" so callers advance to the next user message.
+    5. If the input has no mailbox block at all, return it unchanged
+       (minus any stripped preambles).
     """
     text = _strip_sentinel_mailbox_regions(text)
+    text = _strip_known_preambles(text)
     lines = text.splitlines()
 
     # Find the line index of the mailbox block start
@@ -243,9 +320,18 @@ def _skip_mailbox_boilerplate(text: str) -> str:
             # Heading found but no prose lines under it
             return ""
 
-    # No secondary heading found. Try to find any line after the mailbox
-    # block that is clearly free of mailbox vocabulary (→2888, →2891).
+    # No secondary heading found. →2892: never return a line from INSIDE
+    # the block. The legacy block has no end marker, but it extends at
+    # least through the last line the belt recognizes as boilerplate, so
+    # only prose after that boundary can be the task text (the layout
+    # where a brief was appended below the block). Sentences sandwiched
+    # inside the block ("Use these primitives…") can never be returned.
+    last_boilerplate = mailbox_start
     for i in range(mailbox_start + 1, len(lines)):
+        candidate = lines[i].strip()
+        if candidate and not _is_meaningful_prose(candidate):
+            last_boilerplate = i
+    for i in range(last_boilerplate + 1, len(lines)):
         candidate = lines[i].strip()
         if _is_meaningful_prose(candidate):
             return candidate
@@ -852,7 +938,10 @@ async def backfill_transcript_titles():
     - starts with 'Agent registration' (case-insensitive),
     - reads as a model refusal ("I don't see the actual messages…", →2888),
     - contains the leaked mailbox sentence "never wait for a response"
-      (case-insensitive, →2891), or
+      (case-insensitive, →2891),
+    - starts with one of the →2892 junk families: "use these primitives",
+      "[worktree cwd", "user: you are claude", or "the `bash` tool is
+      blocked" (all case-insensitive), or
     - is the empty-string sentinel (cached when the extracted context was
       junk; with extraction fixed those deserve one more regeneration
       attempt, →2891).
@@ -865,12 +954,21 @@ async def backfill_transcript_titles():
         r"(?i)^agent\s+registration"
     )
     leaked_mailbox_re = re.compile(r"(?i)never\s+wait\s+for\s+a\s+response")
+    family_prefix_re = re.compile(
+        r"(?i)^("
+        r"use these primitives"
+        r"|\[worktree cwd"
+        r"|user: you are claude"
+        r"|the `bash` tool is blocked"
+        r")"
+    )
 
     for session_id, title in list(cache.items()):
         if (
             not title
             or boilerplate_title_re.match(title)
             or leaked_mailbox_re.search(title)
+            or family_prefix_re.match(title)
             or _looks_like_refusal(title)
         ):
             del cache[session_id]
