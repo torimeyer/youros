@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { ClampedDescription } from '../components/ClampedDescription';
 import Icon from '../components/Icon';
 import PageShell from '../components/PageShell';
 import { Card, EmptyState, ErrorBanner, LoadingState } from '../components/ui';
@@ -113,9 +114,16 @@ function ThemeCard({ bucket }: { bucket: ThemeBucket }) {
       {bucket.tasks.length > 0 && (
         <ul className="space-y-1.5">
           {bucket.tasks.map((t) => (
-            <li key={t.id} className="flex items-center gap-2 text-sm">
-              <Icon name="radio_button_unchecked" size={16} className="text-slate-400 dark:text-slate-500 shrink-0" />
-              <span className="text-slate-700 dark:text-slate-300">{t.title}</span>
+            <li key={t.id} className="flex items-start gap-2 text-sm">
+              <Icon name="radio_button_unchecked" size={16} className="text-slate-400 dark:text-slate-500 shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <ClampedDescription
+                  text={t.title}
+                  lines={2}
+                  textClassName="text-sm text-slate-700 dark:text-slate-300"
+                  testId={`expand-task-${t.id}`}
+                />
+              </div>
               <RiskBadge risk={t.risk} />
             </li>
           ))}

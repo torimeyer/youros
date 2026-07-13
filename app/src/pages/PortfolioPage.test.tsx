@@ -230,3 +230,36 @@ describe('PortfolioPage', () => {
     expect(screen.queryByText('check_circle')).not.toBeInTheDocument()
   })
 })
+
+describe('task title clamping on themes page (→2882)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('renders an expand button for each task row', async () => {
+    mockGets(themedResponse)
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('Ship the signup flow')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('expand-task-→1')).toBeInTheDocument()
+    expect(screen.getByTestId('expand-task-→2')).toBeInTheDocument()
+    expect(screen.getByTestId('expand-task-→9')).toBeInTheDocument()
+    expect(screen.getByTestId('expand-task-→1')).toHaveTextContent('Show more')
+  })
+
+  it('expand button toggles to Show less after click', async () => {
+    mockGets(themedResponse)
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('expand-task-→1')).toBeInTheDocument()
+    })
+    const btn = screen.getByTestId('expand-task-→1')
+    fireEvent.click(btn)
+    expect(btn).toHaveTextContent('Show less')
+    fireEvent.click(btn)
+    expect(btn).toHaveTextContent('Show more')
+  })
+})
