@@ -31,6 +31,35 @@ _MAILBOX_BOILERPLATE_RE = re.compile(
     r"post\s*/api/agents)"
 )
 
+# Titles that are actually the naming model refusing ("I don't see the
+# actual messages…") must never be shown or cached (→2888). Matches the
+# common refusal openings; "enough context" is checked anywhere in the text.
+_REFUSAL_TITLE_RE = re.compile(
+    r"(?i)^\s*("
+    r"i\s+(don'?t|do\s+not|can'?t|cannot|need|would\s+need)\b"
+    r"|i\s+am\s+unable\b|i'?m\s+unable\b"
+    r"|unable\s+to\b"
+    r"|there\s+(is|are)\s+no\b"
+    r"|no\s+(actual\s+)?(messages?|conversation|context)\b"
+    r"|not\s+enough\s+context\b"
+    r"|sorry[,\s]"
+    r")"
+)
+
+# Context shorter than this never reaches the naming model: there is
+# nothing to summarize, and the old behavior produced refusals that were
+# then cached verbatim as titles (→2888).
+_MIN_TITLE_CONTEXT_CHARS = 40
+
+
+def _looks_like_refusal(title: str) -> bool:
+    """True when a generated title reads as a model refusal rather than a
+    session summary."""
+    if not title:
+        return False
+    return bool(_REFUSAL_TITLE_RE.match(title)) or "enough context" in title.lower()
+
+
 MYOS_DIR = youros_home()
 TITLE_CACHE_PATH = MYOS_DIR / "transcript_titles.json"
 
@@ -120,6 +149,16 @@ def _skip_mailbox_boilerplate(text: str) -> str:
             continue
         if candidate.startswith("`") or candidate.startswith("curl") or candidate.startswith("POST "):
             continue
+        # Instruction-list steps and bold-led rule lines from the mailbox
+        # block ("1. On each cycle, call:", "**Adaptive poll schedule**: …")
+        # are boilerplate, not task prose (→2888): they used to leak out
+        # here, become the transcript preview, and poison the AI title
+        # generator's context until it refused — and the refusal was then
+        # cached as the title.
+        if re.match(r"^\(?(\d{1,3}|[A-Za-z])[.)]\s", candidate):
+            continue
+        if candidate.startswith("**") or candidate.endswith(":"):
+            continue
         if _MAILBOX_BOILERPLATE_RE.search(candidate):
             continue
         # Skip lines that are clearly still part of registration prose
@@ -200,17 +239,36 @@ async def _generate_title(context: str) -> str:
 
 
 async def _generate_titles_background(items: list[tuple[str, Path]]) -> None:
-    """Generate titles for transcripts that don't have one cached yet."""
+    """Generate titles for transcripts that don't have a usable one cached.
+
+    Guards (→2888):
+    - a cached refusal-looking title counts as junk and is regenerated
+    - context shorter than ``_MIN_TITLE_CONTEXT_CHARS`` never reaches the
+      model: there is nothing to summarize, and the old behavior turned
+      those calls into refusals that were cached verbatim as titles
+    - refusal-looking model output is cached as the empty sentinel so the
+      display falls back to the derived name and the doomed model call is
+      not repeated on every fetch
+    """
     cache = _load_title_cache()
     for session_id, jsonl_path in items:
-        if session_id in cache:
+        cached = cache.get(session_id)
+        cached_is_junk = cached is not None and _looks_like_refusal(cached)
+        if cached is not None and not cached_is_junk:
             continue
         context = _extract_context(jsonl_path)
-        if not context:
+        if not context or len(context.strip()) < _MIN_TITLE_CONTEXT_CHARS:
+            if cached_is_junk:
+                cache[session_id] = ""
             continue
         title = await _generate_title(context)
+        if _looks_like_refusal(title):
+            cache[session_id] = ""
+            continue
         if title:
             cache[session_id] = title
+        elif cached_is_junk:
+            cache[session_id] = ""
     await _save_title_cache_async(cache)
 
 
@@ -513,6 +571,10 @@ async def list_transcripts(
 
             # Use cached AI title > session name > derived title (boilerplate-skipped) > session ID
             name = title_cache.get(session_id, "")
+            if _looks_like_refusal(name):
+                # Junk cached by the pre-→2888 generator: hide it now; the
+                # background pass below replaces the cache entry.
+                name = ""
             if not name:
                 name = meta.get("name", "")
             if not name:
@@ -525,7 +587,8 @@ async def list_transcripts(
             # Always cap at 60 chars
             name = name[:60]
 
-            if session_id not in title_cache:
+            cached_title = title_cache.get(session_id)
+            if cached_title is None or _looks_like_refusal(cached_title):
                 needs_title.append((session_id, jsonl_file))
 
             transcripts.append({
@@ -697,12 +760,14 @@ async def get_transcript(session_id: str, limit: int = 100, offset: int = 0):
 
 @router.post("/transcripts/backfill-titles")
 async def backfill_transcript_titles():
-    """Re-derive titles for transcripts whose cached title looks like boilerplate.
+    """Re-derive titles for transcripts whose cached title looks like junk.
 
     Checks every entry in the title cache. If a title starts with
-    'Agent registration' (case-insensitive) it is deleted so the next
-    /transcripts fetch will re-derive it from the actual message content.
-    Does NOT mutate source JSONL files. Safe to call multiple times.
+    'Agent registration' (case-insensitive), or reads as a model refusal
+    ("I don't see the actual messages…", →2888), it is deleted so the
+    next /transcripts fetch will re-derive it from the actual message
+    content. Does NOT mutate source JSONL files. Safe to call multiple
+    times.
     """
     cache = _load_title_cache()
     removed: list[str] = []
@@ -712,7 +777,7 @@ async def backfill_transcript_titles():
     )
 
     for session_id, title in list(cache.items()):
-        if boilerplate_title_re.match(title):
+        if boilerplate_title_re.match(title) or _looks_like_refusal(title):
             del cache[session_id]
             removed.append(session_id)
 
