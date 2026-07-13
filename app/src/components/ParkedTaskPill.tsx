@@ -46,7 +46,7 @@ function SinglePill({
 }) {
   const handleCancel = useCallback(async () => {
     try {
-      await api.delete(`/api/parked_tasks/${task.id}`)
+      await api.delete(`/parked_tasks/${task.id}`)
     } catch {
       // optimistic: remove locally regardless
     }

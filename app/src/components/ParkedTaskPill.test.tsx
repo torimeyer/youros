@@ -45,7 +45,7 @@ describe('ParkedTaskPill', () => {
     await act(async () => {
       fireEvent.click(screen.getByTestId('cancel-pill-task-1'))
     })
-    expect(api.delete).toHaveBeenCalledWith('/api/parked_tasks/task-1')
+    expect(api.delete).toHaveBeenCalledWith('/parked_tasks/task-1')
     expect(onCancelled).toHaveBeenCalledWith('task-1')
   })
 

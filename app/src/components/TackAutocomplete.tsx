@@ -50,7 +50,7 @@ export default function TackAutocomplete({ inputValue, onSelect, keyHandlerRef }
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(async () => {
       try {
-        const data = await api.get(`/api/tack/suggestions?q=${encodeURIComponent(inputValue)}`)
+        const data = await api.get(`/tack/suggestions?q=${encodeURIComponent(inputValue)}`)
         if (Array.isArray(data) && data.length > 0) {
           setSuggestions(data as Suggestion[])
         } else {

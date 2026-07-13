@@ -143,7 +143,7 @@ describe('ExecutiveSummary', () => {
 
     await waitFor(() => {
       expect(mockedApiPost).toHaveBeenCalledWith(
-        '/api/portfolio/confidence/INIT-10/approve',
+        '/portfolio/confidence/INIT-10/approve',
         {
           value: 'off_track',
           note: 'Mitigation: adding two engineers. Help needed: security review.',

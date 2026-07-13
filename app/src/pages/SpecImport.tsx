@@ -86,7 +86,7 @@ export default function SpecImport() {
     setImporting(true);
     setImportError(null);
     try {
-      await api.post("/api/specs/import", {
+      await api.post("/specs/import", {
         yaml,
         format: "speckit",
       });

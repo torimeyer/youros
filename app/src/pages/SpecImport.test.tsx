@@ -116,7 +116,7 @@ describe('SpecImport', () => {
     })
   })
 
-  it('import button calls POST /api/specs/import', async () => {
+  it('import button calls POST /specs/import', async () => {
     mockedApiPost.mockResolvedValueOnce({ id: 'docs/spec/my-feature.md', path: 'docs/spec/my-feature.md' })
     renderPage()
     fireEvent.change(screen.getByTestId('yaml-textarea'), {
@@ -126,7 +126,7 @@ describe('SpecImport', () => {
     fireEvent.click(screen.getByTestId('import-button'))
     await waitFor(() => {
       expect(mockedApiPost).toHaveBeenCalledWith(
-        '/api/specs/import',
+        '/specs/import',
         expect.objectContaining({ yaml: VALID_YAML, format: 'speckit' })
       )
     })
