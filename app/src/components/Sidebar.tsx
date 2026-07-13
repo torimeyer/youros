@@ -96,6 +96,10 @@ const ALL_NAV_ITEMS: NavItem[] = [
 const USAGE_NAV_ITEM: NavItem = { to: '/costs', icon: 'payments', label: 'Usage', featureLabel: 'Cost Tracking' }
 // Arcade sits in the bottom cluster alongside What's New / Usage / Settings
 export const ARCADE_NAV_ITEM: NavItem = { to: '/break', icon: 'sports_esports', label: 'The Arcade', featureLabel: 'The Arcade', iconColor: 'text-rose-600 dark:text-rose-400' }
+// Activity also lives in the bottom cluster. The constant gives it the same
+// feature-switch treatment as Usage and The Arcade so the Settings switch
+// and the hover x actually hide it (→2884).
+export const ACTIVITY_NAV_ITEM: NavItem = { to: '/activity', icon: 'monitoring', label: 'Activity', featureLabel: 'Activity' }
 
 // ------------- helpers -------------
 
@@ -719,6 +723,7 @@ export function Sidebar() {
 
   const usageEnabled = isEnabled(USAGE_NAV_ITEM)
   const arcadeEnabled = isEnabled(ARCADE_NAV_ITEM)
+  const activityEnabled = isEnabled(ACTIVITY_NAV_ITEM)
 
   const linkClass = (isActive: boolean) =>
     `group flex items-center gap-3 w-full px-4 py-2.5 rounded-lg transition-colors duration-200 cursor-pointer active:scale-[0.98] ${
@@ -892,19 +897,22 @@ export function Sidebar() {
             <span className="text-sm font-medium">Switch to personal</span>
           </button>
         )}
-        <NavLink
-          data-testid="activity-nav-link"
-          to="/activity"
-          onClick={() => setMobileOpen(false)}
-          className={({ isActive }) => utilLinkClass(isActive)}
-        >
-          {({ isActive }) => (
-            <>
-              <Icon name="monitoring" filled={iconStyle === 'filled' ? true : isActive} className="text-lg" />
-              <span className="text-xs font-medium">Activity</span>
-            </>
-          )}
-        </NavLink>
+        {activityEnabled && (
+          <NavLink
+            data-testid="activity-nav-link"
+            to={ACTIVITY_NAV_ITEM.to}
+            onClick={() => setMobileOpen(false)}
+            className={({ isActive }) => utilLinkClass(isActive)}
+          >
+            {({ isActive }) => (
+              <>
+                <Icon name={ACTIVITY_NAV_ITEM.icon} filled={iconStyle === 'filled' ? true : isActive} className="text-lg" />
+                <span className="text-xs font-medium">{ACTIVITY_NAV_ITEM.label}</span>
+                <HideItemButton item={ACTIVITY_NAV_ITEM} onHide={handleHide} className="ml-auto" />
+              </>
+            )}
+          </NavLink>
+        )}
         {arcadeEnabled && (
           <NavLink
             data-testid="arcade-nav-link"

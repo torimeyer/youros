@@ -1686,3 +1686,54 @@ describe('nav rename and reorder', () => {
     })
   })
 })
+
+describe('Activity obeys its feature switch (→2884)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+    _resetSidebarBus()
+    useRunningAgentsStore.setState({ count: 0, agents: [], connected: false, lastUpdatedAt: null })
+    useNotificationStore.setState({
+      notifications: [],
+      toastIds: [],
+      persistentToastIds: new Set<string>(),
+      firedKeys: new Set<string>(),
+    })
+    useAppStore.setState({ osName: 'yourOS', features: DEFAULT_FEATURES, powerUserMode: false })
+    mockedApiGet.mockImplementation((url: string) => {
+      if (url.startsWith('/agents')) return Promise.resolve({ agents: [] })
+      if (url === '/tasks/counts') return Promise.resolve({ open: 0 })
+      if (url === '/specs/counts') return Promise.resolve({ unfinished: 0, total: 0 })
+      return Promise.resolve({ authenticated: false, unread_count: 0 })
+    })
+  })
+
+  it('shows the Activity link when the Activity switch is on', () => {
+    renderSidebar()
+    expect(screen.getByTestId('activity-nav-link')).toBeInTheDocument()
+  })
+
+  it('hides the Activity link when the Activity switch is off', () => {
+    useAppStore.setState({
+      features: DEFAULT_FEATURES.map((f) =>
+        f.label === 'Activity' ? { ...f, enabled: false } : f,
+      ),
+    })
+    renderSidebar()
+    expect(screen.queryByTestId('activity-nav-link')).not.toBeInTheDocument()
+  })
+
+  it('Activity has a hide button that removes the link and saves the change', async () => {
+    renderSidebar()
+    fireEvent.click(screen.getByLabelText('Hide Activity from the sidebar'))
+    await waitFor(() => {
+      expect(screen.queryByTestId('activity-nav-link')).not.toBeInTheDocument()
+    })
+    expect(api.patch).toHaveBeenCalledWith(
+      '/settings',
+      expect.objectContaining({
+        features: expect.objectContaining({ Activity: false }),
+      }),
+    )
+  })
+})
