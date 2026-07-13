@@ -76,6 +76,51 @@ export interface FeatureToggle {
   enabled: boolean
 }
 
+// Default switch for every sidebar surface a user can hide. Each label here
+// must match a featureLabel on a nav item in Sidebar.tsx (plus the few
+// switches like Chat, Backlog, and Automations that gate non-nav surfaces).
+// A nav item whose label is missing from this list could not be hidden at
+// all: hideFeature mapped over the list and changed nothing (→2885).
+export const DEFAULT_FEATURE_TOGGLES: FeatureToggle[] = [
+  { label: 'Chat', enabled: true },
+  { label: 'Backlog', enabled: true },
+  { label: 'The Arcade', enabled: true },
+  { label: 'Tasks', enabled: true },
+  { label: 'Specs', enabled: true },
+  { label: 'Executive Summary', enabled: true },
+  { label: 'Portfolio', enabled: true },
+  { label: 'Agents', enabled: true },
+  { label: 'Activity', enabled: true },
+  { label: 'Projects', enabled: true },
+  { label: 'ostk', enabled: true },
+  { label: 'Drive', enabled: true },
+  { label: 'Calendar', enabled: true },
+  { label: 'Gmail', enabled: true },
+  { label: 'iMessage', enabled: true },
+  { label: 'Slack', enabled: true },
+  { label: 'GitHub', enabled: true },
+  { label: 'Jira', enabled: true },
+  { label: 'Confluence', enabled: true },
+  { label: 'Automations', enabled: true },
+  { label: 'Cost Tracking', enabled: true },
+  { label: 'Gems', enabled: true },
+]
+
+// Returns a copy of the list with the label's switch set to the given value.
+// When the label has no entry yet (a nav item added before its default
+// existed, or a key only the server knows), an entry is appended instead of
+// silently doing nothing (→2885).
+function withFeatureEnabled(
+  features: FeatureToggle[],
+  label: string,
+  enabled: boolean,
+): FeatureToggle[] {
+  if (features.some((f) => f.label === label)) {
+    return features.map((f) => (f.label === label ? { ...f, enabled } : f))
+  }
+  return [...features, { label, enabled }]
+}
+
 export interface CustomAgentTemplate {
   name: string
   description: string
@@ -162,6 +207,7 @@ interface AppState {
   features: FeatureToggle[]
   setFeatures: (features: FeatureToggle[]) => void
   hideFeature: (label: string) => void
+  showFeature: (label: string) => void
   isFeatureEnabled: (label: string) => boolean
   navOrder: string[]
   setNavOrder: (order: string[]) => void
@@ -554,32 +600,26 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ accentColor })
     patchServer({ accent_color: accentColor })
   },
-  features: applyFeatureOrder([
-    { label: 'Chat', enabled: true },
-    { label: 'Backlog', enabled: true },
-    { label: 'The Arcade', enabled: true },
-    { label: 'Agents', enabled: true },
-    { label: 'Activity', enabled: true },
-    { label: 'Projects', enabled: true },
-    { label: 'Drive', enabled: true },
-    { label: 'Calendar', enabled: true },
-    { label: 'Gmail', enabled: true },
-    { label: 'Slack', enabled: true },
-    { label: 'GitHub', enabled: true },
-    { label: 'Automations', enabled: true },
-    { label: 'Cost Tracking', enabled: true },
-    { label: 'Gems', enabled: true },
-  ]),
+  features: applyFeatureOrder(DEFAULT_FEATURE_TOGGLES.map((f) => ({ ...f }))),
   setFeatures: (features) => {
     lsSet(LS_KEYS.featureOrder, JSON.stringify(features.map((f) => f.label)))
     set({ features })
   },
   // One-click hide from the sidebar x (→2883). Persists the full features
-  // object, the same shape the Settings Features card saves.
+  // object, the same shape the Settings Features card saves. A label with
+  // no entry yet is appended as switched off instead of being ignored (→2885).
   hideFeature: (label) => {
-    const features = get().features.map((f) =>
-      f.label === label ? { ...f, enabled: false } : f,
-    )
+    const features = withFeatureEnabled(get().features, label, false)
+    get().setFeatures(features)
+    const featuresObj: Record<string, boolean> = {}
+    features.forEach((f) => { featuresObj[f.label] = f.enabled })
+    patchServer({ features: featuresObj })
+  },
+  // One-click restore from the sidebar's Hidden items row (→2886). Mirrors
+  // hideFeature: switch the feature back on, append if missing, persist the
+  // same full features object.
+  showFeature: (label) => {
+    const features = withFeatureEnabled(get().features, label, true)
     get().setFeatures(features)
     const featuresObj: Record<string, boolean> = {}
     features.forEach((f) => { featuresObj[f.label] = f.enabled })
@@ -1050,14 +1090,22 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     // features (sidebar toggles). The server stores a flat object like
     // {Chat: true, Tasks: true, Automations: false}. Merge with the
-    // client-side defaults so new features appear and removed features
-    // disappear, but the enabled/disabled state from the server wins.
+    // client-side defaults so new features appear, but the enabled or
+    // disabled state from the server wins. Server keys the client list
+    // does not know are appended with the server's value instead of being
+    // dropped: dropping them silently un-hid a saved hide on reload (→2885).
     if (hasValue(server.features) && typeof server.features === 'object') {
       const serverFeatures = server.features as Record<string, boolean>
       const merged = state.features.map((f) => {
         const serverVal = serverFeatures[f.label]
         return serverVal !== undefined ? { ...f, enabled: serverVal } : f
       })
+      const knownLabels = new Set(merged.map((f) => f.label))
+      for (const [label, enabled] of Object.entries(serverFeatures)) {
+        if (!knownLabels.has(label)) {
+          merged.push({ label, enabled: Boolean(enabled) })
+        }
+      }
       updates.features = applyFeatureOrder(merged)
     } else {
       // Backfill: send client defaults to server so they persist.

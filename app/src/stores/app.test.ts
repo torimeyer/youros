@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { useAppStore, TEAM_MODE_VISIBLE, DEFAULT_DASHBOARD_WIDGETS, FIRST_RUN_DASHBOARD_WIDGETS, readInitialDashboardWidgets, DASHBOARD_WIDGET_LABELS, HYDRATION_SETTINGS_TIMEOUT_MS, HYDRATION_ENTERPRISE_TIMEOUT_MS, HYDRATION_RETRY_DELAYS_MS, cancelHydrationRetry } from './app'
+import { useAppStore, TEAM_MODE_VISIBLE, DEFAULT_FEATURE_TOGGLES, DEFAULT_DASHBOARD_WIDGETS, FIRST_RUN_DASHBOARD_WIDGETS, readInitialDashboardWidgets, DASHBOARD_WIDGET_LABELS, HYDRATION_SETTINGS_TIMEOUT_MS, HYDRATION_ENTERPRISE_TIMEOUT_MS, HYDRATION_RETRY_DELAYS_MS, cancelHydrationRetry } from './app'
 import { api } from '../lib/api'
 import {
   recordSettingsWriteStart,
@@ -345,6 +345,53 @@ describe('useAppStore', () => {
       })
     })
 
+    it('hideFeature appends a disabled entry when the label has no entry yet (→2885)', () => {
+      // The user's exact bug: Portfolio is a nav item but had no feature
+      // entry, so hiding it mapped over the list and changed nothing.
+      useAppStore.setState({
+        features: [{ label: 'Tasks', enabled: true }],
+      })
+      useAppStore.getState().hideFeature('Portfolio')
+      expect(useAppStore.getState().features).toEqual([
+        { label: 'Tasks', enabled: true },
+        { label: 'Portfolio', enabled: false },
+      ])
+      expect(api.patch).toHaveBeenCalledWith('/settings', {
+        features: { Tasks: true, Portfolio: false },
+      })
+    })
+
+    it('showFeature turns a hidden feature back on and writes the whole features list to the server (→2886)', () => {
+      useAppStore.setState({
+        features: [
+          { label: 'Tasks', enabled: true },
+          { label: 'Portfolio', enabled: false },
+        ],
+      })
+      useAppStore.getState().showFeature('Portfolio')
+      expect(useAppStore.getState().features).toEqual([
+        { label: 'Tasks', enabled: true },
+        { label: 'Portfolio', enabled: true },
+      ])
+      expect(api.patch).toHaveBeenCalledWith('/settings', {
+        features: { Tasks: true, Portfolio: true },
+      })
+    })
+
+    it('showFeature appends an enabled entry when the label has no entry yet (→2886)', () => {
+      useAppStore.setState({
+        features: [{ label: 'Tasks', enabled: true }],
+      })
+      useAppStore.getState().showFeature('Gmail')
+      expect(useAppStore.getState().features).toEqual([
+        { label: 'Tasks', enabled: true },
+        { label: 'Gmail', enabled: true },
+      ])
+      expect(api.patch).toHaveBeenCalledWith('/settings', {
+        features: { Tasks: true, Gmail: true },
+      })
+    })
+
     it('setTourComplete writes to the server', () => {
       useAppStore.getState().setTourComplete(true)
       expect(useAppStore.getState().tourComplete).toBe(true)
@@ -568,6 +615,19 @@ describe('useAppStore', () => {
         '/settings',
         expect.objectContaining({ custom_agent_templates: templates }),
       )
+    })
+
+    it('keeps server feature keys that have no client entry instead of dropping them (→2885)', async () => {
+      // A hide saved for a feature this client list does not know about
+      // must still apply after a reload, not silently un-hide.
+      useAppStore.setState({ features: [{ label: 'Tasks', enabled: true }] })
+      vi.mocked(api.get).mockResolvedValueOnce({ features: { Tasks: true, Portfolio: false } })
+
+      await useAppStore.getState().hydrateFromServer()
+
+      expect(useAppStore.getState().features).toContainEqual({ label: 'Portfolio', enabled: false })
+      const tasks = useAppStore.getState().features.find((f) => f.label === 'Tasks')
+      expect(tasks?.enabled).toBe(true)
     })
 
     // →2778: write-barrier protection extended to all user-editable settings fields
@@ -957,5 +1017,29 @@ describe('widget list invariants', () => {
     expect(widgets).not.toContain('ostk_files')
     expect(widgets).toContain('briefing')
     expect(widgets).toContain('todays_focus')
+  })
+})
+
+describe('feature toggle defaults cover the whole sidebar (→2885)', () => {
+  it('every nav item that can be hidden has a default entry, switched on', () => {
+    const labels = DEFAULT_FEATURE_TOGGLES.map((f) => f.label)
+    // Every featureLabel used by a sidebar nav item in Sidebar.tsx. A nav
+    // item whose label is missing here cannot be hidden: hideFeature used
+    // to map over the list and change nothing (→2885).
+    const navFeatureLabels = [
+      'Tasks', 'Specs', 'Executive Summary', 'Portfolio', 'Agents',
+      'Gems', 'Projects', 'ostk', 'Drive', 'Gmail', 'Calendar',
+      'iMessage', 'Slack', 'GitHub', 'Jira', 'Confluence',
+      'Cost Tracking', 'The Arcade', 'Activity',
+    ]
+    for (const label of navFeatureLabels) {
+      expect(labels, `missing default feature entry for ${label}`).toContain(label)
+    }
+    expect(DEFAULT_FEATURE_TOGGLES.every((f) => f.enabled)).toBe(true)
+  })
+
+  it('has no duplicate labels', () => {
+    const labels = DEFAULT_FEATURE_TOGGLES.map((f) => f.label)
+    expect(new Set(labels).size).toBe(labels.length)
   })
 })

@@ -1910,3 +1910,44 @@ describe('Settings load path never echoes accent color, default model, or termin
     }
   })
 })
+
+// ---------------------------------------------------------------------------
+// →2885: every sidebar nav item now has a feature switch, so the Settings
+// Features list gained rows for Tasks-page style entries that never had one
+// (Portfolio, Executive Summary, iMessage, Jira, Confluence, ostk). Each new
+// row needs a plain-language name and its own icon, not the generic fallback.
+// ---------------------------------------------------------------------------
+describe('Settings Features list covers the new nav switches (→2885)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useAppStore.setState({
+      osName: 'yourOS',
+      darkMode: true,
+      accentColor: 'blue',
+      features: [
+        { label: 'Tasks', enabled: true },
+        { label: 'Specs', enabled: true },
+        { label: 'Executive Summary', enabled: true },
+        { label: 'Portfolio', enabled: true },
+        { label: 'iMessage', enabled: true },
+        { label: 'Jira', enabled: true },
+        { label: 'Confluence', enabled: true },
+        { label: 'ostk', enabled: true },
+      ],
+    })
+  })
+
+  it('shows the iMessage switch as "Messages" to match the nav', () => {
+    renderSettings()
+    expect(screen.getByRole('switch', { name: 'Messages' })).toBeInTheDocument()
+    expect(screen.queryByRole('switch', { name: 'iMessage' })).toBeNull()
+  })
+
+  it('every new switch has its own icon, not the generic fallback', () => {
+    renderSettings()
+    for (const label of ['Portfolio', 'Executive Summary', 'Jira', 'Confluence', 'ostk', 'Messages']) {
+      const row = screen.getByRole('switch', { name: label }).closest('div')
+      expect(row?.textContent, `${label} row uses the fallback icon`).not.toContain('extension')
+    }
+  })
+})

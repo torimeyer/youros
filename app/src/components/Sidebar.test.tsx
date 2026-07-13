@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'
 import { BrowserRouter, MemoryRouter } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
 import { useAppStore } from '../stores/app'
@@ -1665,6 +1665,24 @@ describe('nav rename and reorder', () => {
       fireEvent.click(screen.getByLabelText('Hide Tasks from the sidebar'))
       const homeLink = screen.getByRole('link', { name: /Home/ })
       expect(homeLink.className).toContain('accent-highlight')
+    })
+
+    it('hiding Portfolio works even though the feature list has no Portfolio entry (→2885)', async () => {
+      // The user's exact bug: DEFAULT_FEATURES above deliberately lacks
+      // 'Portfolio', mirroring the shipped defaults before the fix. Hiding
+      // it must append an entry, remove the link, and save the change.
+      renderSidebar()
+      expect(document.querySelector('a[href="/portfolio"]')).not.toBeNull()
+      fireEvent.click(screen.getByLabelText('Hide Portfolio from the sidebar'))
+      await waitFor(() => {
+        expect(document.querySelector('a[href="/portfolio"]')).toBeNull()
+      })
+      expect(api.patch).toHaveBeenCalledWith(
+        '/settings',
+        expect.objectContaining({
+          features: expect.objectContaining({ Portfolio: false }),
+        }),
+      )
     })
   })
 })

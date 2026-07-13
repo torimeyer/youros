@@ -56,6 +56,12 @@ const featureIcons: Record<string, string> = {
   'Calendar': 'calendar_month',
   'Gmail': 'mail',
   'Specs': 'description',
+  'Executive Summary': 'insights',
+  'Portfolio': 'donut_small',
+  'iMessage': 'sms',
+  'Jira': 'bug_report',
+  'Confluence': 'menu_book',
+  'ostk': 'terminal',
   'Transcripts': 'mic',
   'Automations': 'account_tree',
   'Cost Tracking': 'payments',
@@ -65,6 +71,7 @@ const featureIcons: Record<string, string> = {
 const featureDisplayNames: Record<string, string> = {
   'Transcripts': 'History',
   'Cost Tracking': 'Usage',
+  'iMessage': 'Messages',
 };
 
 
