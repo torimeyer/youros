@@ -15,8 +15,10 @@ import {
   type TeamOnboardingData,
 } from './TeamOnboardingSteps'
 
-const PERSONAL_STEPS = ['Fork', 'Welcome', 'You', 'Name', 'Profile', 'Customize', 'Theme', 'Tracking', 'Connect', 'Showcase', 'Ready'] as const
-const PERSONAL_STEPS_NO_FORK = ['Welcome', 'You', 'Name', 'Profile', 'Customize', 'Theme', 'Tracking', 'Connect', 'Showcase', 'Ready'] as const
+const DEFAULT_FILES_DIR = '~/.myos/files'
+
+const PERSONAL_STEPS = ['Fork', 'Welcome', 'You', 'Name', 'FilesLocation', 'Profile', 'Customize', 'Theme', 'Tracking', 'Connect', 'Showcase', 'Ready'] as const
+const PERSONAL_STEPS_NO_FORK = ['Welcome', 'You', 'Name', 'FilesLocation', 'Profile', 'Customize', 'Theme', 'Tracking', 'Connect', 'Showcase', 'Ready'] as const
 
 const TEAM_STEPS = ['Fork', 'OrgName', 'AdminEmail', 'InviteTeam', 'Guardrails', 'Theme', 'Connect', 'TeamReady'] as const
 type OnboardingMode = 'undecided' | 'personal' | 'team'
@@ -62,6 +64,7 @@ export default function OnboardingWizard() {
   const [trackingRepoPath, setTrackingRepoPath] = useState('')
   const [showExitConfirm, setShowExitConfirm] = useState(false)
   const [mounted, setMounted] = useState(false)
+  const [filesDir, setFilesDir] = useState(DEFAULT_FILES_DIR)
 
   // Reset osName to empty on wizard mount so a new user always starts with
   // an empty "Name your OS" field. This prevents stale values from
@@ -107,6 +110,12 @@ export default function OnboardingWizard() {
   useEffect(() => {
     runProviderDetect()
   }, [runProviderDetect])
+
+  useEffect(() => {
+    api.get<{ files_dir?: string | null }>('/settings')
+      .then((data) => setFilesDir(data.files_dir ?? DEFAULT_FILES_DIR))
+      .catch(() => setFilesDir(DEFAULT_FILES_DIR))
+  }, [])
 
   // Restore step after any OAuth redirect
   useEffect(() => {
@@ -316,6 +325,13 @@ export default function OnboardingWizard() {
 
   const skip = () => next()
 
+  const handleFilesLocationNext = () => {
+    api.put('/settings', { files_dir: filesDir || null }).catch(
+      (e) => reportError('files_dir save failed', e)
+    )
+    next()
+  }
+
   // Stable ref holds the latest advance logic. Registered on window once (empty-deps effect)
   // so Enter fires globally regardless of which element has focus.
   const advanceOnEnterRef = useRef<(e: KeyboardEvent) => void>(() => {})
@@ -329,6 +345,8 @@ export default function OnboardingWizard() {
     // TeamReady and Ready both finish.
     if (step === 'TeamReady') { finish(); return }
     if (step === 'Ready') { finish(); return }
+    // FilesLocation saves the dir before advancing.
+    if (step === 'FilesLocation') { handleFilesLocationNext(); return }
     // Profile fires persona install on advance.
     if (step === 'Profile') { handleProfileNext(); return }
     next()
@@ -463,6 +481,16 @@ export default function OnboardingWizard() {
               userName={userName}
               inputCls={inputCls}
               subtextCls={subtextCls}
+            />
+          )}
+          {step === 'FilesLocation' && (
+            <FilesLocationStep
+              filesDir={filesDir}
+              setFilesDir={setFilesDir}
+              defaultPath={DEFAULT_FILES_DIR}
+              inputCls={inputCls}
+              subtextCls={subtextCls}
+              onNext={handleFilesLocationNext}
             />
           )}
           {step === 'Profile' && (
@@ -686,7 +714,7 @@ export default function OnboardingWizard() {
               </button>
             ) : (
               <button
-                onClick={step === 'Profile' ? handleProfileNext : next}
+                onClick={step === 'FilesLocation' ? handleFilesLocationNext : step === 'Profile' ? handleProfileNext : next}
                 className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-semibold text-white transition-colors"
                 data-testid="next-button"
               >
