@@ -966,10 +966,18 @@ def agent_mailbox_instruction(
     this file each cycle: if mtime is newer than the last check, skip ahead
     and poll /nudges immediately without waiting for the interval to expire.
     The stat call is cheap and works even at the slow poll cadence.
+
+    Sentinels (→2891): the whole block is wrapped in
+    ``<!-- mailbox:begin -->`` / ``<!-- mailbox:end -->`` lines so the
+    transcript title logic in routers/transcripts.py can excise it
+    wholesale. Without them, individual sentences from this block kept
+    leaking into transcript titles every time the wording changed.
+    Keep the sentinels as the first and last line of the returned string.
     """
     fast = MAILBOX_FAST_POLL_SECONDS
     slow = MAILBOX_SLOW_POLL_SECONDS
     return (
+        "<!-- mailbox:begin -->\n"
         "## Bootstrap (do this before ANYTHING else)\n\n"
         "Load the shell tool now, it is deferred until you call ToolSearch:\n"
         "   `ToolSearch(query=\"select:mcp__ostk__bash\", max_results=1)`\n\n"
@@ -1129,6 +1137,7 @@ def agent_mailbox_instruction(
         "tickets, comment, or move work without bouncing the user out of yourOS. "
         "Skip if /api/atlassian/status returns connected=false."
         + _team_mailbox_section(team_id)
+        + "\n<!-- mailbox:end -->"
     )
 
 

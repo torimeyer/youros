@@ -28,8 +28,94 @@ _MAILBOX_BOILERPLATE_RE = re.compile(
     r"heartbeat.*every|"
     r"mailbox\s+check(?:ing)?|"
     r"nudge.*poll|"
+    # Belt for historical, sentinel-free transcripts (→2891): the generated
+    # "Never wait for a response from the user/Tori after posting…" sentence
+    # passed every other filter and became the derived title. New blocks are
+    # excised structurally via the mailbox sentinels below; this keyword only
+    # protects old files.
+    r"never\s+wait\s+for\s+a\s+response|"
     r"post\s*/api/agents)"
 )
+
+# Structural containment (→2891): the mailbox-instruction builder in
+# routers/agents.py wraps its generated block in these sentinel lines.
+# Every sentinel-delimited region is excised wholesale BEFORE any title
+# logic runs, so future wording changes inside the block can never leak
+# into a transcript title, no matter what they say.
+_MAILBOX_SENTINEL_REGION_RE = re.compile(
+    r"<!--\s*mailbox:begin\s*-->.*?<!--\s*mailbox:end\s*-->\n?",
+    re.DOTALL | re.IGNORECASE,
+)
+# A begin marker with no matching end marker (truncated capture): drop
+# everything from the marker onward rather than let half a block leak.
+_MAILBOX_SENTINEL_OPEN_RE = re.compile(
+    r"<!--\s*mailbox:begin\s*-->.*\Z",
+    re.DOTALL | re.IGNORECASE,
+)
+
+# Headings that open a legacy (sentinel-free) mailbox/registration block:
+# the long block starts with "## Bootstrap (do this before ANYTHING else)"
+# followed by "## Agent registration and mailbox (mandatory)"; the compact
+# block uses "## Mailbox (mandatory)…". Kept precise so a real task heading
+# like "## Mailbox feature work" is not mistaken for boilerplate.
+_MAILBOX_BLOCK_START_RE = re.compile(
+    r"(?i)^##\s*(agent\s+registration|bootstrap\b|mailbox\s*\(mandatory\))"
+)
+
+
+def _strip_sentinel_mailbox_regions(text: str) -> str:
+    """Excise every ``<!-- mailbox:begin -->``…``<!-- mailbox:end -->`` region.
+
+    Also trims the blank lines and ``---`` separator rules left at the
+    seams so the surviving task prose starts (and ends) clean. Text
+    without sentinels is returned untouched.
+    """
+    if "mailbox:begin" not in text.lower():
+        return text
+    cleaned = _MAILBOX_SENTINEL_REGION_RE.sub("", text)
+    cleaned = _MAILBOX_SENTINEL_OPEN_RE.sub("", cleaned)
+    lines = cleaned.splitlines()
+    def _is_seam(line: str) -> bool:
+        stripped = line.strip()
+        return not stripped or set(stripped) == {"-"}
+    while lines and _is_seam(lines[0]):
+        lines.pop(0)
+    while lines and _is_seam(lines[-1]):
+        lines.pop()
+    return "\n".join(lines)
+
+
+def _is_meaningful_prose(candidate: str) -> bool:
+    """True when a stripped line reads as task prose rather than mailbox
+    boilerplate, markup, or a shell command.
+
+    Shared by the leading-section scan and the post-block fallback scan
+    in :func:`_skip_mailbox_boilerplate`. The instruction-step and
+    bold-led filters exist because those lines used to leak out of the
+    mailbox block, become the transcript preview, and poison the AI
+    title generator's context until it refused — and the refusal was
+    then cached as the title (→2888).
+    """
+    if not candidate:
+        return False
+    if candidate.startswith("#"):
+        return False
+    if candidate.startswith("`") or candidate.startswith("curl") or candidate.startswith("POST "):
+        return False
+    # Separator rules (---) and other letterless lines are never prose.
+    if not re.search(r"[A-Za-z]", candidate):
+        return False
+    # Instruction-list steps: "1. On each cycle, call:", "d. Post the…"
+    if re.match(r"^\(?(\d{1,3}|[A-Za-z])[.)]\s", candidate):
+        return False
+    if candidate.startswith("**") or candidate.endswith(":"):
+        return False
+    if _MAILBOX_BOILERPLATE_RE.search(candidate):
+        return False
+    # Lines that are clearly still part of registration prose.
+    if re.search(r"(?i)(register|heartbeat|mailbox|nudge|agents page|before doing)", candidate):
+        return False
+    return True
 
 # Titles that are actually the naming model refusing ("I don't see the
 # actual messages…") must never be shown or cached (→2888). Matches the
@@ -99,27 +185,45 @@ TORIOS_PROJECT_DIR = PROJECTS_DIR / str(PROJECT_ROOT).replace("/", "-").lstrip("
 def _skip_mailbox_boilerplate(text: str) -> str:
     """Return the meaningful portion of a prompt text, skipping mailbox/registration blocks.
 
-    Strategy:
-    1. Locate the '## Agent registration' heading.
-    2. Scan forward for the NEXT top-level '##' heading that is NOT itself
-       a registration/mailbox heading. Everything under that heading is the
-       real task text.
-    3. Return the first non-empty non-code prose line from that section.
-    4. If no such second heading exists but there is text after all the
-       boilerplate lines are exhausted, return that text.
-    5. If the input has no registration heading at all, return it unchanged.
+    Strategy (→2888, →2891):
+    0. Excise every sentinel-delimited region (``<!-- mailbox:begin -->`` …
+       ``<!-- mailbox:end -->``) wholesale before anything else. Newly
+       generated instruction blocks are wrapped in these sentinels, so no
+       future wording change inside the block can leak into a title.
+    1. Locate the start of a legacy (sentinel-free) mailbox block: the
+       '## Agent registration', '## Bootstrap', or '## Mailbox (mandatory)'
+       heading.
+    2. If meaningful prose exists BEFORE that block, it is the task brief
+       (how the orchestrator writes every brief): return its first
+       meaningful line. Task text ahead of the block always wins.
+    3. Otherwise scan forward for the NEXT top-level '##' heading that is
+       NOT itself a registration/mailbox heading and return the first
+       prose line under it.
+    4. If no such heading exists, hunt for the first line after the block
+       that is clearly free of mailbox vocabulary. If nothing qualifies,
+       return "" so callers advance to the next user message.
+    5. If the input has no mailbox block at all, return it unchanged.
     """
+    text = _strip_sentinel_mailbox_regions(text)
     lines = text.splitlines()
 
     # Find the line index of the mailbox block start
     mailbox_start: Optional[int] = None
     for i, line in enumerate(lines):
-        if re.match(r"(?i)^##\s*agent\s+registration", line.strip()):
+        if _MAILBOX_BLOCK_START_RE.match(line.strip()):
             mailbox_start = i
             break
 
     if mailbox_start is None:
         return text
+
+    # Task prose placed BEFORE the mailbox block is the actual brief
+    # (→2891): it always wins over anything the block-relative scans
+    # below could dig up.
+    for i in range(mailbox_start):
+        candidate = lines[i].strip()
+        if _is_meaningful_prose(candidate):
+            return candidate
 
     # Scan lines after the mailbox heading for the next top-level ## heading
     # that is NOT itself mailbox boilerplate.
@@ -139,32 +243,12 @@ def _skip_mailbox_boilerplate(text: str) -> str:
             # Heading found but no prose lines under it
             return ""
 
-    # No secondary heading found. Try to find any non-boilerplate prose line
-    # after the mailbox block.
+    # No secondary heading found. Try to find any line after the mailbox
+    # block that is clearly free of mailbox vocabulary (→2888, →2891).
     for i in range(mailbox_start + 1, len(lines)):
         candidate = lines[i].strip()
-        if not candidate:
-            continue
-        if candidate.startswith("#"):
-            continue
-        if candidate.startswith("`") or candidate.startswith("curl") or candidate.startswith("POST "):
-            continue
-        # Instruction-list steps and bold-led rule lines from the mailbox
-        # block ("1. On each cycle, call:", "**Adaptive poll schedule**: …")
-        # are boilerplate, not task prose (→2888): they used to leak out
-        # here, become the transcript preview, and poison the AI title
-        # generator's context until it refused — and the refusal was then
-        # cached as the title.
-        if re.match(r"^\(?(\d{1,3}|[A-Za-z])[.)]\s", candidate):
-            continue
-        if candidate.startswith("**") or candidate.endswith(":"):
-            continue
-        if _MAILBOX_BOILERPLATE_RE.search(candidate):
-            continue
-        # Skip lines that are clearly still part of registration prose
-        if re.search(r"(?i)(register|heartbeat|mailbox|nudge|agents page|before doing)", candidate):
-            continue
-        return candidate
+        if _is_meaningful_prose(candidate):
+            return candidate
 
     return ""
 
@@ -762,12 +846,17 @@ async def get_transcript(session_id: str, limit: int = 100, offset: int = 0):
 async def backfill_transcript_titles():
     """Re-derive titles for transcripts whose cached title looks like junk.
 
-    Checks every entry in the title cache. If a title starts with
-    'Agent registration' (case-insensitive), or reads as a model refusal
-    ("I don't see the actual messages…", →2888), it is deleted so the
-    next /transcripts fetch will re-derive it from the actual message
-    content. Does NOT mutate source JSONL files. Safe to call multiple
-    times.
+    Checks every entry in the title cache. An entry is deleted so the
+    next /transcripts fetch re-derives it from the actual message content
+    when the title:
+    - starts with 'Agent registration' (case-insensitive),
+    - reads as a model refusal ("I don't see the actual messages…", →2888),
+    - contains the leaked mailbox sentence "never wait for a response"
+      (case-insensitive, →2891), or
+    - is the empty-string sentinel (cached when the extracted context was
+      junk; with extraction fixed those deserve one more regeneration
+      attempt, →2891).
+    Does NOT mutate source JSONL files. Safe to call multiple times.
     """
     cache = _load_title_cache()
     removed: list[str] = []
@@ -775,9 +864,15 @@ async def backfill_transcript_titles():
     boilerplate_title_re = re.compile(
         r"(?i)^agent\s+registration"
     )
+    leaked_mailbox_re = re.compile(r"(?i)never\s+wait\s+for\s+a\s+response")
 
     for session_id, title in list(cache.items()):
-        if boilerplate_title_re.match(title) or _looks_like_refusal(title):
+        if (
+            not title
+            or boilerplate_title_re.match(title)
+            or leaked_mailbox_re.search(title)
+            or _looks_like_refusal(title)
+        ):
             del cache[session_id]
             removed.append(session_id)
 
