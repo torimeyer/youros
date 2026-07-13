@@ -51,6 +51,9 @@ def _user_entry(text: str) -> str:
 
 # A realistic legacy mailbox block (no sentinels) for use in multi-message
 # fixtures — same shape used in test_2892_old_transcript_title_families.py.
+# Includes the Atlassian terminator paragraph that real legacy blocks always
+# carry; the "/api/atlassian" keyword pushes last_boilerplate past all
+# in-block prose so the fallback scan returns nothing.
 _LEGACY_BLOCK = """\
 ## Agent registration and mailbox (mandatory)
 
@@ -64,9 +67,11 @@ Use these primitives to share state, signal progress, and leave a trail.
 
 ### Finishing your work (mandatory)
 
-When you finish the work you were asked to do, you MUST mark yourself complete.
-   `curl --connect-timeout 3 -m 5 -sSk -X POST https://127.0.0.1:8000/api/agents/x/complete`
+When you finish the work you were asked to do, you MUST mark yourself complete so the Agents page stops showing you as active. This is not optional. Do this as the very last step, after any final reply:
+   `curl --connect-timeout 3 -m 5 -sSk -X POST https://127.0.0.1:8000/api/agents/x/complete -H 'Content-Type: application/json' -d '{"summary": "<one line summary>"}'`
 Without this call the agent row stays in the running state forever even though you exited.
+
+Atlassian (Jira and Confluence) is connected through yourOS. Server endpoints are available at /api/atlassian/jira/issue/{key} (GET for ticket detail) and /api/atlassian/confluence/page/{id} (GET). Skip if /api/atlassian/status returns connected=false.
 """
 
 # ---------------------------------------------------------------------------

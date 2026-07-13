@@ -51,7 +51,11 @@ _MAILBOX_BOILERPLATE_RE = re.compile(
     # an operational constraint on the agent, not task content. Measured:
     # 76 transcripts showed "Exiting after analysis only, no commit, no
     # task" (or a truncation of it) as their title.
-    r"exiting\s+after\s+analysis\s+only)"
+    r"exiting\s+after\s+analysis\s+only|"
+    # Belt for the "### Finishing your work (mandatory)" section sentence
+    # that can survive the fallback post-block scan when a legacy block
+    # lacks the Atlassian terminator paragraph.
+    r"without\s+this\s+call\s+the\s+agent\s+row)"
 )
 
 # Structural containment (→2891): the mailbox-instruction builder in
@@ -142,6 +146,11 @@ _KNOWN_PREAMBLE_RES = [
     re.compile(r"(?i)^conversation\s+so\s+far:\s*$"),
     re.compile(r"(?i)^this\s+is\s+the\s+first\s+message\s+in\s+the\s+conversation\b"),
     re.compile(r"(?i)^reply\s+directly\s+to\s+the\s+previous\s+speaker\b"),
+    # →2894 family 5: brief template rule sentence that appears at the START
+    # of spawn briefs (before the mailbox block or with the task text on the
+    # next paragraph). Adding it here strips it in the no-mailbox-block path
+    # too; the _MAILBOX_BOILERPLATE_RE belt handles the within-block scan.
+    re.compile(r"(?i)^exiting\s+after\s+analysis\s+only"),
 ]
 
 
