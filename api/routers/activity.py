@@ -82,7 +82,13 @@ async def get_activity(
     - category: grouping for filters (task, agent, idea, system)
     - detail: extra info like the task ID and title
     """
-    raw_events = await ostk.get_history(last=last, target=target)
+    # Over-fetch the raw window (→2887): the history log also contains
+    # hidden internal rows (HIDDEN_EVENTS, e.g. cli.deprecated noise written
+    # by deprecated-alias CLI calls). Fetching exactly `last` raw rows let
+    # that noise consume the whole window and the feed filtered down to
+    # nothing. Fetch a larger window, filter, then trim to `last` below.
+    fetch_last = min(5000, max(last * 10, 500))
+    raw_events = await ostk.get_history(last=fetch_last, target=target)
 
     # Pre-fetch tasks to enrich titles for 'Closed' events that only have IDs.
     # ostk.list_tasks is TTL-cached so this is fast across concurrent calls.
@@ -184,8 +190,10 @@ async def get_activity(
             if ex["timestamp"][:19] not in existing_ts:
                 events.append(ex)
 
-    # Return newest first for the feed
+    # Return newest first for the feed, trimmed to the requested count
+    # (the fetch window above is deliberately larger than `last`).
     events.sort(key=lambda e: e.get("timestamp", ""), reverse=True)
+    events = events[:last]
 
     return {"events": events, "count": len(events)}
 

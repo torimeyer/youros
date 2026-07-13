@@ -44,6 +44,17 @@ describe('PatternPanel', () => {
     })
   })
 
+  it('fetches clusters from /patterns/clusters — the api client adds the /api prefix (→2887)', async () => {
+    // Regression: passing "/api/patterns/clusters" here double-prefixed to
+    // "/api/api/patterns/clusters", a 404 that made the What I learned tab
+    // permanently empty.
+    mockGet.mockResolvedValue({ clusters: [] })
+    render(<PatternPanel />)
+    await waitFor(() => {
+      expect(mockGet).toHaveBeenCalledWith('/patterns/clusters')
+    })
+  })
+
   it('renders clusters with label and seen count', async () => {
     mockGet.mockResolvedValue({ clusters: [CLUSTER_TASK] })
     render(<PatternPanel />)
@@ -71,7 +82,7 @@ describe('PatternPanel', () => {
     fireEvent.click(screen.getByTestId('confirm-abc123'))
     await waitFor(() => {
       expect(mockPost).toHaveBeenCalledWith(
-        '/api/patterns/clusters/abc123/tier',
+        '/patterns/clusters/abc123/tier',
         { tier: 2 },
       )
     })
@@ -85,7 +96,7 @@ describe('PatternPanel', () => {
     fireEvent.click(screen.getByTestId('dismiss-abc123'))
     await waitFor(() => {
       expect(mockPost).toHaveBeenCalledWith(
-        '/api/patterns/clusters/abc123/tier',
+        '/patterns/clusters/abc123/tier',
         { tier: 0 },
       )
     })
@@ -111,7 +122,7 @@ describe('PatternPanel', () => {
     fireEvent.click(screen.getByTestId('pattern-approve-silent'))
     await waitFor(() => {
       expect(mockPost).toHaveBeenCalledWith(
-        '/api/patterns/clusters/abc123/tier',
+        '/patterns/clusters/abc123/tier',
         { tier: 3 },
       )
     })
@@ -143,7 +154,7 @@ describe('PatternPanel', () => {
     await waitFor(() => {
       expect(screen.getByText('Silent action enabled')).toBeDefined()
       expect(mockPost).toHaveBeenLastCalledWith(
-        '/api/patterns/clusters/abc123/tier',
+        '/patterns/clusters/abc123/tier',
         { tier: 3 },
       )
     })

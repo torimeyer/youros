@@ -498,10 +498,20 @@ def _spec_audit_enrich_sync(
 
 
 class OstkService:
+    # After a socket-transport failure, wait this long before probing the
+    # socket again. Without a retry, one transient failure latched
+    # _socket_available to False forever and pushed every later call —
+    # including the 30-second clock refresher — onto the deprecated
+    # `ostk os` CLI alias, which appends a cli.deprecated row to the
+    # history log on every invocation and flooded the Activity feed (→2887).
+    _SOCKET_RETRY_SECONDS = 60.0
+
     def __init__(self, cwd: str = None):
         self.cwd = cwd if cwd is not None else str(get_effective_root())
         # Tri-state: None = unknown, True = working, False = unavailable
         self._socket_available: Optional[bool] = None
+        # time.monotonic() of the last socket-transport failure.
+        self._socket_failed_at: float = 0.0
 
     def _resolve_socket_tool(self, args: tuple) -> Optional[tuple]:
         """Map CLI argument tuples to MCP tool names and arguments.
@@ -522,18 +532,12 @@ class OstkService:
                 return ("diff", {})
             if sub == "clock":
                 return ("clock", {})
-            if sub == "history":
-                params: dict = {}
-                rest = args[2:]
-                i = 0
-                while i < len(rest):
-                    if rest[i] == "--last" and i + 1 < len(rest):
-                        params["last"] = rest[i + 1]
-                        i += 2
-                    else:
-                        params["target"] = rest[i]
-                        i += 1
-                return ("session_history", params)
+            # NOTE (→2887): `os history` is deliberately NOT mapped to the
+            # socket. The daemon's session_history tool replays a per-agent
+            # session log and answers "No previous session found for agent
+            # 'unknown'" for the backend — never the project history feed —
+            # which made the Activity page permanently empty in socket mode.
+            # Project history only comes from the CLI subprocess.
             return None
 
         if head == "kernel" and len(args) >= 2:
@@ -604,9 +608,23 @@ class OstkService:
         tool_name, tool_args = mapping
         return await call_tool(tool_name, tool_args, timeout=float(timeout))
 
-    async def _run(self, *args: str, timeout: int = 5) -> str:
-        # Try socket transport first (fast path)
+    def _socket_worth_trying(self) -> bool:
+        """True when the socket transport should be attempted.
+
+        Unknown or healthy: always try. After a failure: try again once
+        the retry cooldown has elapsed, so a transient daemon hiccup does
+        not permanently degrade every call to the subprocess path (→2887).
+        """
         if self._socket_available is not False:
+            return True
+        return (time.monotonic() - self._socket_failed_at) >= self._SOCKET_RETRY_SECONDS
+
+    async def _run(self, *args: str, timeout: int = 5) -> str:
+        # Try socket transport first (fast path). Only commands that HAVE a
+        # socket mapping are attempted: an unmapped command falling through
+        # to the subprocess is normal and must not poison the availability
+        # latch for every other command (→2887).
+        if self._resolve_socket_tool(args) is not None and self._socket_worth_trying():
             try:
                 result = await self._run_socket(*args, timeout=timeout)
                 self._socket_available = True
@@ -614,6 +632,7 @@ class OstkService:
                 return result
             except Exception:
                 self._socket_available = False
+                self._socket_failed_at = time.monotonic()
 
         # Fallback to subprocess
         import subprocess

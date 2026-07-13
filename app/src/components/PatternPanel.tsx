@@ -39,7 +39,11 @@ export default function PatternPanel() {
   const fetchClusters = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await api.get<{ clusters: Cluster[] }>("/api/patterns/clusters");
+      // The api client already prefixes every path with /api — passing
+      // "/api/patterns/…" here produced "/api/api/patterns/…", a 404 that
+      // silently degraded into the permanent "Nothing learned yet" empty
+      // state (→2887).
+      const data = await api.get<{ clusters: Cluster[] }>("/patterns/clusters");
       setClusters(data.clusters ?? []);
     } catch {
       // silently degrade
@@ -53,7 +57,7 @@ export default function PatternPanel() {
   const setTier = async (id: string, tier: number) => {
     setPending((p) => new Set(p).add(id));
     try {
-      await api.post(`/api/patterns/clusters/${id}/tier`, { tier });
+      await api.post(`/patterns/clusters/${id}/tier`, { tier });
       if (tier === 0) {
         setDismissed((d) => new Set(d).add(id));
       } else {

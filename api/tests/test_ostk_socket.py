@@ -419,11 +419,15 @@ class TestOstkServiceSocketFallback:
 
     @pytest.mark.asyncio
     async def test_skips_socket_when_known_unavailable(self):
-        """When _socket_available is False, skip socket entirely."""
+        """When _socket_available is False and the failure is recent (inside
+        the retry cooldown), skip the socket entirely. After the cooldown
+        the socket is probed again (covered in test_2887_activity_feed)."""
+        import time
         from services.ostk import OstkService
 
         svc = OstkService()
         svc._socket_available = False
+        svc._socket_failed_at = time.monotonic()
 
         with patch.object(svc, "_run_socket") as mock_sock:
             with patch("subprocess.run") as mock_sub:
@@ -461,17 +465,15 @@ class TestResolveSocketTool:
         result = self.svc._resolve_socket_tool(("os", "clock"))
         assert result == ("clock", {})
 
-    def test_os_history(self):
-        result = self.svc._resolve_socket_tool(("os", "history"))
-        assert result == ("session_history", {})
-
-    def test_os_history_with_last(self):
-        result = self.svc._resolve_socket_tool(("os", "history", "--last", "10"))
-        assert result == ("session_history", {"last": "10"})
-
-    def test_os_history_with_target(self):
-        result = self.svc._resolve_socket_tool(("os", "history", "task.added"))
-        assert result == ("session_history", {"target": "task.added"})
+    def test_os_history_is_not_socket_mapped(self):
+        """→2887: the daemon's session_history tool replays a per-agent
+        session log ("No previous session found for agent 'unknown'"), not
+        the project history feed. Mapping os history to it made the
+        Activity Events tab permanently empty, so history must always go
+        through the CLI subprocess."""
+        assert self.svc._resolve_socket_tool(("os", "history")) is None
+        assert self.svc._resolve_socket_tool(("os", "history", "--last", "10")) is None
+        assert self.svc._resolve_socket_tool(("os", "history", "task.added")) is None
 
     def test_kernel_ps(self):
         result = self.svc._resolve_socket_tool(("kernel", "ps"))

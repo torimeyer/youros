@@ -87,13 +87,17 @@ async def test_activity_returns_newest_first(client):
 
 @pytest.mark.asyncio
 async def test_activity_respects_last_param(client):
-    """The last query parameter should be forwarded to get_history."""
+    """The last query parameter bounds the response size. The raw history
+    fetch window is intentionally larger so hidden internal events cannot
+    blank the feed (→2887)."""
     with patch("routers.activity.ostk") as mock_ostk:
         mock_ostk.get_history = AsyncMock(return_value=[])
         resp = await client.get("/api/activity?last=10")
 
     assert resp.status_code == 200
-    mock_ostk.get_history.assert_called_once_with(last=10, target=None)
+    kwargs = mock_ostk.get_history.call_args.kwargs
+    assert kwargs["last"] >= 10
+    assert kwargs["target"] is None
 
 
 @pytest.mark.asyncio
@@ -104,7 +108,7 @@ async def test_activity_respects_target_param(client):
         resp = await client.get("/api/activity?target=%E2%86%92087")
 
     assert resp.status_code == 200
-    mock_ostk.get_history.assert_called_once_with(last=50, target="→087")
+    assert mock_ostk.get_history.call_args.kwargs["target"] == "→087"
 
 
 @pytest.mark.asyncio
