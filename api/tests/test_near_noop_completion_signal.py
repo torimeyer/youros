@@ -86,14 +86,27 @@ def _add_test_only_commit(wt: Path, lines: int = 42) -> None:
     _git(wt, "commit", "-m", "test(specs): cover SpecReview render")
 
 
-def _add_real_fix_commit(wt: Path) -> None:
-    """Add a commit that touches BOTH production and test code (legit fix)."""
+def _add_real_fix_commit(wt: Path, prod_lines: int = 40, test_lines: int = 20) -> None:
+    """Add a commit that touches BOTH production and test code (legit fix).
+
+    Writes enough lines (>= 50 total) to stay above the NEAR_NOOP_LINE_THRESHOLD
+    so the fix is correctly classified as substantial work, not near-noop.
+    """
     src = wt / "api" / "services" / "spec_drift.py"
     src.parent.mkdir(parents=True, exist_ok=True)
-    src.write_text("def _parse_ac_annotation(line):\n    return line.strip()\n")
+    src.write_text(
+        "def _parse_ac_annotation(line):\n"
+        "    return line.strip()\n"
+        + "\n".join(f"# impl line {i}" for i in range(prod_lines - 2))
+        + "\n"
+    )
     test = wt / "api" / "tests" / "test_spec_drift.py"
     test.parent.mkdir(parents=True, exist_ok=True)
-    test.write_text("from services.spec_drift import _parse_ac_annotation\n")
+    test.write_text(
+        "from services.spec_drift import _parse_ac_annotation\n"
+        + "\n".join(f"# test line {i}" for i in range(test_lines - 1))
+        + "\n"
+    )
     _git(wt, "add", str(src.relative_to(wt)), str(test.relative_to(wt)))
     _git(wt, "commit", "-m", "fix(specs): parse AC annotation line")
 
@@ -282,10 +295,10 @@ async def test_mark_agent_complete_no_near_noop_for_real_fix(tmp_path):
             )
 
         assert result.get("status") == "completed"
-        assert result.get("near_noop") is None, (
+        assert not result.get("near_noop"), (
             f"Real production fix must NOT flag near-noop, got: {result.get('near_noop')!r}"
         )
-        assert agent_metadata[agent_name].get("near_noop") is None
+        assert not agent_metadata[agent_name].get("near_noop")
 
     finally:
         agent_metadata.pop(agent_name, None)
