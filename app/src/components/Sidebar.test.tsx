@@ -1737,3 +1737,128 @@ describe('Activity obeys its feature switch (→2884)', () => {
     )
   })
 })
+
+describe('bring hidden nav items back from the sidebar (→2886)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+    _resetSidebarBus()
+    useRunningAgentsStore.setState({ count: 0, agents: [], connected: false, lastUpdatedAt: null })
+    useNotificationStore.setState({
+      notifications: [],
+      toastIds: [],
+      persistentToastIds: new Set<string>(),
+      firedKeys: new Set<string>(),
+    })
+    useAppStore.setState({ osName: 'yourOS', features: DEFAULT_FEATURES, powerUserMode: false })
+    mockedApiGet.mockImplementation((url: string) => {
+      if (url.startsWith('/agents')) return Promise.resolve({ agents: [] })
+      if (url === '/tasks/counts') return Promise.resolve({ open: 0 })
+      if (url === '/specs/counts') return Promise.resolve({ unfinished: 0, total: 0 })
+      return Promise.resolve({ authenticated: false, unread_count: 0 })
+    })
+  })
+
+  it('shows no Hidden items row while nothing is hidden', () => {
+    renderSidebar()
+    expect(screen.queryByTestId('hidden-items-toggle')).not.toBeInTheDocument()
+  })
+
+  it('hiding an item shows a collapsed Hidden items row with the count', () => {
+    useAppStore.setState({
+      features: [...DEFAULT_FEATURES, { label: 'Portfolio', enabled: false }],
+    })
+    renderSidebar()
+    const toggle = screen.getByTestId('hidden-items-toggle')
+    expect(toggle.textContent).toContain('Hidden items (1)')
+    expect(screen.queryByTestId('hidden-items-list')).not.toBeInTheDocument()
+  })
+
+  it('expanding the row lists each hidden item by its visible label', () => {
+    useAppStore.setState({
+      features: DEFAULT_FEATURES.map((f) =>
+        f.label === 'Gmail' ? { ...f, enabled: false } : f,
+      ).concat([{ label: 'Portfolio', enabled: false }]),
+    })
+    renderSidebar()
+    const toggle = screen.getByTestId('hidden-items-toggle')
+    expect(toggle.textContent).toContain('Hidden items (2)')
+    fireEvent.click(toggle)
+    const list = screen.getByTestId('hidden-items-list')
+    expect(within(list).getByTestId('restore-Portfolio').textContent).toContain('Portfolio')
+    expect(within(list).getByTestId('restore-Gmail').textContent).toContain('Gmail')
+  })
+
+  it('clicking a hidden item turns it back on and saves the change', async () => {
+    useAppStore.setState({
+      features: [...DEFAULT_FEATURES, { label: 'Portfolio', enabled: false }],
+    })
+    renderSidebar()
+    expect(document.querySelector('a[href="/portfolio"]')).toBeNull()
+    fireEvent.click(screen.getByTestId('hidden-items-toggle'))
+    fireEvent.click(screen.getByTestId('restore-Portfolio'))
+    await waitFor(() => {
+      expect(document.querySelector('a[href="/portfolio"]')).not.toBeNull()
+    })
+    expect(api.patch).toHaveBeenCalledWith(
+      '/settings',
+      expect.objectContaining({
+        features: expect.objectContaining({ Portfolio: true }),
+      }),
+    )
+    expect(screen.queryByTestId('hidden-items-toggle')).not.toBeInTheDocument()
+  })
+
+  it('The Arcade and Usage appear in the hidden list when switched off', () => {
+    useAppStore.setState({
+      features: DEFAULT_FEATURES.map((f) =>
+        f.label === 'Cost Tracking' ? { ...f, enabled: false } : f,
+      ).concat([{ label: 'The Arcade', enabled: false }]),
+    })
+    renderSidebar()
+    fireEvent.click(screen.getByTestId('hidden-items-toggle'))
+    const list = screen.getByTestId('hidden-items-list')
+    expect(within(list).getByTestId('restore-The Arcade').textContent).toContain('The Arcade')
+    expect(within(list).getByTestId('restore-Cost Tracking').textContent).toContain('Usage')
+  })
+
+  it('Activity appears in the hidden list when its switch is off (→2884)', () => {
+    useAppStore.setState({
+      features: DEFAULT_FEATURES.map((f) =>
+        f.label === 'Activity' ? { ...f, enabled: false } : f,
+      ),
+    })
+    renderSidebar()
+    fireEvent.click(screen.getByTestId('hidden-items-toggle'))
+    expect(screen.getByTestId('restore-Activity')).toBeInTheDocument()
+  })
+
+  it('switches with no nav item (Chat, Backlog, Automations) never appear in the list', () => {
+    useAppStore.setState({
+      features: DEFAULT_FEATURES.map((f) =>
+        f.label === 'Chat' || f.label === 'Automations' ? { ...f, enabled: false } : f,
+      ).concat([{ label: 'Backlog', enabled: false }]),
+    })
+    renderSidebar()
+    expect(screen.queryByTestId('hidden-items-toggle')).not.toBeInTheDocument()
+  })
+
+  it('a hidden ostk does not count while power user mode is off', () => {
+    useAppStore.setState({
+      powerUserMode: false,
+      features: [...DEFAULT_FEATURES, { label: 'ostk', enabled: false }],
+    })
+    renderSidebar()
+    expect(screen.queryByTestId('hidden-items-toggle')).not.toBeInTheDocument()
+  })
+
+  it('a hidden ostk counts once power user mode is on', () => {
+    useAppStore.setState({
+      powerUserMode: true,
+      features: [...DEFAULT_FEATURES, { label: 'ostk', enabled: false }],
+    })
+    renderSidebar()
+    fireEvent.click(screen.getByTestId('hidden-items-toggle'))
+    expect(screen.getByTestId('restore-ostk')).toBeInTheDocument()
+  })
+})

@@ -101,6 +101,17 @@ export const ARCADE_NAV_ITEM: NavItem = { to: '/break', icon: 'sports_esports', 
 // and the hover x actually hide it (→2884).
 export const ACTIVITY_NAV_ITEM: NavItem = { to: '/activity', icon: 'monitoring', label: 'Activity', featureLabel: 'Activity' }
 
+// Every nav item a user can hide, used by the "Hidden items" restore row
+// (→2886). Switches with no nav item of their own (Chat, Backlog,
+// Automations) never appear here: restoring them from the sidebar would
+// change nothing visible.
+const HIDEABLE_NAV_ITEMS: NavItem[] = [
+  ...ALL_NAV_ITEMS,
+  USAGE_NAV_ITEM,
+  ARCADE_NAV_ITEM,
+  ACTIVITY_NAV_ITEM,
+].filter((item) => item.featureLabel !== null)
+
 // ------------- helpers -------------
 
 function loadCollapsedState(): Record<string, boolean> {
@@ -366,6 +377,7 @@ export function Sidebar() {
   const navOrder = useAppStore((s) => s.navOrder)
   const setNavOrder = useAppStore((s) => s.setNavOrder)
   const hideFeature = useAppStore((s) => s.hideFeature)
+  const showFeature = useAppStore((s) => s.showFeature)
   const powerUserMode = useAppStore((s) => s.powerUserMode)
   const enterpriseUser = useAppStore((s) => s.enterpriseUser)
   const sidebarPosition = useAppStore((s) => s.sidebarPosition)
@@ -378,6 +390,8 @@ export function Sidebar() {
   const darkMode = useAppStore((s) => s.darkMode)
   const toggleDarkMode = useAppStore((s) => s.toggleDarkMode)
   const [mobileOpen, setMobileOpen] = useState(false)
+  // Restore row for hidden nav items (→2886). Starts collapsed.
+  const [hiddenItemsOpen, setHiddenItemsOpen] = useState(false)
   const location = useLocation()
 
   const handleSidebarMouseDown = useCallback(() => {
@@ -725,6 +739,14 @@ export function Sidebar() {
   const arcadeEnabled = isEnabled(ARCADE_NAV_ITEM)
   const activityEnabled = isEnabled(ACTIVITY_NAV_ITEM)
 
+  // Nav items the user has hidden, for the "Hidden items" restore row
+  // (→2886). The ostk entry only counts while power user mode is on: with
+  // the mode off the entry would not reappear even after restoring it.
+  const hiddenNavItems = HIDEABLE_NAV_ITEMS.filter((item) => {
+    if (item.to === '/ostk' && !powerUserMode) return false
+    return !isEnabled(item)
+  })
+
   const linkClass = (isActive: boolean) =>
     `group flex items-center gap-3 w-full px-4 py-2.5 rounded-lg transition-colors duration-200 cursor-pointer active:scale-[0.98] ${
       isActive
@@ -861,6 +883,45 @@ export function Sidebar() {
             />
           )
         })}
+
+        {/* Hidden items restore row (→2886): every nav item hidden via the
+            hover x or the Settings switches can be brought back from here. */}
+        {hiddenNavItems.length > 0 && (
+          <div className="mt-1.5 pt-1.5 border-t border-slate-800/60">
+            <button
+              type="button"
+              data-testid="hidden-items-toggle"
+              onClick={() => setHiddenItemsOpen((v) => !v)}
+              aria-expanded={hiddenItemsOpen}
+              className="flex items-center gap-3 w-full px-4 py-1.5 rounded-lg text-slate-500 hover:text-slate-300 hover:bg-slate-800/30 transition-colors duration-150 cursor-pointer select-none"
+            >
+              <Icon name="visibility_off" className="text-base" />
+              <span className="text-xs font-semibold uppercase tracking-wider flex-1 text-left">Hidden items ({hiddenNavItems.length})</span>
+              <Icon
+                name="chevron_right"
+                className={`text-base transition-transform duration-200 ${hiddenItemsOpen ? 'rotate-90' : ''}`}
+              />
+            </button>
+            {hiddenItemsOpen && (
+              <div data-testid="hidden-items-list" className="ml-2">
+                {hiddenNavItems.map((item) => (
+                  <button
+                    key={item.featureLabel}
+                    type="button"
+                    data-testid={`restore-${item.featureLabel}`}
+                    title={`Show ${item.label} in the sidebar again`}
+                    onClick={() => showFeature(item.featureLabel!)}
+                    className="flex items-center gap-3 w-full px-4 py-2 rounded-lg text-slate-500 hover:text-slate-200 hover:bg-slate-800/50 transition-colors duration-150 cursor-pointer"
+                  >
+                    <Icon name={item.icon} className={`text-xl ${item.iconColor ?? ''}`} />
+                    <span className="text-sm font-medium">{item.label}</span>
+                    <Icon name="add" className="ml-auto text-sm" />
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </nav>
 
       <div className="px-3 pt-3 mt-1 border-t border-slate-800/60 flex flex-col gap-0.5">
