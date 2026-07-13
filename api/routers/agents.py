@@ -3534,7 +3534,20 @@ def _resolve_transcript_source_uncached(name: str, skip_transcript_path: bool = 
             suffix = candidate.suffix.lower()
             if suffix in (".output", ".jsonl"):
                 if _is_real_conversation_jsonl(candidate):
-                    return candidate
+                    # Guard (→2893): a JSONL that lives directly in a Claude
+                    # Code project dir (<projects_dir>/<label>/<uuid>.jsonl)
+                    # is the orchestrator's own session, not this agent's.
+                    # _link_session_jsonl stores it in transcript_path so
+                    # byte-count metrics have something to read, but returning
+                    # it from the transcript resolver causes the /transcript
+                    # endpoint to show the wrong conversation.  Skip it; step
+                    # 3 will find the real subagent JSONL in subagents/.
+                    # Only .jsonl files need this guard: .output files are
+                    # per-agent task scratch files, never shared session logs.
+                    if suffix == ".jsonl" and _is_orchestrator_session_jsonl(candidate):
+                        pass  # orchestrator session JSONL — fall through
+                    else:
+                        return candidate
                 # Not a real conversation file; fall through to glob scan.
             else:
                 return candidate
@@ -4123,6 +4136,27 @@ def _get_transcript_metrics(name: str) -> dict:
     metrics = {"transcript_bytes": size, "transcript_lines": lines}
     _transcript_metrics_cache[source] = (size, mtime_ns, metrics)
     return metrics
+
+
+def _is_orchestrator_session_jsonl(path: Path) -> bool:
+    """True if ``path`` is the orchestrator's own Claude Code session JSONL.
+
+    Orchestrator sessions live at:
+      ~/.claude/projects/<label>/<uuid>.jsonl   (direct child of the label dir)
+
+    Subagent files live two levels deeper:
+      ~/.claude/projects/<label>/<session>/subagents/agent-<id>.jsonl
+
+    The test is simply: the file's grandparent is the projects dir.  Files at
+    any other location were explicitly stored in transcript_path by the agent
+    or auto-discovery and are per-agent, not the shared session.  Used by
+    _resolve_transcript_source_uncached step 2 to skip the orchestrator file
+    that _link_session_jsonl stores at register time (→2893).
+    """
+    if path.suffix.lower() != ".jsonl":
+        return False
+    projects_dir = _claude_code_projects_dir()
+    return path.parent.parent == projects_dir
 
 
 def _is_per_agent_transcript_path(path_str: str) -> bool:
