@@ -275,7 +275,7 @@ function ApprovalRow({
     setSubmitting(true);
     setError(null);
     try {
-      await api.post<ApproveResponse>(`/api/portfolio/confidence/${approval.key}/approve`, {
+      await api.post<ApproveResponse>(`/portfolio/confidence/${approval.key}/approve`, {
         value,
         note,
         why: approval.why,
@@ -383,7 +383,7 @@ export default function ExecutiveSummary() {
     setLoading(true);
     setError(null);
     try {
-      const res = await api.get<HealthResponse>("/api/portfolio/health");
+      const res = await api.get<HealthResponse>("/portfolio/health");
       setData(res);
     } catch (err) {
       reportError("executive-summary-load", err);

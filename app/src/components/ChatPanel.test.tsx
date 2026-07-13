@@ -3610,7 +3610,7 @@ describe('ChatPanel', () => {
       const btn = screen.getByTestId('status-check-btn')
       await act(async () => { fireEvent.click(btn) })
 
-      expect(mockGet).toHaveBeenCalledWith('/api/agents/my-agent-abc/transcript-tail')
+      expect(mockGet).toHaveBeenCalledWith('/agents/my-agent-abc/transcript-tail')
 
       await waitFor(() => {
         const bubbles = screen.getAllByTestId(/^bubble-/)

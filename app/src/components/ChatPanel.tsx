@@ -2004,7 +2004,7 @@ export function ChatPanel() {
       const pendingMsg = { id: genId(), role: 'assistant' as const, content: '', model: 'myos' }
       setMessages(prev => [...prev, pendingMsg])
       try {
-        const result = await api.post<{ output?: string; status?: string }>('/api/skills/run', { skill_id: skillId, args: {} })
+        const result = await api.post<{ output?: string; status?: string }>('/skills/run', { skill_id: skillId, args: {} })
         setMessages(prev => prev.map(m =>
           m.id === pendingMsg.id
             ? { ...m, content: result?.output ?? `/${skillId} finished.` }
@@ -2464,7 +2464,7 @@ export function ChatPanel() {
     const pendingBubble = { id: pendingId, role: 'assistant' as const, content: `Checking in with ${agentName}...`, model: 'myos' }
     setMessages(prev => [...prev, pendingBubble])
     try {
-      const data = await api.get<{ lines: string[]; name: string; transcript_path: string; lines_returned: number }>(`/api/agents/${agentName}/transcript-tail`)
+      const data = await api.get<{ lines: string[]; name: string; transcript_path: string; lines_returned: number }>(`/agents/${agentName}/transcript-tail`)
       if (data.lines.length === 0) {
         setMessages(prev => prev.map(m =>
           m.id === pendingId

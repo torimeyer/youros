@@ -41,7 +41,7 @@ export default function WhatChanged() {
 
   useEffect(() => {
     const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
-    api.get(`/api/since-you-last-looked?since=${twoHoursAgo}`)
+    api.get(`/since-you-last-looked?since=${twoHoursAgo}`)
       .then((res: any) => setData(res.data))
       .catch(() => setData(null))
       .finally(() => setLoading(false))

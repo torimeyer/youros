@@ -94,11 +94,24 @@ function notifySidebarOnWrite(method: string, path: string): void {
   }
 }
 
+// Strip an accidental /api prefix from path — BASE already contains /api.
+// Logs a warning in dev so callers can fix their paths at the source.
+function normalizePath(path: string): string {
+  if (path.startsWith('/api/') || path === '/api') {
+    if (typeof import.meta !== 'undefined' && (import.meta as any).env?.DEV) {
+      console.warn(`[api] Path "${path}" starts with /api which is already in BASE. Remove the /api prefix.`)
+    }
+    return path.slice(4)
+  }
+  return path
+}
+
 async function requestOnce<T>(method: string, path: string, body?: unknown, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+  const normalizedPath = normalizePath(path)
   try {
-    const res = await fetch(`${BASE}${path}`, {
+    const res = await fetch(`${BASE}${normalizedPath}`, {
       method,
       headers: body ? { 'Content-Type': 'application/json' } : undefined,
       body: body ? JSON.stringify(body) : undefined,
@@ -110,11 +123,11 @@ async function requestOnce<T>(method: string, path: string, body?: unknown, time
       throw new ApiError(res.status, text)
     }
     if (res.status === 204) {
-      notifySidebarOnWrite(method, path)
+      notifySidebarOnWrite(method, normalizedPath)
       return undefined as T
     }
     const data = await res.json()
-    notifySidebarOnWrite(method, path)
+    notifySidebarOnWrite(method, normalizedPath)
     return data
   } catch (err) {
     // AbortController.abort() causes fetch to reject with a DOMException
