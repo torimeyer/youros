@@ -4141,6 +4141,29 @@ def _is_per_agent_transcript_path(path_str: str) -> bool:
     return False
 
 
+def _is_shared_session_jsonl(path_str: str) -> bool:
+    """True if ``path_str`` is a top-level Claude Code session JSONL, i.e.
+    ``~/.claude/projects/<label>/<uuid>.jsonl`` with no ``subagents/`` segment.
+
+    These files hold a WHOLE conversation. ``_link_session_jsonl`` stores one
+    into ``meta["transcript_path"]`` at register time so byte-count metrics
+    have something to read, but for a harness-spawned subagent that file is
+    the ORCHESTRATOR'S conversation, not the agent's own log (→2893). The
+    transcript endpoint must never serve it as the agent's transcript unless
+    the caller explicitly registered it (transcript_path_source == "caller").
+    """
+    p = Path(path_str)
+    if p.suffix.lower() != ".jsonl":
+        return False
+    if "subagents" in p.parts:
+        return False
+    try:
+        p.relative_to(_claude_code_projects_dir())
+    except ValueError:
+        return False
+    return True
+
+
 def _get_per_agent_transcript_bytes(name: str) -> int:
     """Return the on-disk byte count for THIS agent's own transcript only.
 
@@ -4299,7 +4322,40 @@ async def get_agent_transcript(name: str):
     if "/" in name or ".." in name:
         raise HTTPException(status_code=400, detail="Invalid agent name")
 
-    source = _resolve_transcript_source(name)
+    # →2893: never serve a transcript_path that points at a shared top-level
+    # session JSONL. _link_session_jsonl stores the freshest session file
+    # there at register time (for byte-count metrics), and for a
+    # harness-spawned subagent that file is the ORCHESTRATOR'S conversation.
+    # The resolver's transcript_path shortcut used to return it before the
+    # subagents/agent-*.jsonl scan ever ran, so this endpoint served someone
+    # else's transcript. Only a caller-provided path (transcript_path_source
+    # == "caller") may override the refusal; otherwise resolve strictly
+    # per-agent and 404 when nothing can be attributed to this agent.
+    # Wrong data is worse than no data.
+    _meta = agent_metadata.get(name) or {}
+    _raw_tp = _meta.get("transcript_path") or ""
+    _linked_shared_session = (
+        bool(_raw_tp)
+        and _meta.get("transcript_path_source") != "caller"
+        and _is_shared_session_jsonl(_raw_tp)
+    )
+    if _linked_shared_session:
+        source = await asyncio.to_thread(
+            _resolve_transcript_source_uncached, name, skip_transcript_path=True
+        )
+        if source is None:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"No transcript can be attributed to agent '{name}'. Its "
+                    "recorded transcript path points at a shared session log "
+                    "written by the conversation that spawned it, and no "
+                    "per-agent log (subagents/agent-*.jsonl) matches this "
+                    "agent. Refusing to return another session's transcript."
+                ),
+            )
+    else:
+        source = _resolve_transcript_source(name)
     if source is None:
         meta = agent_metadata.get(name) or {}
         status = meta.get("status", "")
@@ -7386,6 +7442,12 @@ def _link_session_jsonl(name: str, meta: dict, register_time_iso: str) -> bool:
         return False
 
     meta["transcript_path"] = str(best)
+    # →2893: provenance marker. This path is a HEURISTIC link to a shared
+    # top-level session JSONL (often the orchestrator's own conversation),
+    # stored so byte-count metrics have something to read. It is not
+    # attribution: the transcript endpoint must never serve it as the
+    # agent's own log.
+    meta["transcript_path_source"] = "session-link"
     meta.pop("transcript_uuid_pending", None)
     return True
 
@@ -7602,6 +7664,11 @@ async def register_agent(body: AgentSpawn, request: Request = None):
             record["template"] = existing["template"]
     if body.transcript_path:
         record["transcript_path"] = body.transcript_path
+        # →2893: provenance marker. A caller-provided path is the only
+        # transcript_path the transcript endpoint may trust unconditionally.
+        # Heuristic paths (session-link, autodiscovered) are guesses, not
+        # attribution.
+        record["transcript_path_source"] = "caller"
     elif existing.get("transcript_path"):
         # The spawn endpoint already stamped the correct transcript path
         # into the agent record. Preserve it so that a bridge-spawned
@@ -7611,6 +7678,9 @@ async def register_agent(body: AgentSpawn, request: Request = None):
         # it can pick up a Monitor's .output file instead of this agent's
         # own transcript -- the exact bug this fixes.
         record["transcript_path"] = existing["transcript_path"]
+        # Carry the provenance marker forward with the path (→2893).
+        if existing.get("transcript_path_source"):
+            record["transcript_path_source"] = existing["transcript_path_source"]
     else:
         # Best-effort auto-discovery: Claude Code's Agent tool writes
         # streaming output to /private/tmp/claude-<uid>/.../tasks/*.output
@@ -7621,6 +7691,7 @@ async def register_agent(body: AgentSpawn, request: Request = None):
         discovered = _autodiscover_recent_transcript_path()
         if discovered:
             record["transcript_path"] = discovered
+            record["transcript_path_source"] = "autodiscovered"  # →2893
     # Workflow linkage: preserve the run ID so the reconcile pass can find
     # this agent later when the workflow finishes. Carry forward any existing
     # workflow_run_id on re-register so it is never lost.
