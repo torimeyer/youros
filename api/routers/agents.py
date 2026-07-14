@@ -3534,7 +3534,27 @@ def _resolve_transcript_source_uncached(name: str, skip_transcript_path: bool = 
             suffix = candidate.suffix.lower()
             if suffix in (".output", ".jsonl"):
                 if _is_real_conversation_jsonl(candidate):
-                    return candidate
+                    # Guard (→2893): a JSONL that lives directly in a Claude
+                    # Code project dir (<projects_dir>/<label>/<uuid>.jsonl)
+                    # is the orchestrator's own session, not this agent's.
+                    # _link_session_jsonl stores it in transcript_path so
+                    # byte-count metrics have something to read, but returning
+                    # it from the transcript resolver causes the /transcript
+                    # endpoint to show the wrong conversation.  Skip it; step
+                    # 3 will find the real subagent JSONL in subagents/.
+                    # Only .jsonl files need this guard: .output files are
+                    # per-agent task scratch files, never shared session logs.
+                    # Exemption: a path the CALLER explicitly registered
+                    # (transcript_path_source == "caller") is trusted even
+                    # when session-shaped — explicit beats heuristics (→2893).
+                    if (
+                        suffix == ".jsonl"
+                        and _is_orchestrator_session_jsonl(candidate)
+                        and meta.get("transcript_path_source") != "caller"
+                    ):
+                        pass  # orchestrator session JSONL — fall through
+                    else:
+                        return candidate
                 # Not a real conversation file; fall through to glob scan.
             else:
                 return candidate
@@ -4125,6 +4145,27 @@ def _get_transcript_metrics(name: str) -> dict:
     return metrics
 
 
+def _is_orchestrator_session_jsonl(path: Path) -> bool:
+    """True if ``path`` is the orchestrator's own Claude Code session JSONL.
+
+    Orchestrator sessions live at:
+      ~/.claude/projects/<label>/<uuid>.jsonl   (direct child of the label dir)
+
+    Subagent files live two levels deeper:
+      ~/.claude/projects/<label>/<session>/subagents/agent-<id>.jsonl
+
+    The test is simply: the file's grandparent is the projects dir.  Files at
+    any other location were explicitly stored in transcript_path by the agent
+    or auto-discovery and are per-agent, not the shared session.  Used by
+    _resolve_transcript_source_uncached step 2 to skip the orchestrator file
+    that _link_session_jsonl stores at register time (→2893).
+    """
+    if path.suffix.lower() != ".jsonl":
+        return False
+    projects_dir = _claude_code_projects_dir()
+    return path.parent.parent == projects_dir
+
+
 def _is_per_agent_transcript_path(path_str: str) -> bool:
     """True if transcript_path is a per-agent file, not the shared orchestrator session JSONL.
 
@@ -4140,28 +4181,6 @@ def _is_per_agent_transcript_path(path_str: str) -> bool:
         return True
     return False
 
-
-def _is_shared_session_jsonl(path_str: str) -> bool:
-    """True if ``path_str`` is a top-level Claude Code session JSONL, i.e.
-    ``~/.claude/projects/<label>/<uuid>.jsonl`` with no ``subagents/`` segment.
-
-    These files hold a WHOLE conversation. ``_link_session_jsonl`` stores one
-    into ``meta["transcript_path"]`` at register time so byte-count metrics
-    have something to read, but for a harness-spawned subagent that file is
-    the ORCHESTRATOR'S conversation, not the agent's own log (→2893). The
-    transcript endpoint must never serve it as the agent's transcript unless
-    the caller explicitly registered it (transcript_path_source == "caller").
-    """
-    p = Path(path_str)
-    if p.suffix.lower() != ".jsonl":
-        return False
-    if "subagents" in p.parts:
-        return False
-    try:
-        p.relative_to(_claude_code_projects_dir())
-    except ValueError:
-        return False
-    return True
 
 
 def _get_per_agent_transcript_bytes(name: str) -> int:
@@ -4337,7 +4356,7 @@ async def get_agent_transcript(name: str):
     _linked_shared_session = (
         bool(_raw_tp)
         and _meta.get("transcript_path_source") != "caller"
-        and _is_shared_session_jsonl(_raw_tp)
+        and _is_orchestrator_session_jsonl(Path(_raw_tp))
     )
     if _linked_shared_session:
         source = await asyncio.to_thread(

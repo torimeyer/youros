@@ -3577,6 +3577,118 @@ def test_resolve_transcript_falls_back_to_stub_when_no_real_transcript(tmp_path)
         agent_metadata.pop("lonely-agent", None)
 
 
+def test_resolve_transcript_skips_orchestrator_session_jsonl(tmp_path):
+    """→2893: when transcript_path in metadata points to the orchestrator's
+    own session JSONL (a direct child of the project dir, not in subagents/),
+    the resolver must NOT return it.  It must fall through to the subagent
+    JSONL scan and return the agent's real file instead.
+
+    Regression: before the fix, _resolve_transcript_source returned the
+    orchestrator session because step 2 checked _is_real_conversation_jsonl
+    but not _is_per_agent_transcript_path.  The transcript endpoint then
+    showed the orchestrator conversation instead of the agent's own log.
+    """
+    from routers import agents as agents_module
+    from routers.agents import (
+        _resolve_transcript_source,
+        _reset_transcript_resolver_cache,
+        _reset_candidates_cache,
+        agent_metadata,
+    )
+
+    fake_home = tmp_path / "home"
+    fake_repo = tmp_path / "repo"
+    fake_repo.mkdir(exist_ok=True)
+    project_label = str(fake_repo).replace("/", "-").lstrip("-")
+    project_dir = fake_home / ".claude" / "projects" / f"-{project_label}"
+    project_dir.mkdir(parents=True, exist_ok=True)
+
+    # Orchestrator session JSONL: a direct child of project_dir (no subagents/).
+    orchestrator_jsonl = project_dir / "orchestrator-session-uuid.jsonl"
+    orchestrator_jsonl.write_text(_build_jsonl_session("orchestrator") + "\n")
+
+    # Agent's real subagent JSONL: lives under <session>/subagents/.
+    real_agent_jsonl = _write_subagent_jsonl(project_dir, "my-fix-agent")
+
+    # Simulate what _link_session_jsonl does: store the orchestrator JSONL
+    # in transcript_path (wrong; but that is the pre-fix behaviour).
+    agent_metadata["my-fix-agent"] = {
+        "source": "claude-code",
+        "status": "running",
+        "transcript_path": str(orchestrator_jsonl),
+    }
+    try:
+        _reset_transcript_resolver_cache()
+        _reset_candidates_cache()
+        with (
+            patch.object(agents_module, "_claude_code_projects_dir", return_value=fake_home / ".claude" / "projects"),
+            patch.object(agents_module, "_claude_code_tasks_root", return_value=tmp_path / "tasks-root"),
+            patch("config.PROJECT_ROOT", fake_repo),
+        ):
+            source = _resolve_transcript_source("my-fix-agent")
+
+        assert source is not None, "resolver returned None; expected the real subagent JSONL"
+        assert source == real_agent_jsonl, (
+            f"resolver returned the orchestrator session instead of the agent's own JSONL.\n"
+            f"  got:      {source}\n"
+            f"  expected: {real_agent_jsonl}"
+        )
+        assert source != orchestrator_jsonl, "resolver must not return the orchestrator's session JSONL"
+    finally:
+        agent_metadata.pop("my-fix-agent", None)
+        _reset_transcript_resolver_cache()
+        _reset_candidates_cache()
+
+
+def test_resolve_transcript_returns_not_found_when_no_subagent_jsonl_exists(tmp_path):
+    """→2893 (not-found path): when transcript_path is the orchestrator
+    session JSONL *and* no subagent JSONL exists yet, the resolver should
+    return None rather than the wrong file, so the endpoint shows the
+    "no transcript yet" message instead of someone else's conversation.
+    """
+    from routers import agents as agents_module
+    from routers.agents import (
+        _resolve_transcript_source,
+        _reset_transcript_resolver_cache,
+        _reset_candidates_cache,
+        agent_metadata,
+    )
+
+    fake_home = tmp_path / "home"
+    fake_repo = tmp_path / "repo"
+    fake_repo.mkdir(exist_ok=True)
+    project_label = str(fake_repo).replace("/", "-").lstrip("-")
+    project_dir = fake_home / ".claude" / "projects" / f"-{project_label}"
+    project_dir.mkdir(parents=True, exist_ok=True)
+
+    # Only the orchestrator session JSONL exists; no subagent file.
+    orchestrator_jsonl = project_dir / "orchestrator-session-uuid.jsonl"
+    orchestrator_jsonl.write_text(_build_jsonl_session("orchestrator") + "\n")
+
+    agent_metadata["brand-new-agent"] = {
+        "source": "claude-code",
+        "status": "running",
+        "transcript_path": str(orchestrator_jsonl),
+    }
+    try:
+        _reset_transcript_resolver_cache()
+        _reset_candidates_cache()
+        with (
+            patch.object(agents_module, "_claude_code_projects_dir", return_value=fake_home / ".claude" / "projects"),
+            patch.object(agents_module, "_claude_code_tasks_root", return_value=tmp_path / "tasks-root"),
+            patch("config.PROJECT_ROOT", fake_repo),
+        ):
+            source = _resolve_transcript_source("brand-new-agent")
+
+        assert source is None, (
+            f"resolver should return None when only the orchestrator JSONL exists, got: {source}"
+        )
+    finally:
+        agent_metadata.pop("brand-new-agent", None)
+        _reset_transcript_resolver_cache()
+        _reset_candidates_cache()
+
+
 def test_register_autodiscovers_transcript_path_from_tasks_root(tmp_path):
     """``POST /api/agents/register`` without an explicit transcript_path
     should auto-discover the freshest ``.output`` file in the scratch
