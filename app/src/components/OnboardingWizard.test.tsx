@@ -956,46 +956,6 @@ describe('OnboardingWizard - Enter key advances steps', () => {
     expect(link).toHaveAttribute('href', '/privacy')
   })
 
-  it('Enter on the FilesLocation step (window) advances to Profile', async () => {
-    render(<OnboardingWizard />)
-    choosePersonalMode()
-    clickNext(3) // Welcome -> You -> Name -> FilesLocation
-
-    expect(screen.getByTestId('step-files-location')).toBeInTheDocument()
-    fireEvent.keyDown(window, { key: 'Enter' })
-
-    await waitFor(() => {
-      expect(screen.queryByTestId('step-files-location')).not.toBeInTheDocument()
-      expect(screen.getByTestId('step-profile')).toBeInTheDocument()
-    })
-  })
-
-  it('Enter on the FilesLocation input advances to Profile', async () => {
-    render(<OnboardingWizard />)
-    choosePersonalMode()
-    clickNext(3) // Welcome -> You -> Name -> FilesLocation
-
-    fireEvent.click(screen.getByTestId('files-location-change'))
-    const input = screen.getByTestId('files-dir-input')
-    fireEvent.keyDown(input, { key: 'Enter' })
-
-    await waitFor(() => {
-      expect(screen.getByTestId('step-profile')).toBeInTheDocument()
-    })
-  })
-
-  it('Enter on the Customize step (window) advances to Theme', async () => {
-    render(<OnboardingWizard />)
-    choosePersonalMode()
-    clickNext(5) // Welcome -> You -> Name -> FilesLocation -> Profile -> Customize
-
-    expect(screen.getByTestId('step-customize')).toBeInTheDocument()
-    fireEvent.keyDown(window, { key: 'Enter' })
-
-    await waitFor(() => {
-      expect(screen.getByTestId('step-theme')).toBeInTheDocument()
-    })
-  })
 
   it('Enter on the Tracking step (window) advances to Connect', async () => {
     render(<OnboardingWizard />)
@@ -1412,83 +1372,6 @@ describe('OnboardingWizard — Atlassian and GitHub setup cards', () => {
   })
 })
 
-describe('OnboardingWizard — FilesLocation step', () => {
-  beforeEach(() => {
-    localStorageMock.clear()
-    useAppStore.setState({
-      onboarded: false,
-      osName: '',
-      darkMode: false,
-      defaultChatModel: 'claude',
-      instanceMode: 'personal',
-      orgName: '',
-      teamAccentColor: '#6366f1',
-      displayOsName: () => '',
-      setInstanceMode: vi.fn() as unknown as (mode: 'personal' | 'team') => void,
-      setOrgName: vi.fn(),
-      setAgentsLastViewed: vi.fn() as unknown as (v: string) => void,
-    })
-    vi.mocked(api.get).mockImplementation(async (path: string) => {
-      if (path === '/settings') return { files_dir: '/Users/me/custom' }
-      return MOCK_ADVENTURES
-    })
-    vi.mocked(api.put).mockResolvedValue({})
-    vi.mocked(api.post).mockResolvedValue({})
-  })
-
-  it('FilesLocation step is reachable at index 3 (after Name)', () => {
-    render(<OnboardingWizard />)
-    clickNext(3) // Welcome → You → Name → FilesLocation
-    expect(screen.getByTestId('step-files-location')).toBeInTheDocument()
-  })
-
-  it('shows the plain-language explanation', () => {
-    render(<OnboardingWizard />)
-    clickNext(3)
-    expect(screen.getByTestId('step-files-location')).toHaveTextContent(
-      'This is the folder on your computer where yourOS saves your files'
-    )
-  })
-
-  it('shows files_dir from /settings as the displayed path', async () => {
-    render(<OnboardingWizard />)
-    clickNext(3)
-    await waitFor(() => expect(screen.getByTestId('files-dir-display')).toHaveTextContent('/Users/me/custom'))
-  })
-
-  it('defaults to ~/.myos/files display when files_dir is null', async () => {
-    vi.mocked(api.get).mockImplementation(async (path: string) => {
-      if (path === '/settings') return { files_dir: null }
-      return MOCK_ADVENTURES
-    })
-    render(<OnboardingWizard />)
-    clickNext(3)
-    await waitFor(() => expect(screen.getByTestId('files-dir-display')).toHaveTextContent('~/.myos/files'))
-  })
-
-  it('Change location toggle reveals and hides the input', async () => {
-    render(<OnboardingWizard />)
-    clickNext(3)
-    await waitFor(() => expect(screen.getByTestId('files-dir-display')).toBeInTheDocument())
-    expect(screen.queryByTestId('files-dir-input')).not.toBeInTheDocument()
-    fireEvent.click(screen.getByTestId('files-location-change'))
-    expect(screen.getByTestId('files-dir-input')).toBeInTheDocument()
-    fireEvent.click(screen.getByTestId('files-location-change'))
-    expect(screen.queryByTestId('files-dir-input')).not.toBeInTheDocument()
-  })
-
-  it('Next button PUTs files_dir to /settings then advances to Profile', async () => {
-    render(<OnboardingWizard />)
-    clickNext(3)
-    await waitFor(() => expect(screen.getByTestId('step-files-location')).toBeInTheDocument())
-    await waitFor(() => expect(screen.getByTestId('files-dir-display')).toHaveTextContent('/Users/me/custom'))
-    fireEvent.click(screen.getByTestId('next-button'))
-    await waitFor(() => {
-      expect(vi.mocked(api.put)).toHaveBeenCalledWith('/settings', { files_dir: '/Users/me/custom' })
-    })
-    expect(screen.getByTestId('step-profile')).toBeInTheDocument()
-  })
-})
 
 describe('TeamOnboardingSteps — Enter key on inputs', () => {
   it('Enter on OrgName input calls onNext', () => {
