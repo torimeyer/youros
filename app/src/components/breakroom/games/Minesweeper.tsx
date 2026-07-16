@@ -31,6 +31,12 @@ const NUM_COLOR = [
   'text-[#64748b]', // 8 gray
 ]
 
+// Inline style for the raised bevel effect on unrevealed tiles.
+const BEVEL_STYLE = {
+  boxShadow:
+    'inset 2px 2px 0 rgba(255,255,255,0.65), inset -2px -2px 0 rgba(0,0,0,0.28)',
+}
+
 const blank = () => createBoard(ROWS, COLS, [])
 
 export default function Minesweeper() {
@@ -141,18 +147,22 @@ export default function Minesweeper() {
         </div>
       </div>
 
-      {/* Board */}
-      <div className="w-full rounded-lg bg-slate-400 p-1 dark:bg-slate-700">
+      {/* Board frame — raised bevel edge around the minefield */}
+      <div
+        className="w-full rounded border-2 border-slate-400 bg-slate-400 p-1 dark:border-slate-600 dark:bg-slate-700"
+        style={{ boxShadow: 'inset 2px 2px 0 rgba(255,255,255,0.4), inset -2px -2px 0 rgba(0,0,0,0.3)' }}
+      >
         <div className="grid gap-[1px]" style={{ gridTemplateColumns: `repeat(${COLS}, 1fr)` }}>
           {board.map((row, r) =>
             row.map((cell, c) => {
               if (cell.revealed) {
+                // Revealed cell — flat, shows number or mine.
                 return (
                   <div
                     key={`${r}-${c}`}
                     className={[
                       'flex aspect-square w-full select-none items-center justify-center text-xs font-bold',
-                      'bg-slate-200 dark:bg-slate-300',
+                      'border border-slate-300 bg-slate-200 dark:border-slate-400 dark:bg-slate-300',
                       cell.adj && !cell.mine ? NUM_COLOR[cell.adj] : '',
                     ].join(' ')}
                   >
@@ -160,6 +170,7 @@ export default function Minesweeper() {
                   </div>
                 )
               }
+              // Unrevealed cell — raised bevel, presses in when clicked.
               return (
                 <button
                   key={`${r}-${c}`}
@@ -167,10 +178,13 @@ export default function Minesweeper() {
                   data-testid={`mine-${r}-${c}`}
                   onClick={() => clickCell(r, c)}
                   onContextMenu={(e) => rightClick(e, r, c)}
+                  style={BEVEL_STYLE}
                   className={[
-                    'flex aspect-square w-full select-none items-center justify-center text-sm',
-                    'bg-slate-300 dark:bg-slate-500',
-                    status === 'playing' ? 'hover:bg-slate-200 dark:hover:bg-slate-400' : '',
+                    'flex aspect-square w-full select-none items-center justify-center rounded-sm text-sm',
+                    'bg-slate-300 transition-[filter] duration-75 dark:bg-slate-500',
+                    status === 'playing' && !cell.flagged
+                      ? 'hover:brightness-110 active:brightness-90 active:[box-shadow:inset_-2px_-2px_0_rgba(255,255,255,0.65),inset_2px_2px_0_rgba(0,0,0,0.28)]'
+                      : '',
                   ].join(' ')}
                 >
                   {cell.flagged ? '🚩' : ''}
