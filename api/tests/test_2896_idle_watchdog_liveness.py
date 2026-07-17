@@ -55,8 +55,11 @@ from routers.agents import agent_metadata  # noqa: E402
 @pytest.fixture(autouse=True)
 def _reset_transcript_caches():
     """Cold resolver caches before and after every test (same idiom as
-    test_2893_agent_transcript_resolution.py)."""
-    def _clear():
+    test_2893_agent_transcript_resolution.py), and a cold snapshot BEFORE
+    each test (same idiom as test_agents.py) so the sweep actually runs."""
+    prior_snapshot = dict(agents_module._cached_snapshot)
+
+    def _clear_caches():
         agents_module._reset_transcript_resolver_cache()
         agents_module._reset_candidates_cache()
         agents_module._reset_meta_candidates_cache()
@@ -65,14 +68,23 @@ def _reset_transcript_caches():
         own_cache = getattr(agents_module, "_own_log_cache", None)
         if own_cache is not None:
             own_cache.clear()
-        # Cold snapshot too (same idiom as test_agents.py): a warm snapshotter
-        # from a prior test otherwise serves rows without re-running the sweep.
-        agents_module._cached_snapshot.update(
-            {"agents": [], "computed_at": None, "daemon_running": False}
-        )
-    _clear()
+
+    _clear_caches()
+    agents_module._cached_snapshot.update(
+        {"agents": [], "computed_at": None, "daemon_running": False}
+    )
     yield
-    _clear()
+    _clear_caches()
+    # Restore the snapshot contents the suite had before this test (the
+    # snapshot-and-restore idiom test_agents_snapshot_single_flight.py uses).
+    # Leaving the module-global cache COLD here makes some later, unrelated
+    # GET-test recompute inline and bind the module-global compute lock to
+    # ITS event loop, which then explodes any test that touches the lock
+    # from a fresh asyncio.run loop (verified: the full suite fails at
+    # test_agents_snapshot_single_flight with "bound to a different event
+    # loop" with a cold teardown, and passes with this restore).
+    agents_module._cached_snapshot.clear()
+    agents_module._cached_snapshot.update(prior_snapshot)
 
 
 def _project_label(project_root: Path) -> str:
