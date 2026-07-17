@@ -11,6 +11,8 @@ Fix: create_draft now never auto-promotes (draft stays in USER_DRAFTS_DIR).
      always points to the actual file.
 """
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
@@ -114,3 +116,50 @@ async def test_create_from_template_result_file_exists():
         f"Result path missing after from-template: {result}. "
         f"promoted_path was: {data.get('promoted_path')}"
     )
+
+
+# ---------------------------------------------------------------------------
+# →2899: draft creation must never wait on the AI service
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_fallback_ac_skips_the_ai_call_entirely():
+    """fallback_ac exists for callers with no live AI model. A hung AI
+    service held draft creation for the client's 600s default on
+    2026-07-17, so fallback callers must not attempt the call at all."""
+    ai_client = AsyncMock()
+    with patch("services.ai_backend.get_ai_client", new=AsyncMock(return_value=ai_client)):
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/specs/draft",
+                json={"title": "Regression Fallback Skips AI", "kind": "spec", "fallback_ac": True},
+            )
+    assert resp.status_code == 200, resp.text
+    ai_client.messages.create.assert_not_called()
+    body_text = Path(resp.json()["result"]).read_text()
+    assert "- [ ]" in body_text, "placeholder checklist must still be written"
+
+
+@pytest.mark.asyncio
+async def test_ac_generation_call_carries_a_short_time_limit():
+    """The real AC-generation call must pass an explicit timeout so a slow
+    AI service cannot hold draft creation for the 600s SDK default."""
+    response = SimpleNamespace(
+        content=[SimpleNamespace(text="## Acceptance Criteria\n\n- [ ] generated item\n")]
+    )
+    ai_client = AsyncMock()
+    ai_client.messages.create = AsyncMock(return_value=response)
+    with patch("services.ai_backend.get_ai_client", new=AsyncMock(return_value=ai_client)):
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/specs/draft",
+                json={"title": "Regression AC Call Time Limit", "kind": "spec"},
+            )
+    assert resp.status_code == 200, resp.text
+    ai_client.messages.create.assert_called_once()
+    kwargs = ai_client.messages.create.call_args.kwargs
+    assert "timeout" in kwargs, "AC-generation call must pass an explicit timeout"
+    assert kwargs["timeout"] <= 30, f"timeout too long: {kwargs['timeout']}"

@@ -987,11 +987,15 @@ async def create_draft(body: SpecDraft):
     try:
         from services.ai_backend import get_ai_client
 
-        client = await get_ai_client()
+        # →2899: fallback callers run without a live AI model; never attempt
+        # the call for them. The real call gets a 30s cap because the SDK's
+        # 600s default froze draft creation when the AI service hung.
+        client = None if body.fallback_ac else await get_ai_client()
         if client is not None:
             response = await client.messages.create(
                 model=AC_DRAFT_MODEL,
                 max_tokens=250,
+                timeout=30.0,
                 system=[{
                     "type": "text",
                     "text": _ac_generation_system(),
