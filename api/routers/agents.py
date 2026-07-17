@@ -700,6 +700,23 @@ STALE_AGENT_AUTOCOMPLETE_SECONDS = 300
 # still writing output and must not be auto-completed yet.
 STALE_AGENT_TRANSCRIPT_GRACE_SECONDS = 120
 
+# →2896: quiet threshold for flagging an agent whose death is UNPROVEN
+# (no recorded pid, so no ground-truth process check is possible). The
+# longest observed normal quiet stretch is ~10 minutes: a full api pytest
+# run inside ONE tool call, during which the agent can neither heartbeat
+# nor append to its log (saa-2892 2026-07-13, saa-2894 and saa-2880
+# 2026-07-14 were all false-flagged exactly this way). 1200s = 2x that
+# observed maximum, and matches the existing "no heartbeat for over 20
+# minutes" legacy list-endpoint sweep, so no new cadence is introduced.
+# Rows with a stored pid confirmed dead keep the fast flip paths; this
+# threshold only gates inference-based flips.
+IDLE_WATCHDOG_QUIET_SECONDS = 1200
+
+# →2896: how many times a sweep-flagged row may be revived by a real
+# heartbeat before the 409 becomes final. Bounds status flapping if some
+# stray process keeps posting step-carrying heartbeats for a dead agent.
+MAX_HEARTBEAT_REVIVALS = 3
+
 # Response-time staleness cutoff for GET /api/agents (→1151, →1212).
 # Non-running rows whose last_seen (last_heartbeat_at or spawned_at) is
 # older than this are dropped from the serialized response. Running rows
@@ -2337,27 +2354,32 @@ def _sweep_stale_running_agents() -> bool:
                 reason += (
                     f". Recovery exhausted ({recovery_count}/{MAX_RECOVERY_ATTEMPTS})"
                 )
-            _set_agent_status(name, "terminated_stale", terminated_at=_stale_flip_ts, terminated_reason=reason)
+            _set_agent_status(name, "terminated_stale", terminated_at=_stale_flip_ts, terminated_reason=reason, flagged_by="stale_sweep")
             changed = True
     return changed
 
 
-def _transcript_grew_recently(name: str, now: datetime) -> bool:
+def _transcript_grew_recently(
+    name: str,
+    now: datetime,
+    window_seconds: int = STALE_AGENT_TRANSCRIPT_GRACE_SECONDS,
+) -> bool:
     """Return True if the agent's transcript was modified within the last
-    STALE_AGENT_TRANSCRIPT_GRACE_SECONDS seconds.
+    ``window_seconds`` seconds (default: STALE_AGENT_TRANSCRIPT_GRACE_SECONDS).
 
     Distinct from ``_transcript_recently_active`` (which uses the longer
     STALE_AGENT_TIMEOUT_SECONDS window to keep live agents from being swept).
-    This tighter 2-minute window is used by the auto-complete pass: if the
+    The tight 2-minute default is used by the auto-complete pass: if the
     transcript grew in the last 2 minutes the agent is still mid-stream and
-    must not be auto-completed yet.
+    must not be auto-completed yet. →2896 passes IDLE_WATCHDOG_QUIET_SECONDS
+    here when the row has no pid and death is unproven.
     """
     source = _resolve_transcript_source(name)
     if source is None:
         return False
     try:
         mtime = datetime.fromtimestamp(source.stat().st_mtime, tz=timezone.utc)
-        return (now - mtime).total_seconds() <= STALE_AGENT_TRANSCRIPT_GRACE_SECONDS
+        return (now - mtime).total_seconds() <= window_seconds
     except OSError:
         return False
 
@@ -2521,6 +2543,18 @@ def _autocomplete_exited_subagents() -> bool:
                 if _last_hb_dt and (now - _last_hb_dt).total_seconds() <= STALE_AGENT_TRANSCRIPT_GRACE_SECONDS:
                     continue
             if not _transcript_grew_recently(name, now):
+                # →2896: no recorded pid means death is UNPROVEN — the row
+                # was curl-registered and there is no process to check. The
+                # 2-minute idle grace repeatedly false-flagged agents that
+                # were quiet inside one long tool call (saa-2892, saa-2894,
+                # saa-2880: full test suites). Without proof of death, the
+                # log must have been quiet for the LONG threshold before a
+                # flip is allowed. Fresh heartbeats were already handled
+                # above; confirmed-dead pids keep the fast path.
+                if not pid and _transcript_grew_recently(
+                    name, now, IDLE_WATCHDOG_QUIET_SECONDS
+                ):
+                    continue
                 # Transcript exists and is idle: agent finished.
                 # →2607: stamp each flip with its OWN timestamp. Batch-stamping
                 # the sweep's shared `now` gave saa-reaper-fixtures-r2 and
@@ -2530,7 +2564,7 @@ def _autocomplete_exited_subagents() -> bool:
                 # used, this is likely a quota-cap silent failure.
                 _ghost, _ghost_reason = _is_ghost_completion(meta, name)
                 if _ghost:
-                    _set_agent_status(name, "failed", failed_at=_flip_ts, fail_reason=_ghost_reason, summary=_stale_sweep_summary_for(name))
+                    _set_agent_status(name, "failed", failed_at=_flip_ts, fail_reason=_ghost_reason, summary=_stale_sweep_summary_for(name), flagged_by="idle_sweep")
                     _pending_ghost_retries.append(name)
                     logger.warning(
                         "ghost.detected path=A name=%s reason=%s",
@@ -2538,7 +2572,7 @@ def _autocomplete_exited_subagents() -> bool:
                     )
                 else:
                     _attach_near_noop_signal(name, meta)
-                    _set_agent_status(name, "completed", completed_at=_flip_ts, summary=_stale_sweep_summary_for(name))
+                    _set_agent_status(name, "completed", completed_at=_flip_ts, summary=_stale_sweep_summary_for(name), flagged_by="idle_sweep")
                     _emit_audit_event("agent.completed", {"name": name})
                     # Queue needle closes for the async drain (→2207) — but
                     # ONLY on verified success (→2620). This flip was inferred
@@ -2609,7 +2643,7 @@ def _autocomplete_exited_subagents() -> bool:
         # Ghost check: transcript absent + no tokens = quota cap.
         _ghost_b, _ghost_reason_b = _is_ghost_completion(meta, name)
         if _ghost_b:
-            _set_agent_status(name, "failed", failed_at=_flip_ts_b, fail_reason=_ghost_reason_b, summary=_stale_sweep_summary_for(name))
+            _set_agent_status(name, "failed", failed_at=_flip_ts_b, fail_reason=_ghost_reason_b, summary=_stale_sweep_summary_for(name), flagged_by="idle_sweep")
             _pending_ghost_retries.append(name)
             logger.warning(
                 "ghost.detected path=B name=%s reason=%s",
@@ -2617,7 +2651,7 @@ def _autocomplete_exited_subagents() -> bool:
             )
         else:
             _attach_near_noop_signal(name, meta)
-            _set_agent_status(name, "completed", completed_at=_flip_ts_b, summary=_stale_sweep_summary_for(name))
+            _set_agent_status(name, "completed", completed_at=_flip_ts_b, summary=_stale_sweep_summary_for(name), flagged_by="idle_sweep")
             _emit_audit_event("agent.completed", {"name": name})
             # Queue needle closes for the async drain (→2207) — but ONLY on
             # verified success (→2620). Path B is even weaker inference than
@@ -4182,6 +4216,53 @@ def _is_per_agent_transcript_path(path_str: str) -> bool:
     return False
 
 
+def _resolve_own_log_path(name: str) -> Optional[Path]:
+    """→2895: resolve the agent's OWN log file, never the shared session.
+
+    Priority:
+      1. A caller-registered transcript_path (transcript_path_source ==
+         "caller") — explicit attribution beats every heuristic (→2893).
+      2. transcript_path when it is a per-agent file (.md, or a JSONL /
+         .output under a subagents/ dir) rather than the shared session
+         link _link_session_jsonl stores.
+      3. The per-agent resolver scan with skip_transcript_path=True (the
+         same seam _get_per_agent_transcript_bytes uses).
+
+    Returns None when nothing per-agent exists anywhere.
+    """
+    meta = agent_metadata.get(name) or {}
+    raw_path = meta.get("transcript_path")
+    if raw_path and (
+        meta.get("transcript_path_source") == "caller"
+        or _is_per_agent_transcript_path(raw_path)
+    ):
+        candidate = Path(raw_path)
+        try:
+            if candidate.exists():
+                return candidate
+        except OSError:
+            pass
+    return _resolve_transcript_source_uncached(name, skip_transcript_path=True)
+
+
+# TTL cache for _resolve_own_log_path (same idiom as _resolve_cache):
+# heartbeats arrive every ~25-60s per agent and the uncached resolver
+# walks the filesystem. Maps name -> (expires_monotonic, Optional[Path]).
+_own_log_cache: dict = {}
+
+
+def _resolve_own_log_path_cached(name: str) -> Optional[Path]:
+    """TTL-cached wrapper around :func:`_resolve_own_log_path`."""
+    import time as _time
+    now = _time.monotonic()
+    cached = _own_log_cache.get(name)
+    if cached is not None and cached[0] > now:
+        return cached[1]
+    result = _resolve_own_log_path(name)
+    _own_log_cache[name] = (now + _RESOLVE_TTL_SECONDS, result)
+    return result
+
+
 
 def _get_per_agent_transcript_bytes(name: str) -> int:
     """Return the on-disk byte count for THIS agent's own transcript only.
@@ -4782,6 +4863,17 @@ async def _compute_agents_snapshot_async(run_autocomplete: bool = True) -> dict:
             continue
         if _proc_handle_is_alive(name):
             continue
+        # →2896: the stored pid is ground truth (same rule →2659 added to
+        # the other sweeps). A busy agent mid long tool call cannot
+        # heartbeat, but its process is demonstrably alive; HTTP silence
+        # alone must never demote it.
+        _sweep_pid = agent.get("pid") or (agent_metadata.get(name) or {}).get("pid")
+        if _sweep_pid:
+            try:
+                if _is_pid_alive(int(_sweep_pid)):
+                    continue
+            except (TypeError, ValueError):
+                pass
         if _transcript_recently_active(name, now_for_sweep):
             continue
         terminated_at = now_for_sweep.isoformat()
@@ -4793,13 +4885,17 @@ async def _compute_agents_snapshot_async(run_autocomplete: bool = True) -> dict:
         agent["status"] = demoted_status
         agent["terminated_at"] = terminated_at
         agent["terminated_reason"] = reason
+        # →2896: sweep demotions are inferences; stamp them revivable so a
+        # real heartbeat arriving later flips the row back to running.
+        agent["flagged_by"] = "stale_sweep"
         if is_cc_subagent:
             agent["completed_at"] = terminated_at
         meta = agent_metadata.get(name)
         if meta is not None:
             _set_agent_status(name, demoted_status,
                               terminated_at=terminated_at,
-                              terminated_reason=reason)
+                              terminated_reason=reason,
+                              flagged_by="stale_sweep")
             if is_cc_subagent:
                 meta["completed_at"] = terminated_at
             sweep_changed = True
@@ -7496,6 +7592,24 @@ async def register_agent(body: AgentSpawn, request: Request = None):
             detail="register requires source (e.g. 'claude-code')",
         )
 
+    # →2895: accept an optional ``log_path`` field — the caller's own log
+    # file, known at spawn time (the subagents/ JSONL the harness streams
+    # to). AgentSpawn is a shared schema that ignores unknown fields, so
+    # lift it from the raw body. It is stored as transcript_path with the
+    # →2893 "caller" provenance marker: explicit attribution beats every
+    # heuristic, so liveness checks and the transcript endpoint trust it
+    # even when name matching would have failed.
+    _caller_log_path = body.transcript_path
+    if not _caller_log_path and request is not None:
+        try:
+            _raw_body = await request.json()
+            if isinstance(_raw_body, dict):
+                _lp = _raw_body.get("log_path")
+                if isinstance(_lp, str) and _lp.strip():
+                    _caller_log_path = _lp.strip()
+        except Exception:
+            pass
+
     resolved_model = MODEL_MAP.get(body.model, body.model)
     # Default status to "running" so newly registered agents appear in the UI
     # immediately. Callers may pass an explicit status to override.
@@ -7528,6 +7642,12 @@ async def register_agent(body: AgentSpawn, request: Request = None):
             # Refresh heartbeat so the merged row does not get swept as
             # stale while the subagent is doing real work.
             existing_meta["last_heartbeat_at"] = now_iso
+            # →2895: a caller-provided log path applies to the merged row
+            # too — the hook slug row it merges into has, at best, an
+            # autodiscovered guess.
+            if _caller_log_path:
+                existing_meta["transcript_path"] = _caller_log_path
+                existing_meta["transcript_path_source"] = "caller"
             # Preserve the hook's description (usually richer) but adopt
             # the subagent's prompt if the hook did not capture one.
             if body.prompt and not existing_meta.get("prompt"):
@@ -7681,12 +7801,12 @@ async def register_agent(body: AgentSpawn, request: Request = None):
         record["template_produces_doc"] = existing["template_produces_doc"]
         if existing.get("template"):
             record["template"] = existing["template"]
-    if body.transcript_path:
-        record["transcript_path"] = body.transcript_path
-        # →2893: provenance marker. A caller-provided path is the only
-        # transcript_path the transcript endpoint may trust unconditionally.
-        # Heuristic paths (session-link, autodiscovered) are guesses, not
-        # attribution.
+    if _caller_log_path:
+        record["transcript_path"] = _caller_log_path
+        # →2893: provenance marker. A caller-provided path (transcript_path
+        # or the →2895 log_path alias) is the only transcript_path the
+        # transcript endpoint may trust unconditionally. Heuristic paths
+        # (session-link, autodiscovered) are guesses, not attribution.
         record["transcript_path_source"] = "caller"
     elif existing.get("transcript_path"):
         # The spawn endpoint already stamped the correct transcript path
@@ -8460,6 +8580,14 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
             ),
         )
 
+    # →2896: the client-side idle detector's /complete (register-agent.sh
+    # keepalive loop running heartbeat_idle.py) is an inference from log
+    # idleness, not a report from the agent itself — it produced one of the
+    # three observed false flags. Stamp it revivable so a real heartbeat
+    # arriving later flips the row back to running.
+    if body and body.summary and "auto-completed by heartbeat idle detector" in body.summary:
+        agent_metadata[name]["flagged_by"] = "idle_sweep"
+
     # Set a "completing" sentinel status BEFORE any awaits so concurrent
     # requests see a non-None status and are turned away by the guard above.
     # This closes the race window where two simultaneous /complete calls
@@ -8951,14 +9079,51 @@ async def heartbeat_agent(name: str, body: Optional[AgentHeartbeat] = None):
     }
     current_status = meta.get("status", "")
     if current_status in _HEARTBEAT_TERMINAL:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"Agent '{name}' is already in terminal status "
-                f"'{current_status}'. Stop heartbeating or re-register "
-                "under a fresh name."
-            ),
+        # →2896: a status a SWEEP inferred (flagged_by stamp) is a guess,
+        # not a fact. A real heartbeat carrying a step is proof of life:
+        # revive the row instead of forcing a re-register under a retry
+        # name. Bodyless pings (the detached register-agent.sh keepalive
+        # loop) never revive — that loop outlives dead subagents by design
+        # and would flap a genuine zombie row for its whole 45-minute TTL.
+        # Explicit terminal statuses (user /complete, /cancel) carry no
+        # flagged_by marker and stay final.
+        _revivable = (
+            meta.get("flagged_by") in ("idle_sweep", "stale_sweep")
+            and body is not None
+            and bool(body.step and body.step.strip())
+            and meta.get("revival_count", 0) < MAX_HEARTBEAT_REVIVALS
         )
+        if _revivable:
+            meta.pop("flagged_by", None)
+            for _flip_field in (
+                "completed_at", "terminated_at", "terminated_reason",
+                "failed_at", "fail_reason",
+            ):
+                meta.pop(_flip_field, None)
+            _revival_count = meta.get("revival_count", 0) + 1
+            _set_agent_status(
+                name, "running",
+                revival_count=_revival_count,
+                revived_at=_now_iso(),
+            )
+            logger.info(
+                "heartbeat.revived name=%s from=%s count=%d",
+                name, current_status, _revival_count,
+            )
+            # Re-claim the task the sweep released when it flipped the row
+            # terminal, mirroring what /register does for a fresh row.
+            _rev_nid = meta.get("needle_id")
+            if _rev_nid:
+                _fire_set_task_in_progress(_rev_nid)
+        else:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Agent '{name}' is already in terminal status "
+                    f"'{current_status}'. Stop heartbeating or re-register "
+                    "under a fresh name."
+                ),
+            )
     now_iso = _now_iso()
     meta["last_heartbeat_at"] = now_iso
     if body and body.step:
@@ -8967,14 +9132,20 @@ async def heartbeat_agent(name: str, body: Optional[AgentHeartbeat] = None):
     # →1475: retry UUID link if it wasn't found at register time
     if meta.get("transcript_uuid_pending"):
         _link_session_jsonl(name, meta, meta.get("spawned_at") or now_iso)
-    # →1475: refresh transcript_bytes from the linked session file so the
-    # stall detector and Agents page both see the real byte count. Also
-    # advance last_heartbeat_at to max(API call time, file mtime) so agents
-    # that write a lot of transcript without explicit heartbeats aren't swept.
-    _tp = meta.get("transcript_path")
-    if _tp:
+    # →1475/→2895: refresh transcript_bytes from the agent's OWN resolved
+    # log. meta["transcript_path"] is often the shared orchestrator session
+    # (_link_session_jsonl stores it with source "session-link"); counting
+    # that file reports the orchestrator's byte count and lets the
+    # orchestrator's activity mask a dead helper. Resolve the agent's own
+    # log first; only when no own log exists anywhere fall back to the
+    # stored link so the Agents page still shows non-zero bytes (the
+    # original →1475 contract). The mtime-advance liveness credit applies
+    # to the OWN log only — crediting liveness from the shared session
+    # file was part of the →2895 bug.
+    _own_log = _resolve_own_log_path_cached(name)
+    if _own_log is not None:
         try:
-            _st = os.stat(_tp)
+            _st = _own_log.stat()
             meta["transcript_bytes"] = _st.st_size
             _file_mtime_iso = datetime.fromtimestamp(
                 _st.st_mtime, tz=timezone.utc
@@ -8983,6 +9154,13 @@ async def heartbeat_agent(name: str, body: Optional[AgentHeartbeat] = None):
                 meta["last_heartbeat_at"] = _file_mtime_iso
         except OSError:
             pass
+    else:
+        _tp = meta.get("transcript_path")
+        if _tp:
+            try:
+                meta["transcript_bytes"] = os.stat(_tp).st_size
+            except OSError:
+                pass
     await _save_agent_state_async()
     try:
         if _time_primitive is not None:

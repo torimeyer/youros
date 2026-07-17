@@ -7346,6 +7346,10 @@ async def test_autocomplete_inferred_dead_agent_flips_to_completed(tmp_path):
         "budget": "1.0",
         "model": "claude-sonnet-4-6",
         "transcript_path": str(transcript),
+        # →2896: "no live PID" (docstring) means a pid that is DEAD, not a
+        # missing pid — _is_pid_alive is patched False below. Pid-less rows
+        # are unprovable deaths and no longer take the fast flip.
+        "pid": 4242,
     }
 
     transport = ASGITransport(app=app)
@@ -7539,6 +7543,9 @@ async def test_autocomplete_emits_exactly_one_audit_event(tmp_path):
         "budget": "1.0",
         "model": "claude-sonnet-4-6",
         "transcript_path": str(transcript),
+        # →2896: dead-process premise (_is_pid_alive patched False) needs
+        # the pid on record to stay on the fast proven-death flip path.
+        "pid": 4242,
     }
 
     try:
@@ -8099,6 +8106,11 @@ async def test_autocomplete_fast_agent_completes_on_transcript_idle(tmp_path):
         "budget": "1.0",
         "model": "claude-sonnet-4-6",
         "transcript_path": str(transcript),
+        # →2896: this test's premise is a DEAD process (_is_pid_alive is
+        # patched False below). Record the pid that proves it — pid-less
+        # rows are unprovable deaths and now require the LONG quiet
+        # threshold instead of the fast 2-minute flip.
+        "pid": 4242,
     }
 
     transport = ASGITransport(app=app)
@@ -8317,6 +8329,10 @@ async def test_count_agreement_sidebar_cancelall_activelist(tmp_path):
         "model": "claude-sonnet-4-6",
         "task": "ghost diagnosis agent",
         "transcript_path": str(ghost_transcript),
+        # →2896: the ghost's premise is a finished, DEAD subagent
+        # (_is_pid_alive patched False). The pid proves death so the fast
+        # 2-minute flip still de-drifts the count.
+        "pid": 4242,
     }
 
     transport = ASGITransport(app=app)
