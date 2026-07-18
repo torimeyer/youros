@@ -29,6 +29,7 @@ import TextYourOS from '../components/TextYourOS';
 import { GithubSetupCard } from '../components/OnboardingWizard';
 import AtlassianConnect from '../components/AtlassianConnect';
 import CustomVerbs from '../components/CustomVerbs';
+import McpInstaller from '../components/McpInstaller';
 import { parseMemoryProvenance } from '../lib/parseMemoryProvenance';
 
 
@@ -2008,6 +2009,14 @@ export default function Settings() {
                 </div>
               </>
             )}
+
+            {/* Tool servers (S021, →2925): add MCP tools and choose which ones
+                chat is allowed to use. The component brings its own "Add tools"
+                heading, search box, and per-server Allow in chat checkbox, so
+                the card adds no extra heading of its own. */}
+            <div className={cardClass} data-testid="mcp-installer-section">
+              <McpInstaller />
+            </div>
 
             {/* Custom tack commands */}
             <div className={cardClass} data-testid="custom-verbs-section">

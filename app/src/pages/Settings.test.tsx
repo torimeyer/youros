@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import fs from 'node:fs'
 import { render, screen, fireEvent, waitFor, within, act } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import Settings from './Settings'
@@ -1949,5 +1950,64 @@ describe('Settings Features list covers the new nav switches (→2885)', () => {
       const row = screen.getByRole('switch', { name: label }).closest('div')
       expect(row?.textContent, `${label} row uses the fallback icon`).not.toContain('extension')
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// →2925: the S021 "Add tools" installer (McpInstaller) was built with passing
+// tests but never mounted on any screen, so users could not reach the
+// per-server "Allow in chat" checkbox. It now lives in the Connections tab of
+// Settings, between the connection pills and the custom tack commands card.
+// ---------------------------------------------------------------------------
+describe('Settings mounts the MCP tool installer (S021, →2925)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useAppStore.setState({
+      osName: 'yourOS',
+      darkMode: true,
+      accentColor: 'blue',
+      features: [{ label: 'Chat', enabled: true }],
+    })
+  })
+
+  it('renders the installer inside the Connections section', async () => {
+    renderSettings()
+    const installer = await screen.findByTestId('mcp-installer')
+    const connections = document.getElementById('section-connections')
+    expect(connections).not.toBeNull()
+    expect(connections!.contains(installer)).toBe(true)
+  })
+
+  it('shows the Allow in chat checkbox for an installed server on the settings screen', async () => {
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path === '/api/mcp/catalog') {
+        return Promise.resolve({
+          catalog: [
+            { name: 'Slack', description: 'Send messages and read channels', icon: 'forum', npm_package: '@modelcontextprotocol/server-slack', requires_auth: false },
+          ],
+        })
+      }
+      if (path === '/api/mcp/installed') return Promise.resolve({ installed: ['Slack'] })
+      if (path === '/api/settings') return Promise.resolve({ mcp_servers: [] })
+      return Promise.resolve({})
+    })
+    renderSettings()
+    const box = await screen.findByTestId('mcp-allow-chat-Slack')
+    expect((box as HTMLInputElement).checked).toBe(false)
+    expect(screen.getByTestId('mcp-allow-chat-warning').textContent).toContain('chat can read from and act on')
+  })
+
+  it('MOUNT REGRESSION: Settings.tsx keeps the McpInstaller import and mount', () => {
+    // Guards against the failure mode that orphaned this component once
+    // already: the component file existed with passing tests while no screen
+    // imported it, and a dead-code sweep nearly deleted it. If the mount is
+    // removed the render tests above also fail, but this one names the exact
+    // cause instead of a missing testid.
+    const candidates = ['src/pages/Settings.tsx', 'app/src/pages/Settings.tsx']
+    const sourcePath = candidates.find((c) => fs.existsSync(c))
+    expect(sourcePath, 'could not locate the Settings.tsx source file').toBeTruthy()
+    const source = fs.readFileSync(sourcePath!, 'utf8')
+    expect(source).toContain("import McpInstaller from '../components/McpInstaller'")
+    expect(source).toContain('<McpInstaller')
   })
 })
