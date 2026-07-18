@@ -265,14 +265,7 @@ async def _ensure_decomposed(spec_path: str) -> list[dict]:
     except Exception:
         pass
 
-    # Step 2: decompose (one Haiku call, ~$0.001).  doc_decompose raises
-    # OstkError if the spec was already decomposed; that is fine.
-    try:
-        await ostk.doc_decompose(spec_path, auto=True)
-    except Exception:
-        pass
-
-    # Step 3: return the (possibly newly created) task list.
+    # Step 2: return existing tasks (may be empty if no builder tasks yet).
     try:
         return await ostk.spec_tasks(spec_path)
     except Exception:
@@ -1819,22 +1812,15 @@ async def unlock_spec(spec_path: str):
 
 @router.post("/specs/decompose")
 async def decompose_spec(body: SpecDecompose):
-    """Break a spec into individual tasks.
+    """No-op: spec progress derives from file checkboxes, not ledger rows.
 
-    After decomposing, the created task IDs are written back to the
-    spec's front matter and returned alongside the raw output.
+    Decomposing a spec into task-ledger rows is no longer part of the promote
+    flow (→2938). Progress is computed from the spec file's own - [ ] / - [x]
+    checkboxes via _parse_acceptance_criteria. Builder tasks are created
+    explicitly via /specs/{path}/build when the user clicks Build.
     """
     _validate_doc_path(body.path)
-    try:
-        result = await ostk.doc_decompose(body.path, auto=True)
-        return result  # already a dict with "result" and "task_ids"
-    except OstkError as e:
-        if any(word in str(e).lower() for word in ("timed out", "unavailable", "connection")):
-            raise HTTPException(
-                status_code=503,
-                detail="The AI service is not responding right now. Please try again in a moment.",
-            )
-        raise HTTPException(status_code=400, detail=str(e))
+    return {"result": "ok", "task_ids": []}
 
 
 class DecomposeKernelBody(BaseModel):

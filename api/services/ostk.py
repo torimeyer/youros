@@ -2738,11 +2738,6 @@ class OstkService:
         )
         source.unlink()
 
-        try:
-            await self.doc_decompose(str(target), auto=True)
-        except Exception as exc:
-            _logger.warning("doc_promote: decompose failed for %s: %s", target, exc)
-
         return str(target)
 
     async def doc_decompose(self, path: str, auto: bool = False) -> dict:
