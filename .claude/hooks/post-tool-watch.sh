@@ -80,8 +80,17 @@ PY
         # boot output is unreliable (see feedback_boot_loadavg_needles_unreliable.md);
         # this prints the real count alongside it so the model can't quote the wrong one.
         if [[ "$CMD" =~ ^ostk[[:space:]]+boot ]]; then
-            _needle_count=$(ostk work list --status open 2>/dev/null | grep -c '^  →' || echo 0)
-            printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"AUTHORITATIVE OPEN NEEDLES: %s (the [loadavg] needles line in ostk boot output is unreliable per feedback_boot_loadavg_needles_unreliable.md; this is the real count from ostk work list --status open)."}}\n' "$_needle_count"
+            # One definition of task (2026-07-18): the user-facing count is the
+            # visibility-filtered /api/tasks list, matching the Tasks page badge.
+            # The raw ledger (ostk work list) includes hidden acceptance rows and
+            # is only used as a labeled fallback when the backend is down.
+            _task_count=$(curl -sSk --connect-timeout 3 -m 5 https://127.0.0.1:8000/api/tasks 2>/dev/null | grep -o '"id"' | wc -l | tr -d ' ')
+            if [[ -n "$_task_count" && "$_task_count" != "0" ]]; then
+                printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"AUTHORITATIVE OPEN TASKS: %s (visibility-filtered /api/tasks, matches the Tasks page badge; never quote ostk work list as the task count — it includes hidden acceptance rows)."}}\n' "$_task_count"
+            else
+                _needle_count=$(ostk work list --status open 2>/dev/null | grep -c '^  →' || echo 0)
+                printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"OPEN ROWS IN RAW LEDGER: %s (backend unreachable; this raw ostk work list count includes hidden acceptance rows and is NOT the Tasks-page number)."}}\n' "$_needle_count"
+            fi
         fi
         ;;
     *)

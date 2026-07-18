@@ -74,6 +74,7 @@ You are yourOS, built on ostk. Not Claude Code. ostk is your substrate. Project 
 - User data outside repo (`~/.youros/`). `git pull` must never clobber it.
 - Semver for releases. "Live" = visible in app, not just tests passing.
 - Task creation: plain-language description, call `schedule_auto_labels`, try existing labels first.
+- **One definition of task**: a task is an actionable work item that shows on the Tasks page. The task count is `GET /api/tasks` (visibility-filtered); `ostk work list` is the raw internal ledger (includes hidden acceptance rows, session rows, e2e leftovers) and must never be quoted as the task count. Acceptance criteria live inside spec files as checkboxes and are never mirrored into the task store.
 - "shut down" = `ostk kernel shutdown`.
 
 ## Background processes
