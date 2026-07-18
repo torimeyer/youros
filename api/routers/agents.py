@@ -3847,6 +3847,40 @@ def _first_line_matches_needle(first_line_lower: str, needle_lower: str) -> bool
         return True
     if any(p in first_line_lower for p in intro_patterns):
         return True
+    if _matches_saa_brief_shapes(first_line_lower, needle):
+        return True
+    return False
+
+
+def _matches_saa_brief_shapes(first_line_lower: str, needle: str) -> bool:
+    """→2936: saa spawn-brief shapes shared by the strict matchers.
+
+    Real saa briefs carry the agent name in two shapes the classic patterns
+    miss, so register-only agents (no log_path) resolved no own log and the
+    Agents page fell back to 0 bytes or the 60-byte completion stub:
+
+      1. ``Locks: [/tmp/<name>.log]`` — the agent's own lock file. The bare
+         /tmp path additionally requires the ``locks:`` header somewhere in
+         the line so a brief that merely tails another agent's log file
+         does not steal attribution.
+      2. ``register ... with name <name>`` — the register instruction
+         ("POST .../api/agents/register (curl ...) with name X, then ...").
+         Requires ``register`` in the line, and a non-name character after
+         the needle so needle "saa" cannot prefix-match "saa-ledger-audit".
+
+    First-line-only shapes: the first JSONL line is the spawn prompt, so
+    these cannot be confused with later tool-result noise. Must stay in
+    lockstep with the regexes in :func:`_extract_agent_name`.
+    """
+    if f"/tmp/{needle}.log" in first_line_lower and "locks:" in first_line_lower:
+        return True
+    if "register" in first_line_lower:
+        token = f"with name {needle}"
+        idx = first_line_lower.find(token)
+        if idx != -1:
+            nxt = first_line_lower[idx + len(token): idx + len(token) + 1]
+            if not nxt or not (nxt.isalnum() or nxt in "._-"):
+                return True
     return False
 
 
@@ -3887,6 +3921,15 @@ def _extract_agent_name(first_line_lower: str) -> Optional[str]:
     m = _re.search(r"agent:\s*(\S+)", first_line_lower)
     if m:
         return m.group(1).strip()
+    # →2936: weak shapes LAST so the strong patterns above keep priority.
+    # Lockstep with _matches_saa_brief_shapes.
+    m = _re.search(r"locks:\s*\[\s*/tmp/([^/\]\s,]+)\.log", first_line_lower)
+    if m:
+        return m.group(1).strip()
+    if "register" in first_line_lower:
+        m = _re.search(r"with name ([a-z0-9][a-z0-9._-]*)", first_line_lower)
+        if m:
+            return m.group(1).strip()
     return None
 
 
@@ -4078,6 +4121,8 @@ def _jsonl_strict_match(path: Path, needle_lower: str) -> bool:
     if any(p in lowered for p in endpoint_patterns):
         return True
     if any(p in lowered for p in intro_patterns):
+        return True
+    if _matches_saa_brief_shapes(lowered, needle):
         return True
     return False
 
