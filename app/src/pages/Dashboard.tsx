@@ -20,7 +20,7 @@ import { renderMarkdown } from '../lib/markdown';
 import { useAppStore } from '../stores/app';
 import { useDashboardStore } from '../stores/dashboardStore';
 import { useDashboardFeed } from '../hooks/useDashboardFeed';
-import { ADVENTURE_DISMISSED_KEY, type AdventureTemplate } from '../lib/adventures';
+import { ADVENTURE_DISMISSED_KEY, pickTryNowSuggestion, type AdventureTemplate, type TryNowSuggestion } from '../lib/adventures';
 import { ClampedDescription } from '../components/ClampedDescription';
 import CalendarGridWidget from '../components/CalendarGridWidget';
 
@@ -178,6 +178,8 @@ export default function Dashboard() {
   useDashboardFeed();
   const navigate = useNavigate();
   const toggleChat = useAppStore((s) => s.toggleChat);
+  const setChatPrefill = useAppStore((s) => s.setChatPrefill);
+  const setChatOpen = useAppStore((s) => s.setChatOpen);
   const liveAgentsCount = useDashboardStore((s) => s.agentsCount);
   const liveTasksCount = useDashboardStore((s) => s.tasksCount);
   const displayOsName = useAppStore((s) => s.displayOsName());
@@ -225,6 +227,9 @@ export default function Dashboard() {
   const [adventureDescription, setAdventureDescription] = useState('');
   const [adventureLoading, setAdventureLoading] = useState(false);
   const [adventureSpawned, setAdventureSpawned] = useState(false);
+  // →2920: "One thing to try right now" suggestion, moved here from the
+  // onboarding wizard. Null until the connection checks resolve.
+  const [tryNow, setTryNow] = useState<TryNowSuggestion | null>(null);
 
 
   const fetchSummary = useCallback(async () => {
@@ -416,10 +421,31 @@ export default function Dashboard() {
       .catch(() => {});
   }, [adventureDismissed]);
 
+  // →2920: pick the try-right-now suggestion from what's connected. A
+  // failed check counts as not connected, so the card still shows the
+  // default suggestion when the backend is unreachable.
+  useEffect(() => {
+    if (adventureDismissed) return;
+    Promise.all([
+      api.get<{ google_connected?: boolean }>('/secrets/key-status').catch(() => ({}) as { google_connected?: boolean }),
+      api.get<{ connected?: boolean }>('/atlassian/status').catch(() => ({}) as { connected?: boolean }),
+    ]).then(([keyStatus, atlStatus]) => {
+      setTryNow(pickTryNowSuggestion(keyStatus.google_connected ?? false, atlStatus.connected ?? false));
+    });
+  }, [adventureDismissed]);
+
 
   const handleDismissAdventure = () => {
     localStorage.setItem(ADVENTURE_DISMISSED_KEY, 'true');
     setAdventureDismissed(true);
+  };
+
+  // →2920: clicking the try-right-now suggestion pre-fills the chat input
+  // and opens the chat panel (same mechanism the wizard's card used).
+  const handleTryNow = () => {
+    if (!tryNow) return;
+    setChatPrefill(tryNow.prompt);
+    setChatOpen(true);
   };
 
   const handleSpawnAdventure = async () => {
@@ -968,6 +994,20 @@ export default function Dashboard() {
           </div>
         ) : (
           <>
+            {tryNow && (
+              <div className="mb-4" data-testid="adventure-try-now">
+                <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5">One thing to try right now</p>
+                <button
+                  onClick={handleTryNow}
+                  data-testid="adventure-try-now-btn"
+                  className="w-full text-left p-3 rounded-lg border border-indigo-300 dark:border-indigo-700 bg-indigo-500/5 hover:bg-indigo-500/10 transition-colors"
+                >
+                  <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{tryNow.label}</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">{tryNow.description}</p>
+                  <p className="text-xs text-indigo-600 dark:text-indigo-400 italic" data-testid="adventure-try-now-text">&ldquo;{tryNow.prompt}&rdquo;</p>
+                </button>
+              </div>
+            )}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4" data-testid="adventure-cards">
               {adventureTemplates.map((adv) => (
                 <button

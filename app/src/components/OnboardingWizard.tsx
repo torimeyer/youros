@@ -15,8 +15,8 @@ import {
   type TeamOnboardingData,
 } from './TeamOnboardingSteps'
 
-const PERSONAL_STEPS = ['Fork', 'Welcome', 'You', 'Name', 'Profile', 'Customize', 'Theme', 'Tracking', 'Connect', 'Showcase', 'Ready'] as const
-const PERSONAL_STEPS_NO_FORK = ['Welcome', 'You', 'Name', 'Profile', 'Customize', 'Theme', 'Tracking', 'Connect', 'Showcase', 'Ready'] as const
+const PERSONAL_STEPS = ['Fork', 'Welcome', 'You', 'Name', 'Profile', 'Customize', 'Theme', 'Tracking', 'Connect', 'Ready'] as const
+const PERSONAL_STEPS_NO_FORK = ['Welcome', 'You', 'Name', 'Profile', 'Customize', 'Theme', 'Tracking', 'Connect', 'Ready'] as const
 
 const TEAM_STEPS = ['Fork', 'OrgName', 'AdminEmail', 'InviteTeam', 'Guardrails', 'Theme', 'Connect', 'TeamReady'] as const
 type OnboardingMode = 'undecided' | 'personal' | 'team'
@@ -44,7 +44,6 @@ export default function OnboardingWizard() {
   const setInstanceMode = useAppStore((s) => s.setInstanceMode)
   const setOrgName = useAppStore((s) => s.setOrgName)
   const setAgentsLastViewed = useAppStore((s) => s.setAgentsLastViewed)
-  const setChatPrefill = useAppStore((s) => s.setChatPrefill)
 
   // Local state
   const [userName, setUserName] = useState('')
@@ -595,16 +594,6 @@ export default function OnboardingWizard() {
               detectError={detectError}
               vertexAiSignedIn={vertexAiSignedIn}
               onRecheck={runProviderDetect}
-            />
-          )}
-          {step === 'Showcase' && (
-            <ShowcaseStep
-              onTryPrompt={async (prompt) => {
-                setChatPrefill(prompt)
-                await finish()
-              }}
-              subtextCls={subtextCls}
-              darkMode={effectiveDark}
             />
           )}
           {step === 'Ready' && (
@@ -2017,75 +2006,6 @@ export function GithubSetupCard({
       </div>
     </div>
     </>
-  )
-}
-
-function ShowcaseStep({
-  onTryPrompt,
-  subtextCls,
-  darkMode,
-}: {
-  onTryPrompt: (prompt: string) => void
-  subtextCls: string
-  darkMode: boolean
-}) {
-  const [googleConnected, setGoogleConnected] = useState(false)
-  const [atlassianConnected, setAtlassianConnected] = useState(false)
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    Promise.all([
-      api.get<{ google_connected?: boolean }>('/secrets/key-status'),
-      api.get<{ connected?: boolean }>('/atlassian/status'),
-    ])
-      .then(([keyStatus, atlStatus]) => {
-        setGoogleConnected(keyStatus.google_connected ?? false)
-        setAtlassianConnected(atlStatus.connected ?? false)
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false))
-  }, [])
-
-  const connectedCount = (googleConnected ? 1 : 0) + (atlassianConnected ? 1 : 0)
-
-  let prompt: string
-  let promptLabel: string
-  let promptDescription: string
-
-  if (connectedCount >= 2) {
-    prompt = 'Search across my connected tools for anything about our last product launch and summarize what you find.'
-    promptLabel = 'Search across your tools'
-    promptDescription = 'yourOS can search your connected tools at the same time and bring back one answer.'
-  } else if (googleConnected) {
-    prompt = 'What meetings do I have today, and what should I prepare for each one?'
-    promptLabel = 'Prep for today\'s meetings'
-    promptDescription = 'yourOS reads your calendar and helps you walk into every meeting ready.'
-  } else {
-    prompt = 'Show me the tasks and agents I have running right now.'
-    promptLabel = 'See your tasks and agents'
-    promptDescription = 'Every task and agent you start stays here between sessions. Nothing disappears when you close the tab.'
-  }
-
-  return (
-    <div data-testid="step-showcase">
-      <h2 className="text-2xl font-bold mb-2">One thing to try right now</h2>
-      <p className={`mb-6 ${subtextCls}`}>
-        This prompt uses what you just set up. Click it to start a real chat.
-      </p>
-      {loading ? (
-        <div className={`animate-pulse h-32 rounded-xl ${darkMode ? 'bg-slate-800' : 'bg-gray-100'}`} data-testid="showcase-loading" />
-      ) : (
-        <button
-          data-testid="showcase-prompt-btn"
-          onClick={() => onTryPrompt(prompt)}
-          className="w-full text-left p-5 rounded-xl border-2 border-blue-500 bg-blue-500/10 hover:bg-blue-500/20 transition-colors"
-        >
-          <p className="font-semibold mb-1">{promptLabel}</p>
-          <p className={`text-sm mb-3 ${subtextCls}`}>{promptDescription}</p>
-          <p className="text-sm text-blue-400 italic" data-testid="showcase-prompt-text">&ldquo;{prompt}&rdquo;</p>
-        </button>
-      )}
-    </div>
   )
 }
 

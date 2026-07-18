@@ -136,8 +136,8 @@ describe('OnboardingWizard', () => {
   it('shows progress dots equal to the number of steps', () => {
     render(<OnboardingWizard />)
     const dots = screen.getByTestId('progress-dots')
-    // 10 steps: Welcome, You, Name, Profile, Customize, Theme, Tracking, Connect, Showcase, Ready
-    expect(dots.children).toHaveLength(10)
+    // 9 steps: Welcome, You, Name, Profile, Customize, Theme, Tracking, Connect, Ready
+    expect(dots.children).toHaveLength(9)
   })
 
   it('includes the starter-agents step in the wizard flow after Profile', () => {
@@ -378,7 +378,7 @@ describe('OnboardingWizard', () => {
   it('advances to Ready step with summary', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(9) // Welcome -> You -> Name -> Profile -> Theme -> Tracking -> Connect -> Showcase -> Ready
+    clickNext(8) // Welcome -> You -> Name -> Profile -> Theme -> Tracking -> Connect -> Ready
 
     expect(screen.getByTestId('step-ready')).toBeInTheDocument()
     expect(screen.getByTestId('summary-os-name')).toHaveTextContent('yourOS')
@@ -392,7 +392,7 @@ describe('OnboardingWizard', () => {
     useAppStore.setState({ onboarded: false, osName: 'yourOS', darkMode: true })
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(9) // skip through all steps including Theme and Tracking without touching them
+    clickNext(8) // skip through all steps including Theme and Tracking without touching them
     expect(screen.getByTestId('summary-theme')).toHaveTextContent('Dark')
   })
 
@@ -400,14 +400,14 @@ describe('OnboardingWizard', () => {
     useAppStore.setState({ onboarded: false, osName: 'yourOS', darkMode: false })
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(9)
+    clickNext(8)
     expect(screen.getByTestId('summary-theme')).toHaveTextContent('Light')
   })
 
   it('does not show Skip button on Ready step', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(9)
+    clickNext(8)
 
     expect(screen.queryByTestId('skip-button')).not.toBeInTheDocument()
   })
@@ -415,7 +415,7 @@ describe('OnboardingWizard', () => {
   it('shows "Get started" button on Ready step', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(9)
+    clickNext(8)
 
     expect(screen.getByTestId('finish-button')).toHaveTextContent('Get started')
   })
@@ -423,7 +423,7 @@ describe('OnboardingWizard', () => {
   it('sets onboarded to true and persists to localStorage when finished', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(9)
+    clickNext(8)
     fireEvent.click(screen.getByTestId('finish-button')) // Ready → finish
 
     expect(useAppStore.getState().onboarded).toBe(true)
@@ -437,7 +437,7 @@ describe('OnboardingWizard', () => {
     const before = Date.now()
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(9)
+    clickNext(8)
     fireEvent.click(screen.getByTestId('finish-button'))
     const after = Date.now()
 
@@ -453,7 +453,7 @@ describe('OnboardingWizard', () => {
 
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(9)
+    clickNext(8)
     fireEvent.click(screen.getByTestId('finish-button')) // Ready → finish
 
     expect(window.location.pathname).toBe('/')
@@ -470,7 +470,7 @@ describe('OnboardingWizard', () => {
     const personaCard = screen.getByText(firstPersona.category)
     fireEvent.click(personaCard)
 
-    clickNext(6) // Profile -> Customize -> Theme -> Tracking -> Connect -> Showcase -> Ready
+    clickNext(5) // Profile -> Customize -> Theme -> Tracking -> Connect -> Ready
     expect(screen.getByTestId('step-ready')).toBeInTheDocument()
     fireEvent.click(screen.getByTestId('finish-button')) // Ready → finish
 
@@ -490,7 +490,7 @@ describe('OnboardingWizard', () => {
     try {
       render(<OnboardingWizard />)
       choosePersonalMode()
-      clickNext(9)
+      clickNext(8)
       fireEvent.click(screen.getByTestId('finish-button')) // Ready → finish
     } finally {
       unsubscribe()
@@ -543,7 +543,7 @@ describe('OnboardingWizard', () => {
   it('does not show Back button on Ready step', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(9)
+    clickNext(8)
 
     expect(screen.queryByTestId('back-button')).not.toBeInTheDocument()
   })
@@ -555,15 +555,15 @@ describe('OnboardingWizard', () => {
     expect(screen.getByTestId('step-connect')).toBeInTheDocument()
     expect(screen.getByTestId('skip-button')).toBeInTheDocument()
     fireEvent.click(screen.getByTestId('skip-button'))
-    // Skip from Connect goes to Showcase (the next step), not directly to Ready
-    expect(screen.getByTestId('step-showcase')).toBeInTheDocument()
+    // Skip from Connect goes to Ready (the next and final step)
+    expect(screen.getByTestId('step-ready')).toBeInTheDocument()
   })
 
   it('wizard flow does not include any adventure step names', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    // Walk all 9 steps (Welcome, You, Name, Profile, Customize, Theme, Tracking, Connect, Showcase)
-    for (let i = 0; i < 9; i++) {
+    // Walk all 8 steps (Welcome, You, Name, Profile, Customize, Theme, Tracking, Connect)
+    for (let i = 0; i < 8; i++) {
       expect(screen.queryByTestId('step-adventure')).not.toBeInTheDocument()
       fireEvent.click(screen.getByTestId('next-button'))
     }
@@ -703,10 +703,10 @@ describe('OnboardingWizard', () => {
     expect(screen.queryByTestId('other-role-input')).not.toBeInTheDocument()
   })
 
-  it('step count for personal mode is 10', () => {
+  it('step count for personal mode is 9', () => {
     render(<OnboardingWizard />)
     const dots = screen.getByTestId('progress-dots')
-    expect(dots.children).toHaveLength(10)
+    expect(dots.children).toHaveLength(9)
   })
 
   /* ---- S018: Welcome positioning copy ---- */
@@ -718,74 +718,30 @@ describe('OnboardingWizard', () => {
     expect(welcome).toHaveTextContent(/Claude Code/i)
   })
 
-  /* ---- S018: Showcase step ---- */
+  /* ---- →2920: try-right-now card moved out of the wizard ---- */
 
-  it('Showcase step appears after Connect step', () => {
+  it('has no Showcase step: Next on Connect goes straight to Ready', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
     clickNext(7) // Welcome -> You -> Name -> Profile -> Customize -> Theme -> Tracking -> Connect
     expect(screen.getByTestId('step-connect')).toBeInTheDocument()
     fireEvent.click(screen.getByTestId('next-button'))
-    expect(screen.getByTestId('step-showcase')).toBeInTheDocument()
+    expect(screen.queryByTestId('step-showcase')).not.toBeInTheDocument()
+    expect(screen.getByTestId('step-ready')).toBeInTheDocument()
   })
 
-  it('Showcase step shows meeting-prep prompt when Google Calendar is connected', async () => {
-    vi.mocked(api.get).mockImplementation((path: string) => {
-      if (path === '/secrets/key-status') return Promise.resolve({ google_connected: true })
-      if (path === '/atlassian/status') return Promise.resolve({ connected: false })
-      return Promise.resolve(MOCK_ADVENTURES)
-    })
+  it('never shows the "One thing to try right now" card on any step', () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(8) // Welcome -> ... -> Connect -> Showcase
-    expect(screen.getByTestId('step-showcase')).toBeInTheDocument()
-    await waitFor(() => expect(screen.queryByTestId('showcase-loading')).not.toBeInTheDocument())
-    expect(screen.getByTestId('showcase-prompt-text')).toHaveTextContent(/meetings/i)
-  })
-
-  it('Showcase step shows cross-source prompt when two or more sources connected', async () => {
-    vi.mocked(api.get).mockImplementation((path: string) => {
-      if (path === '/secrets/key-status') return Promise.resolve({ google_connected: true })
-      if (path === '/atlassian/status') return Promise.resolve({ connected: true })
-      return Promise.resolve(MOCK_ADVENTURES)
-    })
-    render(<OnboardingWizard />)
-    choosePersonalMode()
-    clickNext(8)
-    expect(screen.getByTestId('step-showcase')).toBeInTheDocument()
-    await waitFor(() => expect(screen.queryByTestId('showcase-loading')).not.toBeInTheDocument())
-    expect(screen.getByTestId('showcase-prompt-text')).toHaveTextContent(/search across/i)
-  })
-
-  it('Showcase step shows tasks/agents prompt when nothing connected', async () => {
-    vi.mocked(api.get).mockImplementation((path: string) => {
-      if (path === '/secrets/key-status') return Promise.resolve({ google_connected: false })
-      if (path === '/atlassian/status') return Promise.resolve({ connected: false })
-      return Promise.resolve(MOCK_ADVENTURES)
-    })
-    render(<OnboardingWizard />)
-    choosePersonalMode()
-    clickNext(8)
-    expect(screen.getByTestId('step-showcase')).toBeInTheDocument()
-    await waitFor(() => expect(screen.queryByTestId('showcase-loading')).not.toBeInTheDocument())
-    expect(screen.getByTestId('showcase-prompt-text')).toHaveTextContent(/tasks and agents/i)
-  })
-
-  it('clicking the showcase prompt sets chatPrefill and finishes onboarding', async () => {
-    const setChatPrefill = vi.fn()
-    useAppStore.setState({ setChatPrefill: setChatPrefill as unknown as (v: string | null) => void })
-    vi.mocked(api.get).mockImplementation((path: string) => {
-      if (path === '/secrets/key-status') return Promise.resolve({ google_connected: false })
-      if (path === '/atlassian/status') return Promise.resolve({ connected: false })
-      return Promise.resolve(MOCK_ADVENTURES)
-    })
-    render(<OnboardingWizard />)
-    choosePersonalMode()
-    clickNext(8)
-    await waitFor(() => expect(screen.queryByTestId('showcase-loading')).not.toBeInTheDocument())
-    fireEvent.click(screen.getByTestId('showcase-prompt-btn'))
-    expect(setChatPrefill).toHaveBeenCalledWith(expect.stringContaining('tasks'))
-    await waitFor(() => expect(useAppStore.getState().onboarded).toBe(true))
+    // Walk every step; the try-right-now card must never appear. It lives
+    // on the dashboard's try-an-adventure card now (→2920).
+    for (let i = 0; i < 8; i++) {
+      expect(screen.queryByText('One thing to try right now')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('showcase-prompt-btn')).not.toBeInTheDocument()
+      fireEvent.click(screen.getByTestId('next-button'))
+    }
+    expect(screen.getByTestId('step-ready')).toBeInTheDocument()
+    expect(screen.queryByText('One thing to try right now')).not.toBeInTheDocument()
   })
 })
 
@@ -888,7 +844,7 @@ describe('OnboardingWizard - Enter key advances steps', () => {
     })
   })
 
-  it('Enter on the Connect API key input saves and advances to Showcase step', async () => {
+  it('Enter on the Connect API key input saves and advances to Ready step', async () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
     clickNext(7) // Welcome -> ... -> Tracking -> Connect
@@ -898,14 +854,14 @@ describe('OnboardingWizard - Enter key advances steps', () => {
     fireEvent.keyDown(keyInput, { key: 'Enter' })
 
     await waitFor(() => {
-      expect(screen.getByTestId('step-showcase')).toBeInTheDocument()
+      expect(screen.getByTestId('step-ready')).toBeInTheDocument()
     })
   })
 
   it('Enter on the Ready step finishes onboarding', async () => {
     render(<OnboardingWizard />)
     choosePersonalMode()
-    clickNext(9) // Welcome -> ... -> Showcase -> Ready
+    clickNext(8) // Welcome -> ... -> Connect -> Ready
 
     expect(screen.getByTestId('step-ready')).toBeInTheDocument()
 
@@ -1013,8 +969,7 @@ describe('OnboardingWizard — provider auto-detection (→931)', () => {
     navigateToAfterTheme()
     expect(screen.queryByTestId('step-connect')).toBeInTheDocument()
     expect(screen.getByTestId('already-connected-badge')).toHaveTextContent('Claude Code')
-    fireEvent.click(screen.getByTestId('skip-button')) // Connect → Showcase
-    fireEvent.click(screen.getByTestId('skip-button')) // Showcase → Ready
+    fireEvent.click(screen.getByTestId('skip-button')) // Connect → Ready
     expect(screen.queryByTestId('step-ready')).toBeInTheDocument()
     expect(screen.getByTestId('summary-connected-via')).toHaveTextContent('Claude Code')
   })
@@ -1044,8 +999,7 @@ describe('OnboardingWizard — provider auto-detection (→931)', () => {
     expect(screen.queryByTestId('step-connect')).toBeInTheDocument()
     expect(screen.queryByTestId('api-key-input')).not.toBeInTheDocument()
     expect(screen.getByTestId('already-connected-badge')).toHaveTextContent('Gemini')
-    fireEvent.click(screen.getByTestId('skip-button')) // Connect → Showcase
-    fireEvent.click(screen.getByTestId('skip-button')) // Showcase → Ready
+    fireEvent.click(screen.getByTestId('skip-button')) // Connect → Ready
     expect(screen.getByTestId('summary-connected-via')).toHaveTextContent('Gemini')
   })
 
@@ -1071,8 +1025,7 @@ describe('OnboardingWizard — provider auto-detection (→931)', () => {
     navigateToAfterTheme()
     expect(screen.queryByTestId('step-connect')).toBeInTheDocument()
     expect(screen.getByTestId('already-connected-badge')).toHaveTextContent('Vertex AI')
-    fireEvent.click(screen.getByTestId('skip-button')) // Connect → Showcase
-    fireEvent.click(screen.getByTestId('skip-button')) // Showcase → Ready
+    fireEvent.click(screen.getByTestId('skip-button')) // Connect → Ready
     expect(screen.getByTestId('summary-connected-via')).toHaveTextContent('Vertex AI')
   })
 
@@ -1087,8 +1040,7 @@ describe('OnboardingWizard — provider auto-detection (→931)', () => {
     navigateToAfterTheme()
     expect(screen.queryByTestId('step-connect')).toBeInTheDocument()
     expect(screen.getByTestId('already-connected-badge')).toHaveTextContent('AWS Bedrock')
-    fireEvent.click(screen.getByTestId('skip-button')) // Connect → Showcase
-    fireEvent.click(screen.getByTestId('skip-button')) // Showcase → Ready
+    fireEvent.click(screen.getByTestId('skip-button')) // Connect → Ready
     expect(screen.getByTestId('summary-connected-via')).toHaveTextContent('AWS Bedrock')
   })
 
@@ -1104,8 +1056,7 @@ describe('OnboardingWizard — provider auto-detection (→931)', () => {
     expect(screen.queryByTestId('step-connect')).toBeInTheDocument()
     expect(screen.queryByTestId('api-key-input')).not.toBeInTheDocument()
     expect(screen.getByTestId('already-connected-badge')).toHaveTextContent('Gemini')
-    fireEvent.click(screen.getByTestId('skip-button')) // Connect → Showcase
-    fireEvent.click(screen.getByTestId('skip-button')) // Showcase → Ready
+    fireEvent.click(screen.getByTestId('skip-button')) // Connect → Ready
     expect(screen.getByTestId('summary-connected-via')).toHaveTextContent('Gemini')
   })
 })
@@ -1273,8 +1224,8 @@ describe('OnboardingWizard — Atlassian and GitHub setup cards', () => {
     navigateToConnect()
     await waitFor(() => expect(screen.getByTestId('onboarding-atlassian-card')).toBeInTheDocument())
     fireEvent.click(screen.getByTestId('next-button'))
-    // Next on Connect advances to Showcase (not directly to Ready)
-    expect(screen.getByTestId('step-showcase')).toBeInTheDocument()
+    // Next on Connect advances straight to Ready (→2920)
+    expect(screen.getByTestId('step-ready')).toBeInTheDocument()
   })
 
   it('Atlassian card calls /atlassian/defaults on expand and pre-fills site', async () => {
@@ -1443,7 +1394,7 @@ describe('OnboardingWizard — TrackingStep repo path (→1520)', () => {
     fireEvent.change(pathInput, { target: { value: '/Users/tori/work/myproject' } })
     expect(pathInput.value).toBe('/Users/tori/work/myproject')
 
-    clickNext(3) // Tracking -> Connect -> Showcase -> Ready
+    clickNext(2) // Tracking -> Connect -> Ready
     fireEvent.click(screen.getByTestId('finish-button'))
 
     await waitFor(() => {
@@ -1483,8 +1434,7 @@ describe('OnboardingWizard — step persistence via localStorage (→1518)', () 
     render(<OnboardingWizard />)
     choosePersonalMode()
     clickNext(7) // Welcome → … → Connect
-    fireEvent.click(screen.getByTestId('skip-button')) // Connect → Showcase
-    fireEvent.click(screen.getByTestId('skip-button')) // Showcase → Ready
+    fireEvent.click(screen.getByTestId('skip-button')) // Connect → Ready
     fireEvent.click(screen.getByTestId('finish-button'))
     await waitFor(() => {
       expect(localStorage.getItem('myos.onboarding.state')).toBeNull()

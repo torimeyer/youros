@@ -809,8 +809,103 @@ describe('Dashboard - Adventure card', () => {
       if (path === '/briefing') return Promise.resolve({ show: false, briefing: null })
       if (path === '/calendar/events') return Promise.resolve({ events: [] })
       if (path === '/sessions/active') return Promise.resolve({ sessions: [], count: 0, active_count: 0, idle_count: 0 })
+      if (path === '/secrets/key-status') return Promise.resolve({ google_connected: false })
+      if (path === '/atlassian/status') return Promise.resolve({ connected: false })
       return Promise.reject(new Error(`unmocked path: ${path}`))
     })
+  })
+
+  // →2920: the "One thing to try right now" suggestion moved out of the
+  // onboarding wizard and into this widget.
+  function mockWithConnections(google: boolean, atlassian: boolean) {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/secrets/key-status') return Promise.resolve({ google_connected: google })
+      if (path === '/atlassian/status') return Promise.resolve({ connected: atlassian })
+      if (path === '/adventures/templates') return Promise.resolve(MOCK_ADVENTURES)
+      if (path === '/dashboard') return Promise.resolve(mockDashboardData)
+      if (path === '/dashboard/summary') return Promise.resolve(mockSummaryData)
+      if (path === '/dashboard/compounds') return Promise.resolve(mockCompoundsData)
+      if (path === '/dashboard/diff') return Promise.resolve(mockSessionDiff)
+      if (path === '/briefing') return Promise.resolve({ show: false, briefing: null })
+      if (path === '/calendar/events') return Promise.resolve({ events: [] })
+      if (path === '/sessions/active') return Promise.resolve({ sessions: [], count: 0, active_count: 0, idle_count: 0 })
+      return Promise.reject(new Error(`unmocked path: ${path}`))
+    })
+  }
+
+  it('shows the try-right-now suggestion inside the adventure widget (→2920)', async () => {
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByTestId('adventure-try-now')).toBeInTheDocument()
+    })
+    const widget = screen.getByTestId('widget-adventure')
+    expect(within(widget).getByText('One thing to try right now')).toBeInTheDocument()
+    // Nothing connected: the default tasks-and-agents suggestion shows.
+    expect(screen.getByTestId('adventure-try-now-text')).toHaveTextContent(/tasks and agents/i)
+  })
+
+  it('try-right-now shows the meeting-prep prompt when Google is connected', async () => {
+    mockWithConnections(true, false)
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByTestId('adventure-try-now')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('adventure-try-now-text')).toHaveTextContent(/meetings/i)
+  })
+
+  it('try-right-now shows the cross-tool prompt when two sources are connected', async () => {
+    mockWithConnections(true, true)
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByTestId('adventure-try-now')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('adventure-try-now-text')).toHaveTextContent(/search across/i)
+  })
+
+  it('clicking the try-right-now suggestion pre-fills chat and opens it', async () => {
+    const setChatPrefill = vi.fn()
+    const setChatOpen = vi.fn()
+    useAppStore.setState({
+      setChatPrefill: setChatPrefill as unknown as (v: string | null) => void,
+      setChatOpen: setChatOpen as unknown as (v: boolean) => void,
+    })
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByTestId('adventure-try-now-btn')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId('adventure-try-now-btn'))
+    expect(setChatPrefill).toHaveBeenCalledWith(expect.stringContaining('tasks'))
+    expect(setChatOpen).toHaveBeenCalledWith(true)
+  })
+
+  it('try-right-now still shows the default suggestion when status checks fail', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/secrets/key-status') return Promise.reject(new Error('network'))
+      if (path === '/atlassian/status') return Promise.reject(new Error('network'))
+      if (path === '/adventures/templates') return Promise.resolve(MOCK_ADVENTURES)
+      if (path === '/dashboard') return Promise.resolve(mockDashboardData)
+      if (path === '/dashboard/summary') return Promise.resolve(mockSummaryData)
+      if (path === '/dashboard/compounds') return Promise.resolve(mockCompoundsData)
+      if (path === '/dashboard/diff') return Promise.resolve(mockSessionDiff)
+      if (path === '/briefing') return Promise.resolve({ show: false, briefing: null })
+      if (path === '/calendar/events') return Promise.resolve({ events: [] })
+      if (path === '/sessions/active') return Promise.resolve({ sessions: [], count: 0, active_count: 0, idle_count: 0 })
+      return Promise.reject(new Error(`unmocked path: ${path}`))
+    })
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByTestId('adventure-try-now')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('adventure-try-now-text')).toHaveTextContent(/tasks and agents/i)
+  })
+
+  it('try-right-now does not render for a dismissed adventure card', async () => {
+    localStorage.setItem(ADVENTURE_DISMISSED_KEY, 'true')
+    renderDashboard()
+    await waitFor(() => {
+      expect(mockedApiGet).toHaveBeenCalledWith('/dashboard')
+    })
+    expect(screen.queryByTestId('adventure-try-now')).not.toBeInTheDocument()
   })
 
   it('renders the adventure card when widget is in dashboardWidgets', async () => {
