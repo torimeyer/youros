@@ -344,6 +344,23 @@ def _chat_model_args() -> list[str]:
 # explicit --mcp-config containing exactly the approved servers. Strict
 # plus explicit list means exactly those servers and nothing else. An empty
 # approved list changes nothing: the launch is identical to before.
+#
+# Where the login lives (→2922, S021): approving a server carries no login
+# with it; the spawned helper finds credentials the same way an interactive
+# ``claude`` run does, because it runs as the same user.
+#   - Claude CLI subscription login: the macOS login keychain, generic-
+#     password service "Claude Code-credentials" (non-macOS fallback:
+#     ~/.claude/.credentials.json). Any process of the logged-in user can
+#     read the unlocked login keychain, so a cold-start spawn from the
+#     launchd-managed backend needs no interactive terminal session.
+#   - Server definitions installed via ``claude mcp add``: ~/.claude.json
+#     (resolved by _cli_registered_servers below and re-passed explicitly).
+#   - Remote-server OAuth tokens (for example Slack): stored by the CLI in
+#     the same per-user credential store as its own login, so they reach
+#     the helper the same way. The environment built for the helper strips
+#     only the Anthropic auth variables (BLOCKED_AUTH_ENV_KEYS), nothing a
+#     tool server needs. Live verification of the Slack path happens on
+#     the work laptop, where the Slack connection exists.
 # ---------------------------------------------------------------------------
 
 
