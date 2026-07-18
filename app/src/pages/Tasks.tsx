@@ -26,8 +26,6 @@ import type { Label } from "../components/LabelsView";
 import { api } from "../lib/api";
 import { reportError } from '../lib/reportError';
 import { onTasksChange } from "../lib/sidebarBus";
-import SharePopover from "../components/SharePopover";
-import ExportButton from "../components/ExportButton";
 import TasksAuditModal from "../components/TasksAuditModal";
 import PlanWavesPanel from "../components/PlanWavesPanel";
 import RecurringTasksSection from "../components/RecurringTasksSection";
@@ -332,7 +330,6 @@ export default function Tasks() {
   const [labelAllLoading, setLabelAllLoading] = useState(false);
   const [labelAllResult, setLabelAllResult] = useState<string | null>(null);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
-  const [showTaskSharePopover, setShowTaskSharePopover] = useState(false);
   const [undoDelete, setUndoDelete] = useState<{ task: Task; timer: ReturnType<typeof setTimeout> } | null>(null);
   const [closeError, setCloseError] = useState<string | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -359,9 +356,7 @@ export default function Tasks() {
     checks: ReadinessCheck[];
   } | null>(null);
   const buildHelpRef = useRef<HTMLDivElement | null>(null);
-  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [showBulkActionsMenu, setShowBulkActionsMenu] = useState(false);
   const [auditModalOpen, setAuditModalOpen] = useState(false);
   const [wavesModalOpen, setWavesModalOpen] = useState(false);
   // task_id → wave number from the last planning run. Empty when never planned.
@@ -378,11 +373,6 @@ export default function Tasks() {
     priority: string;
   } | null>(null);
   const [priorityReason, setPriorityReason] = useState("");
-  const [importModalOpen, setImportModalOpen] = useState(false);
-  const [importSource, setImportSource] = useState<'linear' | 'jira'>('linear');
-  const [importLoading, setImportLoading] = useState(false);
-  const [importResult, setImportResult] = useState<{ ok: boolean; created: number; errors: string[] } | null>(null);
-  const [importFields, setImportFields] = useState<Record<string, string>>({});
   const [showOverflowMenu, setShowOverflowMenu] = useState(false);
   const overflowMenuRef = useRef<HTMLDivElement | null>(null);
   const [deleteAllConfirmOpen, setDeleteAllConfirmOpen] = useState(false);
@@ -721,18 +711,17 @@ export default function Tasks() {
 
   // Close dropdowns when clicking outside
   useEffect(() => {
-    if (!openPriorityDropdown && !openLabelDropdown && !openLinkDropdown && !openActionMenu && !showBulkActionsMenu) return;
+    if (!openPriorityDropdown && !openLabelDropdown && !openLinkDropdown && !openActionMenu) return;
     const handleClick = () => {
       setOpenPriorityDropdown(null);
       setOpenLabelDropdown(null);
       setOpenLinkDropdown(null);
       setOpenActionMenu(null);
       setOpenBuildHelp(null);
-      setShowBulkActionsMenu(false);
     };
     document.addEventListener("click", handleClick);
     return () => document.removeEventListener("click", handleClick);
-  }, [openPriorityDropdown, openLabelDropdown, openLinkDropdown, openActionMenu, showBulkActionsMenu]);
+  }, [openPriorityDropdown, openLabelDropdown, openLinkDropdown, openActionMenu]);
 
   // Overflow menu closes on outside click.
   useEffect(() => {
@@ -745,16 +734,6 @@ export default function Tasks() {
     document.addEventListener("mousedown", handleMouseDown);
     return () => document.removeEventListener("mousedown", handleMouseDown);
   }, [showOverflowMenu]);
-
-  // Escape closes the Linear/Jira import modal.
-  useEffect(() => {
-    if (!importModalOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setImportModalOpen(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [importModalOpen]);
 
   // "What is comprehensive build?" help popover closes on outside click
   // and on Escape. Uses a ref so clicks inside the popover itself do
@@ -1176,18 +1155,6 @@ export default function Tasks() {
   };
 
 
-  const toggleTaskSelection = (taskId: string) => {
-    setSelectedTaskIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(taskId)) {
-        next.delete(taskId);
-      } else {
-        next.add(taskId);
-      }
-      return next;
-    });
-  };
-
   // Gate spawn through clarity check. Shows modal if task needs clarity, otherwise spawns directly.
   const handleSpawnWithGate = (taskId: string, mode: SpawnMode) => {
     const task = tasks.find((t) => t.id === taskId);
@@ -1198,21 +1165,43 @@ export default function Tasks() {
     spawnAgentForTask(taskId, mode);
   };
 
-  // Bulk Implement all defaults to the comprehensive build pattern.
-  // One button, not two, matches the per-row menu default. See needle 295.
-  const bulkAction = async (mode: "plan" | "implement") => {
-    const ids = Array.from(selectedTaskIds);
-    if (ids.length === 0) return;
+  // "Spawn agents for all" in the overflow menu (→2952). Starts a
+  // comprehensive build for every task currently visible, skipping tasks
+  // that are closed, already have an agent running or queued, or carry
+  // the "personal" label. Replaces the old checkbox-selection bulk menu.
+  const spawnAllAction = async () => {
+    const personalLabelIds = new Set(
+      labels.filter((l) => l.name.trim().toLowerCase() === "personal").map((l) => l.id)
+    );
+    const eligibleIds: string[] = [];
+    let skipped = 0;
+    for (const t of filteredTasks) {
+      const hasPersonalLabel = (t.label_ids || []).some((id) => personalLabelIds.has(id));
+      if (t.status === "closed" || runningAgentTaskIds.has(t.id) || hasPersonalLabel) {
+        skipped += 1;
+        continue;
+      }
+      eligibleIds.push(t.id);
+    }
+    if (eligibleIds.length === 0) {
+      setBanner(
+        skipped > 0
+          ? `Nothing to start. Skipped ${skipped} task${skipped === 1 ? "" : "s"} (closed, already running, or personal).`
+          : "No tasks to start."
+      );
+      setTimeout(() => setBanner(null), 4000);
+      return;
+    }
     setActionLoading("bulk");
     try {
-      for (const id of ids) {
-        if (mode === "plan") {
-          await spawnAgentForTask(id, "plan", { bulk: true });
-        } else if (mode === "implement") {
-          await spawnAgentForTask(id, "comprehensive", { bulk: true });
-        }
+      for (const id of eligibleIds) {
+        await spawnAgentForTask(id, "comprehensive", { bulk: true });
       }
-      setSelectedTaskIds(new Set());
+      setBanner(
+        `Started builds for ${eligibleIds.length} task${eligibleIds.length === 1 ? "" : "s"}.` +
+          (skipped > 0 ? ` Skipped ${skipped}.` : "")
+      );
+      setTimeout(() => setBanner(null), 5000);
     } finally {
       setActionLoading(null);
     }
@@ -1296,13 +1285,6 @@ export default function Tasks() {
     // Persist: position = index within the new group
     const newPosition = newGroupOrder.findIndex((t) => t.id === activeId);
     reorderTask(activeId, targetPriority, newPosition);
-  };
-
-  const copyTaskList = () => {
-    const text = filteredTasks
-      .map((t) => `[${t.priority}] ${t.title} (${t.status})`)
-      .join("\n");
-    navigator.clipboard.writeText(text).catch((e) => reportError('clipboard write', e));
   };
 
   const executeDeleteAll = async () => {
@@ -1535,11 +1517,6 @@ export default function Tasks() {
   // already has every active filter applied (status, priority, label, thread,
   // session hide). Use it as the source of truth for the displayed count.
   const visibleCount = filteredTasks.length;
-
-  // True when every task currently visible in the list is in the selection set.
-  const allVisibleSelected =
-    filteredTasks.length > 0 &&
-    filteredTasks.every((t) => selectedTaskIds.has(t.id));
 
   const filtersHidingAllTasks = false;
 
@@ -1871,35 +1848,13 @@ export default function Tasks() {
                   {labelAllLoading ? "Labeling..." : "Label all"}
                 </button>
                 <button
-                  onClick={() => { setShowOverflowMenu(false); setImportModalOpen(true); setImportResult(null); setImportFields({}); }}
-                  className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-slate-700 dark:text-slate-300"
-                  data-testid="overflow-import"
+                  data-testid="overflow-spawn-all"
+                  onClick={() => { setShowOverflowMenu(false); spawnAllAction(); }}
+                  disabled={actionLoading === "bulk"}
+                  className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-slate-700 dark:text-slate-300 disabled:opacity-50"
                 >
-                  <Icon name="download" className="text-slate-600 dark:text-slate-400 text-sm" />
-                  Import
-                </button>
-                <button
-                  onClick={() => { setShowOverflowMenu(false); setShowTaskSharePopover((v) => !v); }}
-                  className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-slate-700 dark:text-slate-300"
-                  data-testid="overflow-share"
-                >
-                  <Icon name="share" className="text-slate-600 dark:text-slate-400 text-sm" />
-                  Share
-                </button>
-                <ExportButton
-                    contentLabel="tasks"
-                    buildUrl={(format) => {
-                      const exportStatus = statusFilter === "closed" ? "closed" : "open";
-                      return `/api/export/tasks?format=${format}&status=${exportStatus}`;
-                    }}
-                  />
-                <button
-                  onClick={() => { setShowOverflowMenu(false); copyTaskList(); }}
-                  className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-slate-700 dark:text-slate-300"
-                  data-testid="overflow-copy"
-                >
-                  <Icon name="content_copy" className="text-slate-600 dark:text-slate-400 text-sm" />
-                  Copy list
+                  {actionLoading === "bulk" ? <Icon name="hourglass_empty" className="text-green-600 dark:text-green-400 text-sm animate-spin" /> : <Icon name="smart_toy" className="text-green-600 dark:text-green-400 text-sm" />}
+                  {actionLoading === "bulk" ? "Starting agents..." : "Spawn agents for all"}
                 </button>
                 <button
                   onClick={() => { setShowOverflowMenu(false); setAuditModalOpen(true); }}
@@ -1920,14 +1875,6 @@ export default function Tasks() {
                   {deleteAllLoading ? "Deleting..." : "Delete all"}
                 </button>
               </div>
-            )}
-            {showTaskSharePopover && (
-              <SharePopover
-                shareType="task_list"
-                contentIds={filteredTasks.map((t) => t.id)}
-                title={statusFilter === "open" ? "Open tasks" : statusFilter === "all" ? "All tasks" : statusFilter === "closed" ? "Closed tasks" : statusFilter === "shelved" ? "Paused tasks" : "Tasks this week"}
-                onClose={() => setShowTaskSharePopover(false)}
-              />
             )}
           </div>
         </div>
@@ -2076,94 +2023,6 @@ export default function Tasks() {
               </div>
             )}
 
-            {/* Select all affordance — shown when nothing is selected and list is non-empty */}
-            {selectedTaskIds.size === 0 && filteredTasks.length > 0 && statusFilter !== "recurring" && (
-              <div className="flex justify-end mb-2">
-                <button
-                  data-testid="select-all-tasks"
-                  aria-label="Select all visible tasks"
-                  onClick={() => setSelectedTaskIds(new Set(filteredTasks.map((t) => t.id)))}
-                  className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 py-1 px-2 rounded"
-                >
-                  Select all
-                </button>
-              </div>
-            )}
-
-            {/* Bulk action bar */}
-            {selectedTaskIds.size > 0 && (
-              <div className="flex items-center gap-3 mb-4 px-4 py-2.5 bg-blue-500/10 border border-blue-500/30 rounded-lg">
-                <span className="text-sm text-blue-700 dark:text-blue-300 font-medium">
-                  {selectedTaskIds.size} selected
-                </span>
-                <div className="flex items-center gap-2 ml-auto">
-                  <button
-                    data-testid="select-all-tasks"
-                    aria-label={allVisibleSelected ? "Clear all selected tasks" : "Select all visible tasks"}
-                    onClick={() =>
-                      allVisibleSelected
-                        ? setSelectedTaskIds(new Set())
-                        : setSelectedTaskIds(new Set(filteredTasks.map((t) => t.id)))
-                    }
-                    className="flex items-center gap-1.5 px-3 py-1 bg-blue-500/20 hover:bg-blue-500/30 text-blue-700 dark:text-blue-300 text-xs rounded-lg border border-blue-500/30"
-                  >
-                    {allVisibleSelected ? "Clear all" : "Select all"}
-                  </button>
-                  <div className="relative">
-                    <button
-                      data-testid="bulk-actions-menu"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setShowBulkActionsMenu((v) => !v);
-                      }}
-                      className="p-1 text-slate-600 hover:text-slate-600 dark:hover:text-slate-400 transition-colors"
-                      title="Bulk actions"
-                    >
-                      <Icon name="more_vert" className="text-sm text-slate-600 dark:text-slate-400" />
-                    </button>
-                    {showBulkActionsMenu && (
-                      <div
-                        className="absolute right-0 top-full mt-1 z-50 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl py-1 min-w-[180px]"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <button
-                          data-testid="bulk-plan-all"
-                          onClick={() => {
-                            setShowBulkActionsMenu(false);
-                            bulkAction("plan");
-                          }}
-                          disabled={actionLoading === "bulk"}
-                          className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-slate-700 dark:text-slate-300 disabled:opacity-50"
-                        >
-                          <Icon name="description" className="text-sm" />
-                          Plan all
-                        </button>
-                        <button
-                          data-testid="bulk-implement-all"
-                          onClick={() => {
-                            setShowBulkActionsMenu(false);
-                            bulkAction("implement");
-                          }}
-                          disabled={actionLoading === "bulk"}
-                          className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-slate-700 dark:text-slate-300 disabled:opacity-50"
-                        >
-                          <Icon name="code" className="text-sm" />
-                          Implement all
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                  <button
-                    onClick={() => setSelectedTaskIds(new Set())}
-                    className="p-1 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
-                    title="Clear selection"
-                  >
-                    <Icon name="close" className="text-sm" />
-                  </button>
-                </div>
-              </div>
-            )}
-
             {/* Recurring tasks tab */}
             {statusFilter === "recurring" && (
               <RecurringTasksSection showSuggestions />
@@ -2237,14 +2096,6 @@ export default function Tasks() {
                         : "border-slate-200 dark:border-slate-800 hover:border-slate-200 dark:hover:border-slate-700"
                     }`}
                   >
-                    <input
-                      type="checkbox"
-                      checked={selectedTaskIds.has(task.id)}
-                      onClick={(e) => e.stopPropagation()}
-                      onChange={() => toggleTaskSelection(task.id)}
-                      className="w-3.5 h-3.5 rounded border-slate-600 bg-slate-100 dark:bg-slate-800 text-blue-500 focus:ring-0 flex-shrink-0 cursor-pointer"
-                      aria-label={`select ${task.title}`}
-                    />
                     {runningAgentTaskIds.has(task.id) && task.status !== "closed" && (
                       <span
                         data-testid={`task-in-progress-indicator-${task.id}`}
@@ -3248,146 +3099,6 @@ export default function Tasks() {
         onConfirm={executeDeleteAll}
         onCancel={() => setDeleteAllConfirmOpen(false)}
       />
-
-      {/* Import modal */}
-      {importModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setImportModalOpen(false)}>
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold">Import Needles</h2>
-              <button onClick={() => setImportModalOpen(false)} className="text-slate-600 dark:text-slate-400 hover:text-white">
-                <Icon name="close" size={20} />
-              </button>
-            </div>
-            <div className="flex gap-2 mb-4">
-              <button
-                onClick={() => { setImportSource('linear'); setImportResult(null); setImportFields({}); }}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${importSource === 'linear' ? 'bg-purple-500/20 text-purple-700 dark:text-purple-300' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'}`}
-              >
-                Linear
-              </button>
-              <button
-                onClick={() => { setImportSource('jira'); setImportResult(null); setImportFields({}); }}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${importSource === 'jira' ? 'bg-blue-500/20 text-blue-700 dark:text-blue-300' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'}`}
-              >
-                Jira
-              </button>
-            </div>
-
-            {importSource === 'linear' ? (
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">API Key</label>
-                  <input
-                    type="password"
-                    value={importFields.linear_key || ''}
-                    onChange={(e) => setImportFields({ ...importFields, linear_key: e.target.value })}
-                    placeholder="lin_api_..."
-                    className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-purple-500/50"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">Team ID</label>
-                  <input
-                    type="text"
-                    value={importFields.linear_team || ''}
-                    onChange={(e) => setImportFields({ ...importFields, linear_team: e.target.value })}
-                    onKeyDown={(e) => { if (e.key === "Enter") (document.querySelector("[data-import-submit]") as HTMLButtonElement)?.click(); }}
-                    placeholder="e.g. abc123"
-                    className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-purple-500/50"
-                  />
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">Jira domain</label>
-                  <input
-                    type="text"
-                    value={importFields.jira_domain || ''}
-                    onChange={(e) => setImportFields({ ...importFields, jira_domain: e.target.value })}
-                    placeholder="yourcompany.atlassian.net"
-                    className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-purple-500/50"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">Email</label>
-                  <input
-                    type="email"
-                    value={importFields.jira_email || ''}
-                    onChange={(e) => setImportFields({ ...importFields, jira_email: e.target.value })}
-                    placeholder="you@company.com"
-                    className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-purple-500/50"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">API Token</label>
-                  <input
-                    type="password"
-                    value={importFields.jira_token || ''}
-                    onChange={(e) => setImportFields({ ...importFields, jira_token: e.target.value })}
-                    placeholder="Your Jira API token"
-                    className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-purple-500/50"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1">Project Key</label>
-                  <input
-                    type="text"
-                    value={importFields.jira_project || ''}
-                    onChange={(e) => setImportFields({ ...importFields, jira_project: e.target.value })}
-                    onKeyDown={(e) => { if (e.key === "Enter") (document.querySelector("[data-import-submit]") as HTMLButtonElement)?.click(); }}
-                    placeholder="e.g. PROJ"
-                    className="w-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-purple-500/50"
-                  />
-                </div>
-              </div>
-            )}
-
-            {importResult && (
-              <div className={`mt-4 p-3 rounded-lg text-sm ${importResult.errors.length > 0 ? 'bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-300' : 'bg-green-500/10 border border-green-500/30 text-green-700 dark:text-green-300'}`}>
-                {importResult.created > 0 && <span>Created {importResult.created} needles. </span>}
-                {importResult.errors.map((e, i) => <span key={i} className="block">{e}</span>)}
-              </div>
-            )}
-
-            <button
-              onClick={async () => {
-                setImportLoading(true);
-                setImportResult(null);
-                try {
-                  if (importSource === 'linear') {
-                    const res = await api.post<{ ok: boolean; created: number; errors: string[] }>('/import/linear', {
-                      api_key: importFields.linear_key || '',
-                      team_id: importFields.linear_team || '',
-                    });
-                    setImportResult(res);
-                  } else {
-                    const res = await api.post<{ ok: boolean; created: number; errors: string[] }>('/import/jira', {
-                      domain: importFields.jira_domain || '',
-                      email: importFields.jira_email || '',
-                      api_token: importFields.jira_token || '',
-                      project_key: importFields.jira_project || '',
-                    });
-                    setImportResult(res);
-                  }
-                  fetchTasks();
-                } catch (err: unknown) {
-                  const message = err instanceof Error ? err.message : 'Import failed';
-                  setImportResult({ ok: false, created: 0, errors: [message] });
-                } finally {
-                  setImportLoading(false);
-                }
-              }}
-              disabled={importLoading}
-              data-import-submit
-              className="mt-4 w-full py-2.5 bg-blue-600 hover:bg-blue-700 rounded-xl font-medium text-sm transition-colors disabled:opacity-50"
-            >
-              {importLoading ? 'Importing...' : `Import from ${importSource === 'linear' ? 'Linear' : 'Jira'}`}
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Undo delete toast */}
       {/* Priority reason prompt */}

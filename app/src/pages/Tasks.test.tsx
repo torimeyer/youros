@@ -130,16 +130,18 @@ describe('Tasks page', () => {
     expect(screen.getByTestId('page-header')).toHaveTextContent('Tasks')
   })
 
-  it('renders the export button in the overflow menu', async () => {
+  it('overflow menu no longer offers Import, Share, Download, or Copy list (→2952)', async () => {
     renderTasks()
 
     await waitFor(() => {
       expect(screen.getByText('Fix login bug')).toBeInTheDocument()
     })
 
-    // Export button lives inside overflow menu
     fireEvent.click(screen.getByTestId('overflow-menu-trigger'))
-    expect(screen.getByTestId('export-button')).toBeInTheDocument()
+    expect(screen.queryByTestId('overflow-import')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('overflow-share')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('export-button')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('overflow-copy')).not.toBeInTheDocument()
   })
 
   it('filter buttons show correct counts', async () => {
@@ -1799,98 +1801,109 @@ describe('Tasks page', () => {
       })
     })
 
-    it('bulk Implement all posts template=comprehensive for every selected task', async () => {
-      renderTasks()
-      await waitFor(() => {
-        expect(screen.getByText('Fix login bug')).toBeInTheDocument()
-      })
-
-      // Select two open tasks by clicking the row checkboxes.
-      const checkboxes = screen
-        .getAllByRole('checkbox')
-        .filter((el) => (el as HTMLInputElement).type === 'checkbox')
-      fireEvent.click(checkboxes[0])
-      fireEvent.click(checkboxes[1])
-
-      // The bulk toolbar's three-dot menu holds "Implement all" (→2881).
-      fireEvent.click(await screen.findByTestId('bulk-actions-menu'))
-      const implementAll = await screen.findByTestId('bulk-implement-all')
-      fireEvent.click(implementAll)
-
-      await waitFor(() => {
-        const spawnCalls = mockedApiPost.mock.calls.filter(
-          (c) => c[0] === '/agents/spawn'
-        )
-        expect(spawnCalls.length).toBeGreaterThanOrEqual(1)
-        for (const call of spawnCalls) {
-          const body = call[1] as { template?: string }
-          expect(body.template).toBe('comprehensive')
-        }
-      })
-    })
   })
 
-  // ── Needle 2881: Plan all / Implement all live behind a three-dot menu ──
+  // ── →2952: "Spawn agents for all" replaces the selection system ──
   //
-  // The bulk action bar used to show two standalone buttons ("Plan all",
-  // "Implement all") next to Select all/Clear all. They now live inside
-  // a three-dot (more_vert) menu, reusing the same open/close/outside-click
-  // pattern as the per-row action menu.
-  describe('Bulk actions menu (→2881)', () => {
-    async function selectTwoTasks() {
+  // The row checkboxes existed only to feed a hidden bulk menu with
+  // "Plan all / Implement all". The overflow menu now starts a
+  // comprehensive build for every eligible visible task directly, so
+  // the selection machinery is gone.
+  describe('Spawn agents for all (→2952)', () => {
+    afterEach(() => {
+      act(() => {
+        useRunningAgentsStore.getState().setSnapshot(0, [])
+      })
+    })
+
+    async function openOverflowMenu() {
       renderTasks()
       await waitFor(() => {
         expect(screen.getByText('Fix login bug')).toBeInTheDocument()
       })
-      const checkboxes = screen
-        .getAllByRole('checkbox')
-        .filter((el) => (el as HTMLInputElement).type === 'checkbox')
-      fireEvent.click(checkboxes[0])
-      fireEvent.click(checkboxes[1])
-      await waitFor(() => {
-        expect(screen.getByTestId('bulk-actions-menu')).toBeInTheDocument()
-      })
+      fireEvent.click(screen.getByTestId('overflow-menu-trigger'))
     }
 
-    it('does not render standalone Plan all / Implement all buttons in the bar', async () => {
-      await selectTwoTasks()
-      expect(screen.queryByRole('button', { name: /^plan all$/i })).not.toBeInTheDocument()
-      expect(screen.queryByRole('button', { name: /^implement all$/i })).not.toBeInTheDocument()
+    it('shows the Spawn agents for all item in the overflow menu', async () => {
+      await openOverflowMenu()
+      const item = screen.getByTestId('overflow-spawn-all')
+      expect(item).toBeInTheDocument()
+      expect(item.textContent).toMatch(/spawn agents for all/i)
     })
 
-    it('opens on click and shows both entries', async () => {
-      await selectTwoTasks()
-      expect(screen.queryByTestId('bulk-plan-all')).not.toBeInTheDocument()
-
-      fireEvent.click(screen.getByTestId('bulk-actions-menu'))
-
-      expect(screen.getByTestId('bulk-plan-all')).toBeInTheDocument()
-      expect(screen.getByTestId('bulk-implement-all')).toBeInTheDocument()
-    })
-
-    it('clicking Plan all fires the plan bulk action and closes the menu', async () => {
-      await selectTwoTasks()
-      fireEvent.click(screen.getByTestId('bulk-actions-menu'))
-      fireEvent.click(screen.getByTestId('bulk-plan-all'))
+    it('starts a comprehensive build for every open task and skips closed ones', async () => {
+      await openOverflowMenu()
+      fireEvent.click(screen.getByTestId('overflow-spawn-all'))
 
       await waitFor(() => {
         const spawnCalls = mockedApiPost.mock.calls.filter((c) => c[0] === '/agents/spawn')
-        expect(spawnCalls.length).toBeGreaterThanOrEqual(1)
+        // Tasks 1-3 are open; task 4 is closed and must be skipped.
+        expect(spawnCalls.length).toBe(3)
         for (const call of spawnCalls) {
-          // Plan mode never sets body.template (only "comprehensive" does, see
-          // spawnAgentForTask) — it's identified by locks:["*"] + isolation:"none",
-          // matching the single-task "plan mode sends locks..." contract test above.
-          const body = call[1] as { locks: string[]; isolation?: string }
-          expect(body.locks).toEqual(['*'])
-          expect(body.isolation).toBe('none')
+          const body = call[1] as { template?: string; task_id?: string }
+          expect(body.template).toBe('comprehensive')
+          expect(body.task_id).not.toBe('4')
         }
       })
-
-      // Menu closes after selecting an entry.
-      expect(screen.queryByTestId('bulk-plan-all')).not.toBeInTheDocument()
     })
 
-    it('disables both entries while a bulk action is loading', async () => {
+    it('skips tasks that already have a running agent', async () => {
+      renderTasks()
+      await waitFor(() => {
+        expect(screen.getByText('Fix login bug')).toBeInTheDocument()
+      })
+      act(() => {
+        useRunningAgentsStore.getState().setSnapshot(1, [
+          { name: 'fix-agent', status: 'running', task_id: '1' },
+        ])
+      })
+      fireEvent.click(screen.getByTestId('overflow-menu-trigger'))
+      fireEvent.click(screen.getByTestId('overflow-spawn-all'))
+
+      await waitFor(() => {
+        const spawnCalls = mockedApiPost.mock.calls.filter((c) => c[0] === '/agents/spawn')
+        expect(spawnCalls.length).toBe(2)
+        const ids = spawnCalls.map((c) => (c[1] as { task_id?: string }).task_id)
+        expect(ids).not.toContain('1')
+      })
+    })
+
+    it('skips tasks carrying the personal label', async () => {
+      const personalTasks = [
+        ...mockTasks,
+        { id: '5', title: 'Buy groceries', priority: 'P2', status: 'open', created_at: '2026-05-11T12:00:00.000Z', goal: null, label_ids: ['lp'] },
+      ]
+      const personalLabels = [...mockLabels, { id: 'lp', name: 'personal', color: '#22c55e', task_count: 1 }]
+      mockedApiGet.mockImplementation((path: string) => {
+        if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: personalTasks })
+        if (path === '/labels') return Promise.resolve({ labels: personalLabels })
+        return Promise.resolve({})
+      })
+      renderTasks()
+      await waitFor(() => {
+        expect(screen.getByText('Buy groceries')).toBeInTheDocument()
+      })
+      fireEvent.click(screen.getByTestId('overflow-menu-trigger'))
+      fireEvent.click(screen.getByTestId('overflow-spawn-all'))
+
+      await waitFor(() => {
+        const spawnCalls = mockedApiPost.mock.calls.filter((c) => c[0] === '/agents/spawn')
+        expect(spawnCalls.length).toBe(3)
+        const ids = spawnCalls.map((c) => (c[1] as { task_id?: string }).task_id)
+        expect(ids).not.toContain('5')
+      })
+    })
+
+    it('reports how many builds started and how many tasks were skipped', async () => {
+      await openOverflowMenu()
+      fireEvent.click(screen.getByTestId('overflow-spawn-all'))
+
+      await waitFor(() => {
+        expect(screen.getByText(/Started builds for 3 tasks\. Skipped 1\./i)).toBeInTheDocument()
+      })
+    })
+
+    it('is disabled while a spawn-all run is active', async () => {
       // Hold the spawn call open so actionLoading stays "bulk" while we inspect.
       let resolveSpawn: (() => void) | undefined
       mockedApiPost.mockImplementation((path: string) => {
@@ -1902,112 +1915,44 @@ describe('Tasks page', () => {
         return Promise.resolve({})
       })
 
-      await selectTwoTasks()
-      fireEvent.click(screen.getByTestId('bulk-actions-menu'))
-      fireEvent.click(screen.getByTestId('bulk-plan-all'))
+      await openOverflowMenu()
+      fireEvent.click(screen.getByTestId('overflow-spawn-all'))
 
       await waitFor(() => {
         expect(mockedApiPost).toHaveBeenCalledWith('/agents/spawn', expect.anything())
       })
 
-      // Re-open the menu (it closed after firing the action) to inspect disabled state.
-      fireEvent.click(screen.getByTestId('bulk-actions-menu'))
-      expect(screen.getByTestId('bulk-plan-all')).toBeDisabled()
-      expect(screen.getByTestId('bulk-implement-all')).toBeDisabled()
+      // The menu closed after the click; reopen it to inspect the disabled state.
+      fireEvent.click(screen.getByTestId('overflow-menu-trigger'))
+      expect(screen.getByTestId('overflow-spawn-all')).toBeDisabled()
 
       resolveSpawn?.()
-    })
-
-    it('closes the menu when clicking outside', async () => {
-      await selectTwoTasks()
-      fireEvent.click(screen.getByTestId('bulk-actions-menu'))
-      expect(screen.getByTestId('bulk-plan-all')).toBeInTheDocument()
-
-      fireEvent.click(document.body)
-
-      expect(screen.queryByTestId('bulk-plan-all')).not.toBeInTheDocument()
     })
   })
 
   // Suggestions UI removed (→249). Tests will be restored when the feature is polished.
 
-  describe('Select all / Clear all (→2490)', () => {
-    it('shows "Select all" affordance above the list when nothing is selected', async () => {
+  describe('Row controls (→2952)', () => {
+    it('task rows no longer render selection checkboxes or select-all controls', async () => {
       renderTasks()
       await waitFor(() => {
         expect(screen.getByText('Fix login bug')).toBeInTheDocument()
       })
-      const btn = screen.getByTestId('select-all-tasks')
-      expect(btn).toBeInTheDocument()
-      expect(btn.textContent).toMatch(/select all/i)
+      expect(screen.queryAllByRole('checkbox')).toHaveLength(0)
+      expect(screen.queryByTestId('select-all-tasks')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('bulk-actions-menu')).not.toBeInTheDocument()
     })
 
-    it('clicking the above-list "Select all" selects every visible task and shows the bulk bar', async () => {
+    it('the done-circle still closes a task', async () => {
       renderTasks()
       await waitFor(() => {
         expect(screen.getByText('Fix login bug')).toBeInTheDocument()
       })
-
-      fireEvent.click(screen.getByTestId('select-all-tasks'))
-
-      await waitFor(() => {
-        // Bulk bar should appear with the total count of visible tasks (4 in default "all" view)
-        expect(screen.getByText(/4 selected/i)).toBeInTheDocument()
-      })
-    })
-
-    it('select-all with "open" filter active only selects open tasks', async () => {
-      renderTasks()
-      await waitFor(() => {
-        expect(screen.getByText('Fix login bug')).toBeInTheDocument()
-      })
-
-      // Switch to open-only filter — 3 open tasks, 1 closed
-      selectOnlyStatus('open')
+      const row = screen.getByTestId('task-row-1')
+      fireEvent.click(within(row).getByTitle('Mark done'))
 
       await waitFor(() => {
-        expect(screen.queryByText('Old completed task')).not.toBeInTheDocument()
-      })
-
-      fireEvent.click(screen.getByTestId('select-all-tasks'))
-
-      await waitFor(() => {
-        expect(screen.getByText(/3 selected/i)).toBeInTheDocument()
-      })
-    })
-
-    it('when all visible tasks are selected the bar button reads "Clear all"', async () => {
-      renderTasks()
-      await waitFor(() => {
-        expect(screen.getByText('Fix login bug')).toBeInTheDocument()
-      })
-
-      // Select all first
-      fireEvent.click(screen.getByTestId('select-all-tasks'))
-
-      await waitFor(() => {
-        const btn = screen.getByTestId('select-all-tasks')
-        expect(btn.textContent).toMatch(/clear all/i)
-      })
-    })
-
-    it('clicking "Clear all" empties the selection and hides the bulk bar', async () => {
-      renderTasks()
-      await waitFor(() => {
-        expect(screen.getByText('Fix login bug')).toBeInTheDocument()
-      })
-
-      // Select all, then clear
-      fireEvent.click(screen.getByTestId('select-all-tasks'))
-      await waitFor(() => {
-        expect(screen.getByText(/selected/i)).toBeInTheDocument()
-      })
-
-      fireEvent.click(screen.getByTestId('select-all-tasks'))
-
-      await waitFor(() => {
-        // Bulk bar should be gone
-        expect(screen.queryByText(/selected/i)).not.toBeInTheDocument()
+        expect(mockedApiPost).toHaveBeenCalledWith('/tasks/1/close?source=user')
       })
     })
   })
@@ -2693,15 +2638,14 @@ describe('Tasks page - simplified toolbar (2-layer layout)', () => {
     expect(screen.getByTestId('overflow-menu')).toBeInTheDocument()
   })
 
-  it('overflow menu contains Label all, Import, Share, Copy list, Audit for review', async () => {
+  it('overflow menu contains Label all, Spawn agents for all, Audit for review, Delete all', async () => {
     renderTasks()
     await waitFor(() => expect(screen.getByText('Fix login bug')).toBeInTheDocument())
     fireEvent.click(screen.getByTestId('overflow-menu-trigger'))
     expect(screen.getByTestId('label-all-btn')).toBeInTheDocument()
-    expect(screen.getByTestId('overflow-import')).toBeInTheDocument()
-    expect(screen.getByTestId('overflow-share')).toBeInTheDocument()
-    expect(screen.getByTestId('overflow-copy')).toBeInTheDocument()
+    expect(screen.getByTestId('overflow-spawn-all')).toBeInTheDocument()
     expect(screen.getByTestId('tasks-audit-button')).toBeInTheDocument()
+    expect(screen.getByTestId('overflow-delete-all')).toBeInTheDocument()
   })
 
   // --- Delete all ---
