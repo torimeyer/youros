@@ -10,6 +10,52 @@ export interface ReleaseGroup {
 }
 
 const releaseNotes: ReleaseGroup[] = [
+  // v5.15.0
+  {
+    date: '2026-07-18',
+    label: 'July 18, 2026',
+    entries: [
+      {
+        title: 'You choose what the sidebar shows',
+        description: 'Hover any sidebar item and an x appears to tuck it away. A new settings section brings hidden items back, the choice sticks across reloads for every item, and the Activity switch in settings now actually hides Activity. The bulk bar tucks Plan all and Implement all into a three-dot menu.',
+      },
+      {
+        title: 'Helper transcripts have real names',
+        description: 'Transcript titles now come from the actual task being worked on instead of instruction-sheet leftovers, old junk titles were cleaned up across the whole history, and a helper’s transcript page always shows that helper’s own conversation.',
+      },
+      {
+        title: 'The helper board stopped crying wolf',
+        description: 'Working helpers were being marked finished just for going quiet during one long step. The board now checks real evidence before flagging anyone, revives a wrongly flagged helper that reports back in, and shows real activity numbers read from each helper’s own log.',
+      },
+      {
+        title: 'Creating a draft can no longer freeze the app',
+        description: 'Draft creation used to wait up to ten minutes on a hung AI service while it asked for an acceptance checklist. It now skips the call when asked to, gives up politely after thirty seconds otherwise, and falls back to the built-in template.',
+      },
+      {
+        title: 'Activity tabs show real data again',
+        description: 'The Events and What I learned tabs load real entries, and six screens that silently failed after a routing slip are fixed with a guard so the mistake cannot come back.',
+      },
+    ],
+  },
+  // v5.14.0
+  {
+    date: '2026-07-12',
+    label: 'July 12, 2026',
+    entries: [
+      {
+        title: 'The dashboard answers "what do I have to work on"',
+        description: 'The Jira card groups your tickets by status with overdue ones first and can add a ticket to your tasks in one click. The Confluence card lists action items assigned to you and lets you check them off in place.',
+      },
+      {
+        title: 'Chat uses only the tools you allow',
+        description: 'Each connected tool in settings has an "Allow in chat" checkbox. Ticked tools can be used by chat; everything else stays blocked, and the privacy page says plainly what allowing means.',
+      },
+      {
+        title: 'Your settings stay exactly as you set them',
+        description: 'A family of quiet bugs let screens overwrite a just-saved OS name, accent color, or model choice with an older value. All of those paths are closed with regression tests, and saved keys and tokens are masked everywhere they appear.',
+      },
+    ],
+  },
   // v5.13.0
   {
     date: '2026-07-09',
