@@ -40,7 +40,7 @@ from services.loopback_guard import LoopbackGuardMiddleware
 from services.security_headers import SecurityHeadersMiddleware
 from services.slow_call_middleware import SlowCallMiddleware
 
-from routers import tasks, dashboard, settings, agents, chat, status, projects, transcripts, costs, auth, onboarding, onboarding_pack, search, threads, secrets, activity, specs, adventures, guesswho, files, beautify, drive, notifications, upgrade, sync, calendar, gmail, gmail_reply, gmail_triage, meeting_prep, meeting_tasks as meeting_tasks_router, workspace, briefing, workflows, shares, export, task_suggestions as task_suggestions_router, recurring_tasks as recurring_tasks_router, agent_patterns, enterprise, agentfiles, indexing, knowledge, predictions, growth, task_audit, slack, github, project_import, push, decisions, team_dashboard, sessions, imessage, dogwalk, prototypes, models as models_router, probes, trace, providers, adoption, since_you_last_looked, agent_undo, mcp_catalog, team_catalog, org_settings, team_home, my_setup, gemini as gemini_router, inbox as inbox_router, team as team_router, atlassian, spec_drive, meeting_tasks, portfolio
+from routers import tasks, dashboard, settings, agents, chat, status, projects, transcripts, costs, auth, onboarding, onboarding_pack, search, threads, secrets, activity, specs, adventures, guesswho, files, beautify, drive, notifications, upgrade, sync, calendar, gmail, gmail_reply, gmail_triage, meeting_prep, meeting_tasks as meeting_tasks_router, workspace, briefing, workflows, shares, export, task_suggestions as task_suggestions_router, recurring_tasks as recurring_tasks_router, agent_patterns, enterprise, agentfiles, indexing, knowledge, predictions, growth, task_audit, slack, github, push, decisions, team_dashboard, sessions, imessage, dogwalk, prototypes, models as models_router, probes, trace, providers, adoption, since_you_last_looked, agent_undo, mcp_catalog, team_catalog, org_settings, team_home, my_setup, gemini as gemini_router, inbox as inbox_router, team as team_router, atlassian, spec_drive, meeting_tasks, portfolio
 from routers import theme_rollup
 from routers import channel_routing as channel_routing_router
 from routers import text_bridge as text_bridge_router
@@ -255,7 +255,6 @@ app.include_router(slack.router, prefix="/api")
 app.include_router(github.router, prefix="/api")
 app.include_router(git_router.router, prefix="/api")
 app.include_router(atlassian.router, prefix="/api")
-app.include_router(project_import.router, prefix="/api")
 app.include_router(push.router, prefix="/api")
 app.include_router(decisions.router, prefix="/api")
 app.include_router(team_dashboard.router, prefix="/api")
