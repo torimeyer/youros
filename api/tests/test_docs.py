@@ -806,55 +806,27 @@ async def test_promote_error_no_criteria(client):
 
 @pytest.mark.asyncio
 async def test_decompose_endpoint(client):
-    with patch("routers.specs.ostk") as mock_ostk:
-        mock_ostk.doc_decompose = AsyncMock(
-            return_value={"result": "->001 task A\n->002 task B", "task_ids": ["001", "002"]}
-        )
-        resp = await client.post("/api/specs/decompose", json={"path": "docs/spec/plan.md"})
+    """POST /specs/decompose is a no-op (→2938): returns ok without touching the ledger."""
+    resp = await client.post("/api/specs/decompose", json={"path": "docs/spec/plan.md"})
 
     assert resp.status_code == 200
     data = resp.json()
-    assert "->001" in data["result"]
-    assert data["task_ids"] == ["001", "002"]
-    mock_ostk.doc_decompose.assert_called_once_with("docs/spec/plan.md", auto=True)
+    assert data["result"] == "ok"
+    assert data["task_ids"] == []
 
 
 @pytest.mark.asyncio
-async def test_decompose_error(client):
-    with patch("routers.specs.ostk") as mock_ostk:
-        mock_ostk.doc_decompose = AsyncMock(side_effect=OstkError("spec not found"))
-        resp = await client.post("/api/specs/decompose", json={"path": "docs/spec/nope.md"})
+async def test_decompose_returns_empty_task_ids(client):
+    """POST /specs/decompose always returns empty task_ids (→2938).
 
-    assert resp.status_code == 400
-
-
-@pytest.mark.asyncio
-async def test_decompose_already_decomposed_returns_400_with_detail(client):
-    """When ostk says 'already decomposed', the endpoint returns 400 with that detail
-    so the frontend can show a user-friendly 'tasks already exist' message."""
-    with patch("routers.specs.ostk") as mock_ostk:
-        mock_ostk.doc_decompose = AsyncMock(
-            side_effect=OstkError("spec already decomposed into needles")
-        )
-        resp = await client.post("/api/specs/decompose", json={"path": "docs/spec/plan.md"})
-
-    assert resp.status_code == 400
-    assert "already decomposed" in resp.json()["detail"]
-
-
-@pytest.mark.asyncio
-async def test_decompose_returns_task_ids_in_response(client):
-    """Response body includes task_ids so the frontend can show exact count."""
-    with patch("routers.specs.ostk") as mock_ostk:
-        mock_ostk.doc_decompose = AsyncMock(
-            return_value={"result": "->531 task A\n->532 task B\n->533 task C", "task_ids": ["531", "532", "533"]}
-        )
-        resp = await client.post("/api/specs/decompose", json={"path": "docs/spec/plan.md"})
+    Builder tasks are created explicitly via /specs/{path}/build, not by
+    decompose. Progress is derived from the spec file's own checkboxes.
+    """
+    resp = await client.post("/api/specs/decompose", json={"path": "docs/spec/plan.md"})
 
     assert resp.status_code == 200
     data = resp.json()
-    assert data["task_ids"] == ["531", "532", "533"]
-    assert len(data["task_ids"]) == 3
+    assert data["task_ids"] == []
 
 
 @pytest.mark.asyncio
@@ -1139,14 +1111,11 @@ async def test_promote_compat_endpoint(client):
 
 @pytest.mark.asyncio
 async def test_decompose_compat_endpoint(client):
-    with patch("routers.specs.ostk") as mock_ostk:
-        mock_ostk.doc_decompose = AsyncMock(
-            return_value={"result": "->001 task A", "task_ids": ["001"]}
-        )
-        resp = await client.post("/api/docs/decompose", json={"path": "docs/spec/plan.md"})
+    """POST /docs/decompose compat alias also returns the no-op response (→2938)."""
+    resp = await client.post("/api/docs/decompose", json={"path": "docs/spec/plan.md"})
 
     assert resp.status_code == 200
-    assert "->001" in resp.json()["result"]
+    assert resp.json()["task_ids"] == []
 
 
 # --- Path validation / traversal regression tests ---
