@@ -637,9 +637,9 @@ async def test_from_template_creates_ready_plan(
     # displays them in the acceptance criteria section.
     assert "- [ ]" in body
 
-    # Decompose fires at promote: every promoted spec gets tasks immediately
-    # (decompose-at-promote strategy), so this endpoint decomposes exactly once.
-    assert decompose_calls["count"] == 1
+    # Decompose no longer fires at promote (→2938). Progress comes from
+    # the spec file's own checkboxes, not from ledger rows.
+    assert decompose_calls["count"] == 0
 
 
 @pytest.mark.asyncio
@@ -4068,34 +4068,15 @@ async def test_verify_fresh_prompt_contains_only_ac_not_body(client, tmp_path, m
 
 
 @pytest.mark.asyncio
-async def test_decompose_spec_returns_503_when_ai_times_out(client, monkeypatch):
-    """When the AI model is unreachable, /specs/decompose returns 503 with a plain message."""
-    from services.ostk import OstkError
-    import routers.specs as specs_module
+async def test_decompose_spec_is_noop_returns_200(client):
+    """POST /specs/decompose is a no-op (→2938) — always returns 200 with empty task_ids.
 
-    async def fake_doc_decompose(path, auto=False):
-        raise OstkError("ostk command timed out: ostk doc decompose docs/spec/test.md")
-
-    monkeypatch.setattr(specs_module.ostk, "doc_decompose", fake_doc_decompose)
-
+    The endpoint no longer calls doc_decompose or raises 503/400; progress
+    is derived from the spec file's own checkboxes instead.
+    """
     resp = await client.post("/api/specs/decompose", json={"path": "docs/spec/test.md"})
 
-    assert resp.status_code == 503
-    assert resp.json()["detail"] == "The AI service is not responding right now. Please try again in a moment."
-
-
-@pytest.mark.asyncio
-async def test_decompose_spec_returns_400_for_other_ostk_errors(client, monkeypatch):
-    """Non-timeout OstkErrors on /specs/decompose still return 400."""
-    from services.ostk import OstkError
-    import routers.specs as specs_module
-
-    async def fake_doc_decompose(path, auto=False):
-        raise OstkError("spec already decomposed")
-
-    monkeypatch.setattr(specs_module.ostk, "doc_decompose", fake_doc_decompose)
-
-    resp = await client.post("/api/specs/decompose", json={"path": "docs/spec/test.md"})
-
-    assert resp.status_code == 400
-    assert "spec already decomposed" in resp.json()["detail"]
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["result"] == "ok"
+    assert data["task_ids"] == []

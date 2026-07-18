@@ -1,11 +1,14 @@
-"""Tests: doc_promote calls doc_decompose at promotion time."""
-import tempfile
+"""Tests: doc_promote must NOT call doc_decompose (→2938).
+
+Spec progress is derived from file checkboxes; the task ledger is not
+populated at promote time.
+"""
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from services.ostk import OstkService, OstkError
+from services.ostk import OstkService
 
 
 @pytest.fixture
@@ -26,8 +29,12 @@ def _make_draft(tmp_path: Path) -> Path:
 
 
 @pytest.mark.asyncio
-async def test_doc_promote_calls_decompose(svc, tmp_path):
-    """doc_promote must call doc_decompose once with the promoted path and auto=True."""
+async def test_doc_promote_does_not_call_decompose(svc, tmp_path):
+    """doc_promote must NOT call doc_decompose (→2938).
+
+    Progress is derived from the file's own checkboxes; minting ledger rows
+    at promote time created unwanted AC rows (exhibit A: →2939–2943).
+    """
     import services.ostk as _mod
     specs_dir = tmp_path / "myos" / "specs"
 
@@ -39,24 +46,22 @@ async def test_doc_promote_calls_decompose(svc, tmp_path):
             result = await svc.doc_promote("docs/draft/my-spec.md")
 
     promoted_path = str(specs_dir / "my-spec.md")
-    mock_decompose.assert_called_once_with(promoted_path, auto=True)
+    mock_decompose.assert_not_called()
     assert result == promoted_path
 
 
 @pytest.mark.asyncio
-async def test_doc_promote_succeeds_if_decompose_raises(svc, tmp_path):
-    """doc_promote must succeed even when doc_decompose raises."""
+async def test_doc_promote_succeeds_and_moves_file(svc, tmp_path):
+    """doc_promote must move the draft file and return the new path."""
     import services.ostk as _mod
     specs_dir = tmp_path / "myos" / "specs"
 
-    _make_draft(tmp_path)
+    draft = _make_draft(tmp_path)
 
-    with patch.object(svc, "doc_decompose", new_callable=AsyncMock) as mock_decompose:
-        mock_decompose.side_effect = Exception("ostk binary not found")
-        with patch.object(_mod, "USER_SPECS_DIR", specs_dir):
-            result = await svc.doc_promote("docs/draft/my-spec.md")
+    with patch.object(_mod, "USER_SPECS_DIR", specs_dir):
+        result = await svc.doc_promote("docs/draft/my-spec.md")
 
     promoted_path = str(specs_dir / "my-spec.md")
     assert result == promoted_path
     assert (specs_dir / "my-spec.md").exists()
-    mock_decompose.assert_called_once()
+    assert not draft.exists()

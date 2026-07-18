@@ -311,43 +311,35 @@ async def test_specs_journey_via_http(client, tmp_path, monkeypatch):
     )
     assert resp.status_code == 200
 
-    # --- Decompose ---
+    # --- Decompose is a no-op (→2938) ---
+    # Progress derives from file checkboxes, not ledger rows.
     resp = await client.post(
         "/api/specs/decompose",
         json={"path": "docs/spec/e2e-http-journey.md"},
     )
     assert resp.status_code == 200
-    assert resp.json()["task_ids"] == ["701", "702"]
+    assert resp.json()["task_ids"] == []
 
-    # --- Mock tasks for list/verify calls ---
-    closed_tasks = [
-        {"id": "\u2192701", "title": "One", "status": "closed", "priority": "P1"},
-        {"id": "\u2192702", "title": "Two", "status": "closed", "priority": "P1"},
-    ]
+    # Simulate builder agents completing work by checking boxes on disk.
+    # (In production, build agents write [x] as each AC is satisfied.)
+    spec_file = tmp_path / "docs" / "spec" / "e2e-http-journey.md"
+    if spec_file.exists():
+        checked_text = spec_file.read_text().replace("- [ ]", "- [x]")
+        spec_file.write_text(checked_text)
 
     with patch.object(ostk_module.ostk, "list_tasks", new_callable=AsyncMock) as mock_tasks:
-        mock_tasks.return_value = closed_tasks
+        mock_tasks.return_value = []
 
-        # All tasks closed flips the spec straight to complete; Verify is
-        # a separate quality gate and no longer gates this status.
-        resp = await client.get("/api/specs")
-        assert resp.status_code == 200
-        spec = next(
-            d for d in resp.json()["docs"]
-            if d["path"] == "docs/spec/e2e-http-journey.md"
-        )
-        assert spec["task_summary"]["closed"] == 2
-        assert spec["status"] == "complete"
-
-        # Verify flips the boxes on disk.
+        # Verify sees all boxes checked → returns all_met=True.
         resp = await client.post(
             "/api/specs/docs/spec/e2e-http-journey.md/verify"
         )
         assert resp.status_code == 200
         assert resp.json()["all_met"] is True
 
-        # After Verify, status is complete.
+        # After all boxes are checked, status is complete.
         resp = await client.get("/api/specs")
+        assert resp.status_code == 200
         spec = next(
             d for d in resp.json()["docs"]
             if d["path"] == "docs/spec/e2e-http-journey.md"
