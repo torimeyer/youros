@@ -18,37 +18,52 @@ import Icon from './Icon'
 import {
   DEFAULT_DASHBOARD_WIDGETS,
   DASHBOARD_WIDGET_LABELS,
+  widgetDefaultSize,
+  type DashboardWidgetSize,
 } from '../stores/app'
 
 interface Props {
   open: boolean
   onClose: () => void
   widgets: string[]
-  onSave: (widgets: string[]) => void
+  // Saved width overrides keyed by widget id (→2921). Optional so
+  // callers without saved widths get the defaults.
+  sizes?: Record<string, DashboardWidgetSize>
+  onSave: (widgets: string[], sizes: Record<string, DashboardWidgetSize>) => void
 }
 
 interface RowState {
   id: string
   visible: boolean
+  size: DashboardWidgetSize
 }
+
+// Stable default for the sizes prop. An inline `{}` default would mint a
+// new object identity on every render, and the reset effect below depends
+// on `sizes`, so that identity churn would loop setRows forever.
+const NO_SAVED_SIZES: Record<string, DashboardWidgetSize> = {}
 
 // Build the editable row list from the currently saved widget ids.
 // Any known widget not in the saved list still appears, toggled off,
 // so the user can turn it back on. The saved widgets keep their order
 // first, then any remaining known widgets are appended at the bottom.
-function buildRows(saved: string[]): RowState[] {
+// Each row also carries its width: the saved one, or the default.
+function buildRows(
+  saved: string[],
+  sizes: Record<string, DashboardWidgetSize>,
+): RowState[] {
   const known = Object.keys(DASHBOARD_WIDGET_LABELS)
   const rows: RowState[] = []
   const seen = new Set<string>()
   for (const id of saved) {
     if (DASHBOARD_WIDGET_LABELS[id]) {
-      rows.push({ id, visible: true })
+      rows.push({ id, visible: true, size: sizes[id] ?? widgetDefaultSize(id) })
       seen.add(id)
     }
   }
   for (const id of known) {
     if (!seen.has(id)) {
-      rows.push({ id, visible: false })
+      rows.push({ id, visible: false, size: sizes[id] ?? widgetDefaultSize(id) })
     }
   }
   return rows
@@ -57,9 +72,10 @@ function buildRows(saved: string[]): RowState[] {
 interface SortableRowProps {
   row: RowState
   onToggle: (id: string) => void
+  onToggleSize: (id: string) => void
 }
 
-function SortableRow({ row, onToggle }: SortableRowProps) {
+function SortableRow({ row, onToggle, onToggleSize }: SortableRowProps) {
   const {
     attributes,
     listeners,
@@ -96,6 +112,20 @@ function SortableRow({ row, onToggle }: SortableRowProps) {
       <span className="flex-1 text-sm text-slate-800 dark:text-slate-200">{label}</span>
       <button
         type="button"
+        onClick={() => onToggleSize(row.id)}
+        data-testid={`widget-row-size-${row.id}`}
+        aria-label={
+          row.size === 'half'
+            ? `Make ${label} full width`
+            : `Make ${label} half width`
+        }
+        title={row.size === 'half' ? 'Half width' : 'Full width'}
+        className="px-2 py-0.5 text-xs rounded-full border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:border-blue-500 hover:text-blue-600 dark:hover:text-blue-400 transition-colors shrink-0"
+      >
+        {row.size === 'half' ? 'Half' : 'Full'}
+      </button>
+      <button
+        type="button"
         role="switch"
         aria-checked={row.visible}
         aria-label={`Show ${label}`}
@@ -119,16 +149,17 @@ export default function DashboardCustomizeModal({
   open,
   onClose,
   widgets,
+  sizes = NO_SAVED_SIZES,
   onSave,
 }: Props) {
-  const [rows, setRows] = useState<RowState[]>(() => buildRows(widgets))
+  const [rows, setRows] = useState<RowState[]>(() => buildRows(widgets, sizes))
 
   // Reset local state whenever the modal opens with a fresh prop list.
   useEffect(() => {
     if (open) {
-      setRows(buildRows(widgets))
+      setRows(buildRows(widgets, sizes))
     }
-  }, [open, widgets])
+  }, [open, widgets, sizes])
 
   // Escape closes the modal.
   useEffect(() => {
@@ -150,6 +181,14 @@ export default function DashboardCustomizeModal({
     )
   }
 
+  const handleToggleSize = (id: string) => {
+    setRows((prev) =>
+      prev.map((r) =>
+        r.id === id ? { ...r, size: r.size === 'half' ? 'full' : 'half' } : r,
+      ),
+    )
+  }
+
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event
     if (!over || active.id === over.id) return
@@ -163,12 +202,16 @@ export default function DashboardCustomizeModal({
 
   const handleSave = () => {
     const next = rows.filter((r) => r.visible).map((r) => r.id)
-    onSave(next)
+    // Every row's width goes along, hidden ones included, so a widget
+    // toggled back on later still remembers the width the user picked.
+    const nextSizes: Record<string, DashboardWidgetSize> = {}
+    for (const r of rows) nextSizes[r.id] = r.size
+    onSave(next, nextSizes)
     onClose()
   }
 
   const handleReset = () => {
-    setRows(buildRows([...DEFAULT_DASHBOARD_WIDGETS]))
+    setRows(buildRows([...DEFAULT_DASHBOARD_WIDGETS], {}))
   }
 
   const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -213,7 +256,12 @@ export default function DashboardCustomizeModal({
               strategy={verticalListSortingStrategy}
             >
               {rows.map((row) => (
-                <SortableRow key={row.id} row={row} onToggle={handleToggle} />
+                <SortableRow
+                  key={row.id}
+                  row={row}
+                  onToggle={handleToggle}
+                  onToggleSize={handleToggleSize}
+                />
               ))}
             </SortableContext>
           </DndContext>

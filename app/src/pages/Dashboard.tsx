@@ -17,7 +17,12 @@ import { Card, SkeletonLine } from '../components/ui';
 import { api } from '../lib/api';
 import { reportError } from '../lib/reportError';
 import { renderMarkdown } from '../lib/markdown';
-import { useAppStore } from '../stores/app';
+import {
+  useAppStore,
+  DASHBOARD_WIDGET_LABELS,
+  widgetDefaultSize,
+  type DashboardWidgetSize,
+} from '../stores/app';
 import { useDashboardStore } from '../stores/dashboardStore';
 import { useDashboardFeed } from '../hooks/useDashboardFeed';
 import { ADVENTURE_DISMISSED_KEY, pickTryNowSuggestion, type AdventureTemplate, type TryNowSuggestion } from '../lib/adventures';
@@ -185,6 +190,8 @@ export default function Dashboard() {
   const displayOsName = useAppStore((s) => s.displayOsName());
   const dashboardWidgets = useAppStore((s) => s.dashboardWidgets);
   const setDashboardWidgets = useAppStore((s) => s.setDashboardWidgets);
+  const dashboardWidgetSizes = useAppStore((s) => s.dashboardWidgetSizes);
+  const setDashboardWidgetSizes = useAppStore((s) => s.setDashboardWidgetSizes);
   const dashboardLayout = useAppStore((s) => s.dashboardLayout);
   const greetingStyle = useAppStore((s) => s.greetingStyle);
   const [data, setData] = useState<DashboardData | null>(null);
@@ -950,7 +957,7 @@ export default function Dashboard() {
     );
 
     return (
-      <div key="next_meeting" data-testid="widget-next-meeting" className="lg:col-span-2">
+      <div key="next_meeting" data-testid="widget-next-meeting">
         <Card hover padding="sm" className="sm:p-6" onClick={() => navigate('/calendar')}>
           {header}
           <CalendarGridWidget
@@ -966,7 +973,7 @@ export default function Dashboard() {
   const renderAdventure = () => {
     if (adventureDismissed) return null;
     return (
-      <div key="adventure" data-testid="widget-adventure" className="lg:col-span-2">
+      <div key="adventure" data-testid="widget-adventure">
       <Card hover padding="sm" className="sm:p-6">
         <div className="flex items-start gap-4 mb-4 pr-8">
           <div className="flex items-center gap-3">
@@ -1137,6 +1144,37 @@ export default function Dashboard() {
     return true;
   });
 
+  // →2921: effective width for a grid widget. The user's saved choice
+  // wins; otherwise the default matches the pre-existing layout (calendar
+  // and adventure span both columns, everything else takes one).
+  const widgetSize = (id: string): DashboardWidgetSize =>
+    dashboardWidgetSizes[id] ?? widgetDefaultSize(id);
+
+  const toggleWidgetSize = (id: string) => {
+    const next: Record<string, DashboardWidgetSize> = {
+      ...dashboardWidgetSizes,
+      [id]: widgetSize(id) === 'full' ? 'half' : 'full',
+    };
+    setDashboardWidgetSizes(next);
+  };
+
+  // →2921: move a visible grid widget one slot earlier (-1) or later (+1)
+  // by swapping it with its visible neighbor inside the SAME saved list
+  // the customize modal edits, so the modal order and the dashboard order
+  // stay one list. Banners and hidden ids keep their positions.
+  const moveWidget = (id: string, direction: -1 | 1) => {
+    const gridIdx = visibleGridCards.indexOf(id);
+    const targetIdx = gridIdx + direction;
+    if (gridIdx === -1 || targetIdx < 0 || targetIdx >= visibleGridCards.length) return;
+    const neighborId = visibleGridCards[targetIdx];
+    const next = [...dashboardWidgets];
+    const a = next.indexOf(id);
+    const b = next.indexOf(neighborId);
+    next[a] = neighborId;
+    next[b] = id;
+    setDashboardWidgets(next);
+  };
+
   return (
     <PageShell title="Home"
       data-live-agents={String(liveAgentsCount)}
@@ -1163,16 +1201,48 @@ export default function Dashboard() {
         {/* Widget Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {visibleGridCards.map((id) => (
-            // UAT item 2: full-width widgets (calendar, adventure) put
-            // lg:col-span-2 on their inner div, but the grid's direct child is
-            // THIS wrapper, so the span never applied and the calendar rendered
-            // at half width. Apply the span here, on the actual grid child.
+            // UAT item 2: the column span must live on the grid's direct
+            // child (THIS wrapper). A span on the widget's inner div never
+            // applies and the card renders at half width. →2921: the span now
+            // follows the per-widget width saved in the store; the defaults
+            // reproduce the old hardcoded next_meeting/adventure rule exactly.
             <div
               key={`wrap-${id}`}
-              className={`relative group/widget [&>*:first-child]:h-full [&>*:first-child>*:first-child]:h-full ${id === 'next_meeting' || id === 'adventure' ? 'lg:col-span-2' : ''}`}
+              className={`relative group/widget [&>*:first-child]:h-full [&>*:first-child>*:first-child]:h-full ${widgetSize(id) === 'full' ? 'lg:col-span-2' : ''}`}
             >
               {widgetRenderers[id]?.()}
-              <div className="absolute top-3 right-3 opacity-0 group-hover/widget:opacity-100 transition-opacity">
+              <div className="absolute top-3 right-3 flex items-center gap-0.5 rounded-lg bg-white/80 dark:bg-slate-900/80 opacity-0 group-hover/widget:opacity-100 focus-within:opacity-100 transition-opacity">
+                <button
+                  onKeyDown={(e) => {
+                    if (e.key === 'ArrowUp') {
+                      e.preventDefault();
+                      moveWidget(id, -1);
+                    } else if (e.key === 'ArrowDown') {
+                      e.preventDefault();
+                      moveWidget(id, 1);
+                    }
+                  }}
+                  className="p-1 rounded-md text-slate-600 dark:text-slate-400 hover:text-slate-600 dark:hover:text-white transition-colors cursor-grab"
+                  aria-label={`Move ${DASHBOARD_WIDGET_LABELS[id] ?? id}. Press the up or down arrow keys to move this widget one slot.`}
+                  title="Press the up or down arrow keys to move this widget"
+                  data-testid={`widget-move-handle-${id}`}
+                >
+                  <Icon name="drag_indicator" size={16} />
+                </button>
+                <button
+                  onClick={() => toggleWidgetSize(id)}
+                  className="p-1 rounded-md text-slate-600 dark:text-slate-400 hover:text-slate-600 dark:hover:text-white transition-colors"
+                  aria-label={
+                    widgetSize(id) === 'half'
+                      ? 'make this widget full width'
+                      : 'make this widget half width'
+                  }
+                  title={widgetSize(id) === 'half' ? 'Make full width' : 'Make half width'}
+                  data-testid={`widget-size-toggle-${id}`}
+                >
+                  <Icon name={widgetSize(id) === 'half' ? 'expand_content' : 'collapse_content'} size={16} />
+                </button>
+                <div className="relative">
                 <button
                   onClick={() => setWidgetMenuOpen(widgetMenuOpen === id ? null : id)}
                   className="p-1 rounded-md text-slate-600 dark:text-slate-400 hover:text-slate-600 dark:hover:text-white transition-colors"
@@ -1213,6 +1283,7 @@ export default function Dashboard() {
                     </button>
                   </div>
                 )}
+                </div>
               </div>
             </div>
           ))}
@@ -1238,7 +1309,11 @@ export default function Dashboard() {
         open={customizeOpen}
         onClose={() => setCustomizeOpen(false)}
         widgets={dashboardWidgets}
-        onSave={(next) => setDashboardWidgets(next)}
+        sizes={dashboardWidgetSizes}
+        onSave={(next, nextSizes) => {
+          setDashboardWidgets(next);
+          setDashboardWidgetSizes(nextSizes);
+        }}
       />
     </PageShell>
   );

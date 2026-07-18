@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { useAppStore, TEAM_MODE_VISIBLE, DEFAULT_FEATURE_TOGGLES, DEFAULT_DASHBOARD_WIDGETS, FIRST_RUN_DASHBOARD_WIDGETS, readInitialDashboardWidgets, DASHBOARD_WIDGET_LABELS, HYDRATION_SETTINGS_TIMEOUT_MS, HYDRATION_ENTERPRISE_TIMEOUT_MS, HYDRATION_RETRY_DELAYS_MS, cancelHydrationRetry } from './app'
+import { useAppStore, TEAM_MODE_VISIBLE, DEFAULT_FEATURE_TOGGLES, DEFAULT_DASHBOARD_WIDGETS, FIRST_RUN_DASHBOARD_WIDGETS, readInitialDashboardWidgets, readInitialDashboardWidgetSizes, widgetDefaultSize, DASHBOARD_WIDGET_LABELS, HYDRATION_SETTINGS_TIMEOUT_MS, HYDRATION_ENTERPRISE_TIMEOUT_MS, HYDRATION_RETRY_DELAYS_MS, cancelHydrationRetry } from './app'
 import { api } from '../lib/api'
 import {
   recordSettingsWriteStart,
@@ -1017,6 +1017,68 @@ describe('widget list invariants', () => {
     expect(widgets).not.toContain('ostk_files')
     expect(widgets).toContain('briefing')
     expect(widgets).toContain('todays_focus')
+  })
+})
+
+// →2921: per-widget width (half or full) persisted next to the widget list.
+describe('dashboard widget widths (→2921)', () => {
+  beforeEach(() => {
+    vi.mocked(api.get).mockReset().mockResolvedValue({})
+    vi.mocked(api.patch).mockReset().mockResolvedValue({})
+    cancelHydrationRetry()
+    useAppStore.setState({ dashboardWidgetSizes: {} })
+    try { localStorage.clear() } catch { /* noop */ }
+  })
+
+  it('next_meeting and adventure default to full width, everything else to half', () => {
+    expect(widgetDefaultSize('next_meeting')).toBe('full')
+    expect(widgetDefaultSize('adventure')).toBe('full')
+    expect(widgetDefaultSize('todays_focus')).toBe('half')
+    expect(widgetDefaultSize('quick_launch')).toBe('half')
+    expect(widgetDefaultSize('some_future_widget')).toBe('half')
+  })
+
+  it('a fresh install starts with no saved widths', () => {
+    localStorage.removeItem('myos-dashboard-widget-sizes')
+    expect(readInitialDashboardWidgetSizes()).toEqual({})
+  })
+
+  it('saved widths in localStorage are honored and junk values dropped', () => {
+    localStorage.setItem(
+      'myos-dashboard-widget-sizes',
+      JSON.stringify({ todays_focus: 'full', junk: 'huge' }),
+    )
+    expect(readInitialDashboardWidgetSizes()).toEqual({ todays_focus: 'full' })
+  })
+
+  it('setDashboardWidgetSizes updates state, localStorage, and the server', () => {
+    useAppStore.getState().setDashboardWidgetSizes({ todays_focus: 'full' })
+    expect(useAppStore.getState().dashboardWidgetSizes).toEqual({ todays_focus: 'full' })
+    expect(JSON.parse(localStorage.getItem('myos-dashboard-widget-sizes')!)).toEqual({
+      todays_focus: 'full',
+    })
+    expect(api.patch).toHaveBeenCalledWith('/settings', {
+      dashboard_widget_sizes: { todays_focus: 'full' },
+    })
+  })
+
+  it('hydrateFromServer applies server widths and drops invalid values', async () => {
+    vi.mocked(api.get).mockResolvedValueOnce({
+      onboarded: true,
+      dashboard_widget_sizes: { todays_focus: 'full', bogus: 'huge' },
+    })
+    await useAppStore.getState().hydrateFromServer()
+    expect(useAppStore.getState().dashboardWidgetSizes).toEqual({ todays_focus: 'full' })
+  })
+
+  it('backfills local widths to a silent server', async () => {
+    useAppStore.setState({ dashboardWidgetSizes: { quick_launch: 'full' } })
+    vi.mocked(api.get).mockResolvedValueOnce({ onboarded: true })
+    await useAppStore.getState().hydrateFromServer()
+    expect(api.patch).toHaveBeenCalledWith(
+      '/settings',
+      expect.objectContaining({ dashboard_widget_sizes: { quick_launch: 'full' } }),
+    )
   })
 })
 

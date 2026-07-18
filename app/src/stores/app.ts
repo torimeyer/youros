@@ -71,6 +71,18 @@ export const FIRST_RUN_DASHBOARD_WIDGETS: string[] = [
   'quick_launch',
 ]
 
+// Per-widget width on the home dashboard grid. 'half' takes one of the
+// two columns, 'full' spans both.
+export type DashboardWidgetSize = 'half' | 'full'
+
+// Width used when the user has never picked one for a widget. The
+// calendar and adventure cards spanned both columns before per-widget
+// widths existed, so they stay full by default: a fresh install with no
+// saved widths renders exactly like it did before this feature.
+export function widgetDefaultSize(id: string): DashboardWidgetSize {
+  return id === 'next_meeting' || id === 'adventure' ? 'full' : 'half'
+}
+
 export interface FeatureToggle {
   label: string
   enabled: boolean
@@ -234,6 +246,11 @@ interface AppState {
   setCustomAgentTemplates: (templates: CustomAgentTemplate[]) => void
   dashboardWidgets: string[]
   setDashboardWidgets: (widgets: string[]) => void
+  // Saved width overrides, keyed by widget id. Widgets missing from the
+  // map use widgetDefaultSize. Kept separate from dashboardWidgets so a
+  // hidden widget remembers its width when toggled back on.
+  dashboardWidgetSizes: Record<string, DashboardWidgetSize>
+  setDashboardWidgetSizes: (sizes: Record<string, DashboardWidgetSize>) => void
   gmailUnreadAtTop: boolean
   setGmailUnreadAtTop: (v: boolean) => void
   enterpriseUser: EnterpriseUser | null
@@ -295,6 +312,7 @@ const LS_KEYS = {
   gmailUnreadAtTop: 'myos-gmail-unread-at-top',
   customAgentTemplates: 'myos-custom-templates',
   dashboardWidgets: 'myos-dashboard-widgets',
+  dashboardWidgetSizes: 'myos-dashboard-widget-sizes',
   chatWidth: 'myos-chat-width',
   sidebarWidth: 'myos-sidebar-width',
   featureOrder: 'myos-feature-order',
@@ -511,6 +529,30 @@ export function readInitialDashboardWidgets(): string[] {
 }
 const initialDashboardWidgets = readInitialDashboardWidgets()
 
+// Keep only well-formed entries: ids mapped to 'half' or 'full'. Anything
+// else (junk values, arrays, primitives) is dropped so a bad saved blob
+// can never distort the layout — unknown widgets simply fall back to
+// their default width.
+function sanitizeWidgetSizes(raw: unknown): Record<string, DashboardWidgetSize> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  const out: Record<string, DashboardWidgetSize> = {}
+  for (const [id, size] of Object.entries(raw as Record<string, unknown>)) {
+    if (size === 'half' || size === 'full') out[id] = size
+  }
+  return out
+}
+
+export function readInitialDashboardWidgetSizes(): Record<string, DashboardWidgetSize> {
+  const raw = lsGet(LS_KEYS.dashboardWidgetSizes)
+  if (!raw) return {}
+  try {
+    return sanitizeWidgetSizes(JSON.parse(raw))
+  } catch {
+    return {}
+  }
+}
+const initialDashboardWidgetSizes = readInitialDashboardWidgetSizes()
+
 function applyFeatureOrder(features: FeatureToggle[]): FeatureToggle[] {
   const raw = lsGet(LS_KEYS.featureOrder)
   if (!raw) return features
@@ -692,6 +734,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     lsSet(LS_KEYS.dashboardWidgets, JSON.stringify(dashboardWidgets))
     set({ dashboardWidgets })
     patchServer({ dashboard_widgets: dashboardWidgets })
+  },
+  dashboardWidgetSizes: initialDashboardWidgetSizes,
+  setDashboardWidgetSizes: (dashboardWidgetSizes) => {
+    lsSet(LS_KEYS.dashboardWidgetSizes, JSON.stringify(dashboardWidgetSizes))
+    set({ dashboardWidgetSizes })
+    patchServer({ dashboard_widget_sizes: dashboardWidgetSizes })
   },
   gmailUnreadAtTop: initialGmailUnreadAtTop,
   setGmailUnreadAtTop: (v) => {
@@ -1053,6 +1101,21 @@ export const useAppStore = create<AppState>((set, get) => ({
       lsSet(LS_KEYS.dashboardWidgets, JSON.stringify(v))
     } else {
       backfill.dashboard_widgets = state.dashboardWidgets
+    }
+
+    // dashboard_widget_sizes (→2921). Same pattern as dashboard_widgets:
+    // the server wins when it has a value; otherwise the local map is
+    // written back so future loads have it. Invalid entries are dropped.
+    if (
+      hasValue(server.dashboard_widget_sizes) &&
+      typeof server.dashboard_widget_sizes === 'object' &&
+      !Array.isArray(server.dashboard_widget_sizes)
+    ) {
+      const v = sanitizeWidgetSizes(server.dashboard_widget_sizes)
+      updates.dashboardWidgetSizes = v
+      lsSet(LS_KEYS.dashboardWidgetSizes, JSON.stringify(v))
+    } else if (Object.keys(state.dashboardWidgetSizes).length > 0) {
+      backfill.dashboard_widget_sizes = state.dashboardWidgetSizes
     }
 
     // Appearance settings hydration

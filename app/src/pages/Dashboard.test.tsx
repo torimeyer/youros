@@ -1525,3 +1525,212 @@ describe('Widget three-dot menu and header overlap fix', () => {
   })
 })
 
+// ---------------------------------------------------------------------------
+// →2921: move handles and half/full width toggles on the widget chrome
+// ---------------------------------------------------------------------------
+
+// Capture the real store actions at import time. The Adventure describe
+// above swaps setDashboardWidgets for a vi.fn() via setState, and zustand
+// keeps that stub for every later test in this file. These tests need the
+// genuine setters back so reorder and resize actually update the store.
+const realSetDashboardWidgets = useAppStore.getState().setDashboardWidgets
+const realSetDashboardWidgetSizes = useAppStore.getState().setDashboardWidgetSizes
+
+describe('Widget move handles and width toggles (→2921)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockNavigate.mockClear()
+    localStorage.clear()
+    localStorage.setItem('myos-tour-complete', 'true')
+    useAppStore.setState({
+      chatOpen: false,
+      osName: 'ToriOS',
+      darkMode: true,
+      showTour: false,
+      dashboardWidgets: ['todays_focus', 'quick_launch', 'next_meeting'],
+      dashboardWidgetSizes: {},
+      setDashboardWidgets: realSetDashboardWidgets,
+      setDashboardWidgetSizes: realSetDashboardWidgetSizes,
+    })
+
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/dashboard') return Promise.resolve(mockDashboardData)
+      if (path === '/dashboard/summary') return Promise.resolve(mockSummaryData)
+      if (path === '/dashboard/compounds') return Promise.resolve(mockCompoundsData)
+      if (path === '/dashboard/diff') return Promise.resolve(mockSessionDiff)
+      if (path.startsWith('/costs')) return Promise.resolve(mockCostData)
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      if (path === '/briefing') return Promise.resolve({ show: false, briefing: null })
+      if (path.startsWith('/calendar/events')) return Promise.resolve({ events: [] })
+      if (path === '/adventures/templates') return Promise.resolve({ adventures: [] })
+      if (path === '/secrets/key-status') return Promise.resolve({ google_connected: false })
+      if (path === '/atlassian/status') return Promise.resolve({ connected: false })
+      if (path === '/sessions/active') return Promise.resolve({ sessions: [], count: 0, active_count: 0, idle_count: 0 })
+      return Promise.reject(new Error(`unmocked path: ${path}`))
+    })
+  })
+
+  // The column span lives on the grid's direct child (the wrapper div
+  // around each widget, see the UAT note in Dashboard.tsx), so width is
+  // asserted on the widget's parent element.
+  function gridWrapper(testId: string): HTMLElement {
+    return screen.getByTestId(testId).parentElement as HTMLElement
+  }
+
+  const gridOrder = () =>
+    screen
+      .getAllByTestId(/^widget-(quick-launch|todays-focus|next-meeting)$/)
+      .map((el) => el.dataset.testid)
+
+  it('a fresh install with no saved widths renders the default spans exactly (regression)', async () => {
+    useAppStore.setState({
+      dashboardWidgets: ['todays_focus', 'quick_launch', 'next_meeting', 'adventure'],
+      dashboardWidgetSizes: {},
+    })
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByTestId('widget-next-meeting')).toBeInTheDocument()
+      expect(screen.getByTestId('widget-adventure')).toBeInTheDocument()
+    })
+    expect(gridWrapper('widget-next-meeting').className).toContain('lg:col-span-2')
+    expect(gridWrapper('widget-adventure').className).toContain('lg:col-span-2')
+    expect(gridWrapper('widget-todays-focus').className).not.toContain('lg:col-span-2')
+    expect(gridWrapper('widget-quick-launch').className).not.toContain('lg:col-span-2')
+  })
+
+  it('width toggles carry the exact aria-labels for their current width', async () => {
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByTestId('widget-size-toggle-todays_focus')).toBeInTheDocument()
+    })
+    // Half widgets offer to grow, full widgets offer to shrink.
+    expect(screen.getByTestId('widget-size-toggle-todays_focus')).toHaveAttribute(
+      'aria-label',
+      'make this widget full width',
+    )
+    expect(screen.getByTestId('widget-size-toggle-next_meeting')).toHaveAttribute(
+      'aria-label',
+      'make this widget half width',
+    )
+  })
+
+  it('clicking the width toggle makes a half widget span both columns and saves the choice', async () => {
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByTestId('widget-size-toggle-todays_focus')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId('widget-size-toggle-todays_focus'))
+
+    expect(gridWrapper('widget-todays-focus').className).toContain('lg:col-span-2')
+    expect(useAppStore.getState().dashboardWidgetSizes.todays_focus).toBe('full')
+    // Persisted through the store: server and localStorage both hear it.
+    expect(api.patch).toHaveBeenCalledWith(
+      '/settings',
+      expect.objectContaining({
+        dashboard_widget_sizes: expect.objectContaining({ todays_focus: 'full' }),
+      }),
+    )
+    const stored = JSON.parse(localStorage.getItem('myos-dashboard-widget-sizes') as string)
+    expect(stored.todays_focus).toBe('full')
+  })
+
+  it('clicking the width toggle on a full widget brings it back to half', async () => {
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByTestId('widget-size-toggle-next_meeting')).toBeInTheDocument()
+    })
+    expect(gridWrapper('widget-next-meeting').className).toContain('lg:col-span-2')
+    fireEvent.click(screen.getByTestId('widget-size-toggle-next_meeting'))
+    expect(gridWrapper('widget-next-meeting').className).not.toContain('lg:col-span-2')
+    expect(useAppStore.getState().dashboardWidgetSizes.next_meeting).toBe('half')
+  })
+
+  it('a saved half width for a default-full widget renders at half', async () => {
+    useAppStore.setState({ dashboardWidgetSizes: { next_meeting: 'half' } })
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByTestId('widget-next-meeting')).toBeInTheDocument()
+    })
+    expect(gridWrapper('widget-next-meeting').className).not.toContain('lg:col-span-2')
+  })
+
+  it('the move handle is a button labeled so arrow keys move the widget', async () => {
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByTestId('widget-move-handle-todays_focus')).toBeInTheDocument()
+    })
+    const handle = screen.getByTestId('widget-move-handle-todays_focus')
+    expect(handle.tagName).toBe('BUTTON')
+    expect(handle).toHaveAttribute(
+      'aria-label',
+      "Move Today's Focus. Press the up or down arrow keys to move this widget one slot.",
+    )
+  })
+
+  it('ArrowDown on a focused handle moves the widget one slot later and persists the order', async () => {
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByTestId('widget-move-handle-todays_focus')).toBeInTheDocument()
+    })
+    expect(gridOrder()).toEqual(['widget-todays-focus', 'widget-quick-launch', 'widget-next-meeting'])
+
+    fireEvent.keyDown(screen.getByTestId('widget-move-handle-todays_focus'), { key: 'ArrowDown' })
+
+    expect(useAppStore.getState().dashboardWidgets).toEqual(['quick_launch', 'todays_focus', 'next_meeting'])
+    expect(gridOrder()).toEqual(['widget-quick-launch', 'widget-todays-focus', 'widget-next-meeting'])
+    expect(api.patch).toHaveBeenCalledWith(
+      '/settings',
+      expect.objectContaining({
+        dashboard_widgets: ['quick_launch', 'todays_focus', 'next_meeting'],
+      }),
+    )
+  })
+
+  it('ArrowUp on a focused handle moves the widget one slot earlier', async () => {
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByTestId('widget-move-handle-quick_launch')).toBeInTheDocument()
+    })
+    fireEvent.keyDown(screen.getByTestId('widget-move-handle-quick_launch'), { key: 'ArrowUp' })
+    expect(useAppStore.getState().dashboardWidgets).toEqual(['quick_launch', 'todays_focus', 'next_meeting'])
+  })
+
+  it('ArrowUp on the first grid widget changes nothing', async () => {
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByTestId('widget-move-handle-todays_focus')).toBeInTheDocument()
+    })
+    fireEvent.keyDown(screen.getByTestId('widget-move-handle-todays_focus'), { key: 'ArrowUp' })
+    expect(useAppStore.getState().dashboardWidgets).toEqual(['todays_focus', 'quick_launch', 'next_meeting'])
+  })
+
+  it('moving swaps only with the neighboring grid card, leaving banner widgets in place', async () => {
+    useAppStore.setState({
+      dashboardWidgets: ['briefing', 'quick_launch', 'todays_focus'],
+    })
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByTestId('widget-move-handle-quick_launch')).toBeInTheDocument()
+    })
+    fireEvent.keyDown(screen.getByTestId('widget-move-handle-quick_launch'), { key: 'ArrowDown' })
+    // The briefing banner keeps its slot; the two grid cards swap.
+    expect(useAppStore.getState().dashboardWidgets).toEqual(['briefing', 'todays_focus', 'quick_launch'])
+  })
+
+  it('a dashboard reorder shows up in the customize modal, one shared list', async () => {
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByTestId('widget-move-handle-todays_focus')).toBeInTheDocument()
+    })
+    fireEvent.keyDown(screen.getByTestId('widget-move-handle-todays_focus'), { key: 'ArrowDown' })
+    expect(useAppStore.getState().dashboardWidgets).toEqual(['quick_launch', 'todays_focus', 'next_meeting'])
+
+    fireEvent.click(screen.getByRole('button', { name: /Customize dashboard/i }))
+    const dialog = screen.getByRole('dialog', { name: /Customize dashboard/i })
+    const rowIds = within(dialog)
+      .getAllByTestId(/^widget-row-(quick_launch|todays_focus|next_meeting)$/)
+      .map((el) => el.dataset.testid)
+    expect(rowIds).toEqual(['widget-row-quick_launch', 'widget-row-todays_focus', 'widget-row-next_meeting'])
+  })
+})
+

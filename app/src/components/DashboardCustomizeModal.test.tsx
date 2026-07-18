@@ -100,7 +100,7 @@ describe('DashboardCustomizeModal', () => {
     const expected = DEFAULT_DASHBOARD_WIDGETS.filter(
       (id) => id !== DEFAULT_DASHBOARD_WIDGETS[1],
     )
-    expect(onSave).toHaveBeenCalledWith(expected)
+    expect(onSave).toHaveBeenCalledWith(expected, expect.any(Object))
     expect(onClose).toHaveBeenCalled()
   })
 
@@ -134,7 +134,7 @@ describe('DashboardCustomizeModal', () => {
 
     // Saving now should pass the full default order.
     fireEvent.click(screen.getByRole('button', { name: /^Save$/ }))
-    expect(onSave).toHaveBeenCalledWith([...DEFAULT_DASHBOARD_WIDGETS])
+    expect(onSave).toHaveBeenCalledWith([...DEFAULT_DASHBOARD_WIDGETS], expect.any(Object))
   })
 
   it('Cancel closes without calling onSave', () => {
@@ -226,6 +226,129 @@ describe('DashboardCustomizeModal', () => {
     )
     fireEvent.click(screen.getByRole('button', { name: /Reset to default/i }))
     fireEvent.click(screen.getByRole('button', { name: /^Save$/ }))
-    expect(onSave).toHaveBeenCalledWith([...DEFAULT_DASHBOARD_WIDGETS])
+    expect(onSave).toHaveBeenCalledWith([...DEFAULT_DASHBOARD_WIDGETS], expect.any(Object))
+  })
+})
+
+// ---------------------------------------------------------------------------
+// →2921: per-widget width (half or full) editable from the modal rows
+// ---------------------------------------------------------------------------
+
+describe('DashboardCustomizeModal widget widths (→2921)', () => {
+  let onClose: ReturnType<typeof vi.fn>
+  let onSave: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    onClose = vi.fn()
+    onSave = vi.fn()
+  })
+
+  it('every row shows a width control reflecting the default widths', () => {
+    render(
+      <DashboardCustomizeModal
+        open={true}
+        onClose={onClose}
+        widgets={[...DEFAULT_DASHBOARD_WIDGETS]}
+        onSave={onSave}
+      />,
+    )
+    // Default full-width widgets offer to shrink; everything else offers to grow.
+    expect(screen.getByTestId('widget-row-size-next_meeting')).toHaveAttribute(
+      'aria-label',
+      'Make Next Event half width',
+    )
+    expect(screen.getByTestId('widget-row-size-adventure')).toHaveAttribute(
+      'aria-label',
+      'Make Try an Adventure half width',
+    )
+    expect(screen.getByTestId('widget-row-size-todays_focus')).toHaveAttribute(
+      'aria-label',
+      "Make Today's Focus full width",
+    )
+  })
+
+  it('a saved width overrides the default in the row control', () => {
+    render(
+      <DashboardCustomizeModal
+        open={true}
+        onClose={onClose}
+        widgets={[...DEFAULT_DASHBOARD_WIDGETS]}
+        sizes={{ todays_focus: 'full', next_meeting: 'half' }}
+        onSave={onSave}
+      />,
+    )
+    expect(screen.getByTestId('widget-row-size-todays_focus')).toHaveAttribute(
+      'aria-label',
+      "Make Today's Focus half width",
+    )
+    expect(screen.getByTestId('widget-row-size-next_meeting')).toHaveAttribute(
+      'aria-label',
+      'Make Next Event full width',
+    )
+  })
+
+  it('toggling a width then Save emits the widths map alongside the ids', () => {
+    render(
+      <DashboardCustomizeModal
+        open={true}
+        onClose={onClose}
+        widgets={[...DEFAULT_DASHBOARD_WIDGETS]}
+        onSave={onSave}
+      />,
+    )
+    fireEvent.click(screen.getByTestId('widget-row-size-todays_focus'))
+    expect(screen.getByTestId('widget-row-size-todays_focus')).toHaveAttribute(
+      'aria-label',
+      "Make Today's Focus half width",
+    )
+    fireEvent.click(screen.getByRole('button', { name: /^Save$/ }))
+    expect(onSave).toHaveBeenCalledTimes(1)
+    const [ids, sizes] = onSave.mock.calls[0] as [string[], Record<string, string>]
+    expect(ids).toEqual([...DEFAULT_DASHBOARD_WIDGETS])
+    expect(sizes).toEqual(
+      expect.objectContaining({
+        todays_focus: 'full',
+        next_meeting: 'full',
+        adventure: 'full',
+        quick_launch: 'half',
+      }),
+    )
+  })
+
+  it('Reset to default returns widths to their defaults', () => {
+    render(
+      <DashboardCustomizeModal
+        open={true}
+        onClose={onClose}
+        widgets={[...DEFAULT_DASHBOARD_WIDGETS]}
+        sizes={{ todays_focus: 'full' }}
+        onSave={onSave}
+      />,
+    )
+    expect(screen.getByTestId('widget-row-size-todays_focus')).toHaveAttribute(
+      'aria-label',
+      "Make Today's Focus half width",
+    )
+    fireEvent.click(screen.getByRole('button', { name: /Reset to default/i }))
+    expect(screen.getByTestId('widget-row-size-todays_focus')).toHaveAttribute(
+      'aria-label',
+      "Make Today's Focus full width",
+    )
+  })
+
+  it('a hidden widget keeps its chosen width through Save', () => {
+    render(
+      <DashboardCustomizeModal
+        open={true}
+        onClose={onClose}
+        widgets={['quick_launch']}
+        sizes={{ todays_focus: 'full' }}
+        onSave={onSave}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /^Save$/ }))
+    const [ids, sizes] = onSave.mock.calls[0] as [string[], Record<string, string>]
+    expect(ids).toEqual(['quick_launch'])
+    expect(sizes).toEqual(expect.objectContaining({ todays_focus: 'full' }))
   })
 })
