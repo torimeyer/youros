@@ -473,3 +473,16 @@ class TestAutoTemplateSettingDisablesMatcher:
         sent = ws.send_json.await_args.args[0]
         assert sent["type"] == "template_matched"
         assert sent["data"]["name"] == "saa"
+
+
+def test_saa_template_requires_pointers_to_originals():
+    """saa briefs must point agents at original documents, not summaries.
+
+    A brief that only carries the chat model's condensed retelling loses
+    detail at the hand-off. The SAA MODE prompt must require naming the
+    original documents so the agent reads them itself (→2951).
+    """
+    saa = next(t for t in BUILT_IN_TEMPLATES if t["name"] == "saa")
+    prompt = saa["prompt"].lower()
+    assert "original documents" in prompt
+    assert "never hand an agent only your own summary" in prompt

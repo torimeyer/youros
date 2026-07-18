@@ -49,6 +49,11 @@ BUILT_IN_TEMPLATES: list[dict[str, Any]] = [
             "spawn_agent tool to create one or more background agents to do the "
             "actual work. Do NOT do the work inline. Each agent's prompt must "
             "include clear instructions, tests to write, and a verification step. "
+            "It must also name the original documents the agent should read "
+            "itself (the spec path, the plan path, the task detail file) and "
+            "the exact files to change. Never hand an agent only your own "
+            "summary of the situation. Hand it the paths to the originals and "
+            "let it read them. "
             "If the task splits naturally, spawn multiple agents in parallel. "
             "After spawning, briefly tell the user what each agent is working on."
         ),

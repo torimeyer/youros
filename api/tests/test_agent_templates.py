@@ -2368,3 +2368,39 @@ def test_everyone_persona_agentfiles_exist():
     for stem in ["summarizer", "daily-planner", "email-drafter"]:
         path = PROJECT_ROOT / "agents" / f"{stem}.agent"
         assert path.exists(), f"Expected builtin agentfile at {path}"
+
+
+def test_builder_agentfile_reads_originals_and_reports_receipts():
+    """builder.agent must read the original spec/plan and report receipts (→2951)."""
+    from config import PROJECT_ROOT
+
+    text = (PROJECT_ROOT / "agents" / "builder.agent").read_text().lower()
+    assert "original spec or plan" in text
+    assert "user feedback" in text
+    assert "commit hash" in text
+    assert "verbatim test summary" in text
+
+
+def test_summarizer_agentfile_declares_left_out():
+    """summarizer.agent must end summaries with a 'Left out' line (→2951)."""
+    from config import PROJECT_ROOT
+
+    text = (PROJECT_ROOT / "agents" / "summarizer.agent").read_text()
+    assert "Left out" in text
+
+
+def test_handoff_outputs_list_sources_to_reread():
+    """Both handoff surfaces must point the next session at original files (→2951).
+
+    Reads from the real repo (same pattern as test_explain_plain_agentfile_exists)
+    because conftest copies agents/ into the fake root but not .claude/skills/.
+    """
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    agent_text = (repo_root / "agents" / "handoff.agent").read_text()
+    skill_text = (
+        repo_root / ".claude" / "skills" / "handoff" / "SKILL.md"
+    ).read_text()
+    assert "Sources to re-read" in agent_text
+    assert "Sources to re-read" in skill_text

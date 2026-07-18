@@ -1211,3 +1211,21 @@ async def test_nudge_signal_triggers_ack_within_500ms():
         _reset_agent(name)
         chat_ack_bot._last_ack_ts.pop(name, None)
         chat_ack_bot._nudge_signal_events.pop(name, None)
+
+
+def test_mailbox_instruction_requires_receipts_in_summary_and_handoff():
+    """The finishing and handoff sections must demand receipts, not narrative.
+
+    A one-line summary with no proof is a lossy hand-off: the orchestrator
+    relays a claim it cannot verify. The block must require commit hashes,
+    the verbatim test summary line, and the files touched. Spec:
+    lossless-agent-hand-offs-pointers-in-receipts-out (→2951).
+    """
+    from routers.agents import agent_mailbox_instruction
+
+    block = agent_mailbox_instruction("demo-agent")
+    lower = block.lower()
+    assert "commit hash" in lower
+    assert "verbatim test summary" in lower
+    assert "files you touched" in lower
+    assert "re-verified from scratch" in lower

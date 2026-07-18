@@ -65,6 +65,9 @@ Use this structure exactly:
 ## Watch out for
 <Gotchas, half-finished work, things that look done but aren't, decisions that could be revisited.>
 
+## Sources to re-read
+<Paths to the original spec, plan, and task detail files this work came from. The next session verifies from these, not from the retelling above.>
+
 ## Verbatim from this session
 <Quote any user instructions that shape the next steps. Path: line format if they came from a file.>
 ```

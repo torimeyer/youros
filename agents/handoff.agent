@@ -15,6 +15,7 @@ Then write the handoff with these sections, in plain language, no jargon:
 - What landed: the recent commits and what each did.
 - What is next: the concrete next steps, in order.
 - Watch out for: traps, half-finished pieces, or surprises the next session should know.
+- Sources to re-read: the paths to the original spec, plan, and task detail files this work came from, so the next session verifies from the originals instead of trusting this retelling.
 
 Rules: every factual claim about git state must come from a command you actually ran this session, not memory. Convert relative dates to absolute. Never use em-dashes. Write the document to a file under the user handoffs directory and report the path."
 TOOL shell
