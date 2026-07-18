@@ -10,6 +10,29 @@ export interface ReleaseGroup {
 }
 
 const releaseNotes: ReleaseGroup[] = [
+  // v5.16.0
+  {
+    date: '2026-07-18',
+    label: 'July 18, 2026 (evening)',
+    entries: [
+      {
+        title: 'Move and resize dashboard widgets',
+        description: 'Drag order, nudge with the keyboard, pick half or full width.',
+      },
+      {
+        title: 'Try-right-now lives in the adventure card',
+        description: 'The suggestion moved out of the setup wizard onto the dashboard.',
+      },
+      {
+        title: 'The Allow in chat toggle is reachable now',
+        description: 'Settings > Connections. It existed but no screen showed it.',
+      },
+      {
+        title: 'Blockers widget removed',
+        description: 'It minted duplicate tasks from an unrelated Jira search and broke the Tasks page.',
+      },
+    ],
+  },
   // v5.15.0
   {
     date: '2026-07-18',
