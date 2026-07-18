@@ -359,14 +359,6 @@ async def _save_title_cache_async(cache: dict[str, str]) -> None:
 SESSIONS_DIR = Path.home() / ".claude" / "sessions"
 PROJECTS_DIR = Path.home() / ".claude" / "projects"
 
-# The torios project transcript folder. Claude Code uses the absolute path
-# with slashes replaced by dashes as the folder name.
-from config import PROJECT_ROOT
-
-# Compute the Claude Code project folder name from the actual project root.
-TORIOS_PROJECT_DIR = PROJECTS_DIR / str(PROJECT_ROOT).replace("/", "-").lstrip("-")
-
-
 def _skip_mailbox_boilerplate(text: str) -> str:
     """Return the meaningful portion of a prompt text, skipping mailbox/registration blocks.
 

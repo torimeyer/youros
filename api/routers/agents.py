@@ -4073,30 +4073,6 @@ def _jsonl_strict_match(path: Path, needle_lower: str) -> bool:
     return False
 
 
-def _jsonl_mentions_agent(path: Path, needle_lower: str) -> bool:
-    """Loose fallback: True if any of the first 200 lines contains ``needle_lower``.
-
-    Used only when no strict match (register-POST shape or
-    ``You are "<name>"`` intro) is found in any candidate. Prefer
-    :func:`_jsonl_strict_match` whenever possible, since substring
-    matches can false-positive on narrative mentions of other agent
-    names.
-    """
-    needle = needle_lower.strip()
-    if not needle:
-        return False
-    try:
-        with open(path, "r", errors="replace") as f:
-            for i, line in enumerate(f):
-                if i >= 200:
-                    return False
-                if needle in line.lower():
-                    return True
-    except OSError:
-        return False
-    return False
-
-
 def _autodiscover_recent_transcript_path(max_age_seconds: int = 300) -> Optional[str]:
     """Return the most recent Claude Code task output path modified in the
     last ``max_age_seconds`` seconds.
@@ -8325,17 +8301,6 @@ def _save_agent_output_to_files(
     except Exception:
         return written
     return written
-
-
-# Backward-compatible shim so external callers / existing tests
-# referencing the old name keep working. Returns the Roadmap path if
-# one was written (matching the old contract), else None.
-def _maybe_save_roadmap_output(agent_name: str, summary: str) -> Optional[Path]:
-    paths = _save_agent_output_to_files(agent_name, summary)
-    for p in paths:
-        if p.name == "roadmap.md":
-            return p
-    return None
 
 
 def _retroactively_save_agent_summaries(limit: int = 50) -> int:
