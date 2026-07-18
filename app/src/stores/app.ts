@@ -25,7 +25,6 @@ export const DEFAULT_DASHBOARD_WIDGETS: string[] = [
   'jira',
   'confluence',
   'competitive_intel',
-  'blockers_widget',
   'dependency_map_widget',
   'jira_due_soon',
   'jira_new_on_plate',
@@ -50,7 +49,6 @@ export const DASHBOARD_WIDGET_LABELS: Record<string, string> = {
   jira: 'Jira Issues',
   confluence: 'Confluence Pages',
   competitive_intel: 'Competitor Signals',
-  blockers_widget: 'Cross-team Blockers',
   dependency_map_widget: 'Dependency Map',
   jira_due_soon: 'Jira: due soon',
   jira_new_on_plate: 'Jira: new on my plate',
@@ -502,10 +500,12 @@ const initialCustomAgentTemplates = readInitialCustomTemplates()
 // saved localStorage state stays valid after widget changes.
 // - "morning_briefing" -> "briefing" (time-of-day restriction removed)
 // - "ostk_files" is removed entirely from the widget set
+// - "blockers_widget" is removed entirely (→2924: its fetch flooded the
+//   task list with duplicate [Blocker] tasks on every Dashboard mount)
 function migrateBriefingWidgetId(ids: string[]): string[] {
   const out: string[] = []
   for (const id of ids) {
-    if (id === 'ostk_files' || id === 'day_summary') continue // removed widget, drop it
+    if (id === 'ostk_files' || id === 'day_summary' || id === 'blockers_widget') continue // removed widget, drop it
     const mapped = id === 'morning_briefing' ? 'briefing' : id
     if (!out.includes(mapped)) out.push(mapped)
   }

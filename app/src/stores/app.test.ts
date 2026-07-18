@@ -1018,6 +1018,30 @@ describe('widget list invariants', () => {
     expect(widgets).toContain('briefing')
     expect(widgets).toContain('todays_focus')
   })
+
+  // →2924: the blockers widget flooded the task list with duplicate
+  // [Blocker] tasks on every Dashboard mount, so it was removed outright.
+  // Saved layouts that still carry the id must be sanitized, not crash.
+  it('blockers_widget is gone from the widget registry (→2924)', () => {
+    expect(DEFAULT_DASHBOARD_WIDGETS).not.toContain('blockers_widget')
+    expect(DASHBOARD_WIDGET_LABELS['blockers_widget']).toBeUndefined()
+  })
+
+  it('blockers_widget in saved localStorage is stripped on read (→2924)', () => {
+    localStorage.setItem('myos-dashboard-widgets', JSON.stringify(['briefing', 'blockers_widget', 'jira']))
+    expect(readInitialDashboardWidgets()).toEqual(['briefing', 'jira'])
+  })
+
+  it('blockers_widget in saved server state is stripped during hydration (→2924)', async () => {
+    vi.mocked(api.get).mockResolvedValueOnce({
+      dashboard_widgets: ['briefing', 'blockers_widget', 'todays_focus'],
+    })
+    await useAppStore.getState().hydrateFromServer()
+    const widgets = useAppStore.getState().dashboardWidgets
+    expect(widgets).not.toContain('blockers_widget')
+    expect(widgets).toContain('briefing')
+    expect(widgets).toContain('todays_focus')
+  })
 })
 
 // →2921: per-widget width (half or full) persisted next to the widget list.

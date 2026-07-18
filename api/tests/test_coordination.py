@@ -1,52 +1,20 @@
 """Tests for the /api/coordination HTTP endpoints."""
 import pytest
-from unittest.mock import patch, AsyncMock
+from unittest.mock import patch
 
 
 @pytest.mark.asyncio
-async def test_list_blockers_returns_empty_when_atlassian_not_connected(client):
-    with patch("routers.coordination.atlassian_service.is_connected", return_value=False):
-        resp = await client.get("/api/coordination/blockers")
-    assert resp.status_code == 200
-    assert resp.json() == {"blockers": []}
+async def test_blockers_route_is_removed(client):
+    """→2924: the blockers route is gone.
 
-
-@pytest.mark.asyncio
-async def test_list_blockers_returns_items_when_atlassian_connected(client):
-    fake_issue = {
-        "key": "PROJ-42",
-        "summary": "Login is broken on mobile",
-        "status": "Blocked",
-        "priority": "High",
-        "url": "https://jira.example.com/PROJ-42",
-        "updated": "2026-05-01T12:00:00",
-        "assignee": "Alice",
-        "reporter": "Bob",
-    }
-    with patch("routers.coordination.atlassian_service.is_connected", return_value=True), \
-         patch("routers.coordination.atlassian_service.list_blocked_issues",
-               new_callable=AsyncMock, return_value=[fake_issue]), \
-         patch("routers.coordination.create_task", new_callable=AsyncMock):
-        resp = await client.get("/api/coordination/blockers")
-
-    assert resp.status_code == 200
-    blockers = resp.json()["blockers"]
-    assert len(blockers) == 1
-    b = blockers[0]
-    assert b["key"] == "PROJ-42"
-    assert b["summary"] == "Login is broken on mobile"
-    assert b["owners"] == ["Alice", "Bob"]
-    assert isinstance(b["age_days"], int)
-
-
-@pytest.mark.asyncio
-async def test_list_blockers_survives_atlassian_exception(client):
-    with patch("routers.coordination.atlassian_service.is_connected", return_value=True), \
-         patch("routers.coordination.atlassian_service.list_blocked_issues",
-               new_callable=AsyncMock, side_effect=RuntimeError("jira down")):
-        resp = await client.get("/api/coordination/blockers")
-    assert resp.status_code == 200
-    assert resp.json() == {"blockers": []}
+    GET /coordination/blockers auto-created a "[Blocker] ..." task for every
+    result of an unscoped Jira query on every Dashboard mount, flooding the
+    task list and starving the backend until Tasks polling timed out. The
+    route and its task-creation side effect were removed outright, so a
+    request must now 404.
+    """
+    resp = await client.get("/api/coordination/blockers")
+    assert resp.status_code == 404
 
 
 @pytest.mark.asyncio

@@ -1734,3 +1734,47 @@ describe('Widget move handles and width toggles (→2921)', () => {
   })
 })
 
+// →2924: the Cross-team Blockers widget is gone. It fired an unscoped Jira
+// fetch on every Dashboard mount whose backend side effect flooded the task
+// list with duplicate [Blocker] tasks and starved Tasks polling.
+describe('Blockers widget removal (→2924)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useAppStore.setState({ chatOpen: false, osName: 'ToriOS', darkMode: true, showTour: false, dashboardWidgets: [...DEFAULT_DASHBOARD_WIDGETS] })
+    localStorage.setItem('myos-tour-complete', 'true')
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/dashboard') return Promise.resolve(mockDashboardData)
+      if (path === '/dashboard/summary') return Promise.resolve(mockSummaryData)
+      if (path === '/dashboard/compounds') return Promise.resolve(mockCompoundsData)
+      if (path === '/dashboard/diff') return Promise.resolve(mockSessionDiff)
+      if (path.startsWith('/costs')) return Promise.resolve(mockCostData)
+      if (path === '/labels') return Promise.resolve({ labels: [] })
+      return Promise.reject(new Error(`unmocked path: ${path}`))
+    })
+  })
+
+  it('renders no blockers widget and never calls its endpoint', async () => {
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByText('Day Summary')).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId('widget-blockers-widget')).toBeNull()
+    const blockerCalls = mockedApiGet.mock.calls.filter((c) =>
+      String(c[0]).includes('/coordination/blockers'),
+    )
+    expect(blockerCalls).toHaveLength(0)
+  })
+
+  it('a saved layout that still names blockers_widget renders without it', async () => {
+    // A stale saved layout (localStorage or server) may still carry the
+    // removed id. The dashboard must render normally and simply skip it.
+    useAppStore.setState({ dashboardWidgets: ['todays_focus', 'blockers_widget', 'quick_launch'] })
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByText('Day Summary')).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId('widget-blockers-widget')).toBeNull()
+    expect(screen.getByTestId('widget-move-handle-quick_launch')).toBeInTheDocument()
+  })
+})
+

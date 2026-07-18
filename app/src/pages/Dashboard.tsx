@@ -9,7 +9,6 @@ import RecentSpecsWidget from '../components/RecentSpecsWidget';
 import JiraWidget from '../components/JiraWidget';
 import ConfluenceWidget from '../components/ConfluenceWidget';
 import CompetitiveIntelWidget from '../components/CompetitiveIntelWidget';
-import BlockersWidget from '../components/BlockersWidget';
 import DependencyMapWidget from '../components/DependencyMapWidget';
 import QueryWidget from '../components/QueryWidget';
 import { QUERY_PRESETS } from '../components/queryPresets';
@@ -1083,12 +1082,6 @@ export default function Dashboard() {
     </div>
   );
 
-  const renderBlockersWidget = () => (
-    <div key="blockers_widget" data-testid="widget-blockers-widget">
-      <BlockersWidget />
-    </div>
-  );
-
   const renderDependencyMapWidget = () => (
     <div key="dependency_map_widget" data-testid="widget-dependency-map-widget">
       <DependencyMapWidget />
@@ -1111,7 +1104,6 @@ export default function Dashboard() {
     jira: renderJira,
     confluence: renderConfluence,
     competitive_intel: renderCompetitiveIntel,
-    blockers_widget: renderBlockersWidget,
     dependency_map_widget: renderDependencyMapWidget,
     // Saved-view preset cards all render through the one QueryWidget.
     ...Object.fromEntries(

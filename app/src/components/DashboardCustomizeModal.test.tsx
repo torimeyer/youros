@@ -228,6 +228,21 @@ describe('DashboardCustomizeModal', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Save$/ }))
     expect(onSave).toHaveBeenCalledWith([...DEFAULT_DASHBOARD_WIDGETS], expect.any(Object))
   })
+
+  // →2924: the blockers widget was removed. No ghost row may appear in the
+  // customize dialog, even when a stale saved layout still carries the id.
+  it('lists no blockers row, even for a stale saved layout naming it (→2924)', () => {
+    render(
+      <DashboardCustomizeModal
+        open={true}
+        onClose={onClose}
+        widgets={['blockers_widget', ...DEFAULT_DASHBOARD_WIDGETS]}
+        onSave={onSave}
+      />,
+    )
+    expect(screen.queryByText('Cross-team Blockers')).toBeNull()
+    expect(screen.queryByTestId('widget-row-blockers_widget')).toBeNull()
+  })
 })
 
 // ---------------------------------------------------------------------------

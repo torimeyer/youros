@@ -31,7 +31,6 @@ Object.defineProperty(window, 'matchMedia', {
 })
 
 import { api } from '../../lib/api'
-import BlockersWidget from '../BlockersWidget'
 import RecentSpecsWidget from '../RecentSpecsWidget'
 import CompetitiveIntelWidget from '../CompetitiveIntelWidget'
 import JiraWidget from '../JiraWidget'
@@ -43,20 +42,6 @@ const mockedGet = vi.mocked(api.get)
 describe('widget typography — canonical scale', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-  })
-
-  // ── BlockersWidget ────────────────────────────────────────────────────────
-  describe('BlockersWidget', () => {
-    it('title is an h2 with text-lg font-semibold', async () => {
-      mockedGet.mockResolvedValue({ blockers: [] })
-      const { container } = render(<BlockersWidget />)
-      await waitFor(() => {
-        const heading = container.querySelector('h2')
-        expect(heading).not.toBeNull()
-        expect(heading!.classList.contains('text-lg')).toBe(true)
-        expect(heading!.classList.contains('font-semibold')).toBe(true)
-      })
-    })
   })
 
   // ── RecentSpecsWidget ─────────────────────────────────────────────────────
