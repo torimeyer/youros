@@ -269,11 +269,12 @@ def test_task_created_and_closed_publishers_wired():
     assert "TASK_CLOSED" in close_src
 
 
-def test_channel_message_received_publisher_wired():
-    from services import text_bridge
+def test_channel_message_received_is_constant_only():
+    """The phone-texting feature was removed (→2967); the type name is
+    reserved, nothing publishes it."""
+    from services import event_bus
 
-    src = inspect.getsource(text_bridge)
-    assert "CHANNEL_MESSAGE_RECEIVED" in src
+    assert event_bus.CHANNEL_MESSAGE_RECEIVED == "channel.message_received"
 
 
 def test_team_member_idle_is_constant_only():

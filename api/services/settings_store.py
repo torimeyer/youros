@@ -126,8 +126,8 @@ def _deep_update(base: dict, incoming: dict) -> dict:
     Unlike dict.update() (which replaces nested dicts entirely), this
     preserves existing keys in any nested dict that appears in both
     base and incoming. This is the right semantic for settings patches:
-    updating {"text_bridge": {"enabled": True}} must not wipe
-    {"text_bridge": {"trusted_contacts": [...]}} that was already there.
+    updating {"notifications": {"agent_complete": False}} must not wipe
+    {"notifications": {"agent_failed": True}} that was already there.
     """
     for key, value in incoming.items():
         if key in base and isinstance(base[key], dict) and isinstance(value, dict):

@@ -1032,7 +1032,7 @@ def get_all_recent_messages_sync(limit: int = 50) -> list[dict]:
 
     Unlike get_messages_sync (which requires a chat_id), this returns a
     flat list of the N most recent messages regardless of conversation,
-    ordered newest-first. Used by InboundPoller to detect new inbound texts.
+    ordered newest-first.
 
     Returns dicts with:
       id, text, date (float Unix timestamp), is_from_me, sender
