@@ -46,6 +46,11 @@ class TaskUpdate(BaseModel):
     status: Optional[str] = None
     # Strategic theme tag. Set to empty string to clear, same as notes.
     pillar: Optional[str] = None
+    # Correct the code save point (commit hash) linked to this task.
+    # Accepts a short or full hash; it must point to a real commit in
+    # this project. Works on closed tasks so a wrong stamp from the
+    # board's auto-close can be fixed after the fact (→2972).
+    commit_ref: Optional[str] = None
 
 
 class TaskReorder(BaseModel):

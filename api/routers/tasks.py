@@ -1375,6 +1375,95 @@ async def create_task(body: TaskCreate, include_test_data: bool = False):
     return {"result": result, "task_id": new_id}
 
 
+# Commit hashes are 7-40 hex characters. Anything else is rejected before
+# we ever shell out to git (→2972).
+_COMMIT_HASH_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
+
+
+async def _resolve_commit_hash(commit_ref: str) -> str:
+    """Return the full hash for a commit that really exists in this project.
+
+    Raises HTTPException(400) with a plain-language message when the value
+    is not hash-shaped or no such commit exists. Runs ``git rev-parse`` in
+    a thread with a hard timeout so the event loop is never blocked.
+    """
+    import asyncio
+    import subprocess
+
+    candidate = (commit_ref or "").strip()
+    if not _COMMIT_HASH_RE.match(candidate):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "That does not look like a code save point. Paste the code "
+                "from the save you want to link, like 609d1a94."
+            ),
+        )
+
+    def _rev_parse():
+        return subprocess.run(
+            [
+                "git", "-C", ostk.cwd, "rev-parse", "--verify", "--quiet",
+                candidate + "^{commit}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+
+    try:
+        proc = await asyncio.to_thread(_rev_parse)
+    except subprocess.TimeoutExpired:
+        raise HTTPException(
+            status_code=504,
+            detail="Checking the code save point took too long. Try again.",
+        )
+    if proc.returncode != 0 or not proc.stdout.strip():
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"No code save with the reference '{candidate}' exists in "
+                "this project. Check the code and try again."
+            ),
+        )
+    return proc.stdout.strip().splitlines()[0]
+
+
+def _write_commit_ref(task_id: str, full_hash: str) -> str:
+    """Stamp ``commit_ref`` on the task's row in the active store.
+
+    Mirrors the direct-file fast path used by ostk.update_task_fields.
+    Intentionally works on closed rows: correcting the save point after
+    the board stamped the wrong one is the whole purpose (→2972). The
+    task's status and every other field are left untouched.
+    """
+    issues_path = Path(ostk.cwd) / ".ostk" / "needles" / "issues.jsonl"
+    if not issues_path.exists():
+        raise HTTPException(status_code=500, detail="The task store file is missing.")
+
+    target = _normalize_task_id(task_id)
+    found = False
+    updated: list[str] = []
+    for line in issues_path.read_text().strip().splitlines():
+        if not line.strip():
+            continue
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            updated.append(line)
+            continue
+        if _normalize_task_id(str(entry.get("id", ""))) == target:
+            entry["commit_ref"] = full_hash
+            found = True
+        updated.append(json.dumps(entry, ensure_ascii=False))
+
+    if not found:
+        raise HTTPException(status_code=404, detail=f"Task {task_id!r} not found")
+
+    issues_path.write_text("\n".join(updated) + "\n")
+    return "commit reference updated"
+
+
 @router.patch("/tasks/{task_id}")
 async def update_task(task_id: str, body: TaskUpdate):
     try:
@@ -1416,6 +1505,13 @@ async def update_task(task_id: str, body: TaskUpdate):
             # Empty string clears the tag, mirroring the notes convention.
             pillar_store.set("tasks", task_id, body.pillar)
             results.append("pillar updated")
+        if body.commit_ref is not None:
+            # Correct the code save point linked to this task. Validated
+            # against the repo first so a made-up hash can never be
+            # stored. Closed tasks are allowed on purpose: this is the
+            # fix path for a wrong stamp from the board (→2972).
+            full_hash = await _resolve_commit_hash(body.commit_ref)
+            results.append(_write_commit_ref(task_id, full_hash))
         if not results:
             raise HTTPException(status_code=400, detail="No update fields provided")
         return {"result": "; ".join(results)}
