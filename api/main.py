@@ -77,6 +77,10 @@ async def lifespan(app: FastAPI):
     from services.nonblocking_logging import install_nonblocking_logging
     install_nonblocking_logging()
     await prune_stale_agent_state()
+    # →2985: the stale-agent recovery sweep used to run at routers.agents
+    # import time, blocking cold start on git subprocesses. It now runs in
+    # a worker thread scheduled here.
+    await agents.schedule_startup_recovery()
     await fix_audit_watermark()
     await schedule_upgrade_check()
     await schedule_label_backfill()

@@ -95,6 +95,9 @@ def _enrich_task(
     session_task_map_pairs: Optional[dict] = None,
     children_counts: Optional[dict] = None,
     pillar_map: Optional[dict] = None,
+    source_map: Optional[dict] = None,
+    task_to_parent_session: Optional[dict] = None,
+    task_session_map: Optional[dict] = None,
 ) -> dict:
     """Add 'goal', 'label_ids', 'auto_label_ids', 'thread_id', and
     session-linked fields ('session_id', 'child_task_count') so the
@@ -154,9 +157,12 @@ def _enrich_task(
 
     task_id = task.get("id", "")
     # Invert session_to_task for fast lookup of "which session is this task?"
-    task_to_parent_session: dict[str, str] = {
-        tid: sid for sid, tid in session_task_map_pairs.items()
-    }
+    # →2985: list-style callers build this once and pass it in; rebuilding
+    # it per task cost O(sessions) per task, O(N x M) per request.
+    if task_to_parent_session is None:
+        task_to_parent_session = {
+            tid: sid for sid, tid in session_task_map_pairs.items()
+        }
 
     owned_session = task_to_parent_session.get(task_id)
     if owned_session:
@@ -165,21 +171,30 @@ def _enrich_task(
     else:
         # Fallback: if the task was recorded as a child of some session,
         # surface that parent session id too. Child tasks have count 0.
-        parent_session = session_task_map.get_session_for_task(task_id)
-        if parent_session and parent_session not in session_task_map_pairs:
-            # Only populate if it is NOT already covered by the owned path
-            task["session_id"] = parent_session
-            task["child_task_count"] = 0
-        elif parent_session:
+        # →2985: list-style callers pass the child map in; the per-task
+        # get_session_for_task call re-read the JSON file for every task
+        # not owned by a session.
+        if task_session_map is not None:
+            parent_session = task_session_map.get(task_id)
+        else:
+            parent_session = session_task_map.get_session_for_task(task_id)
+        if parent_session:
             task["session_id"] = parent_session
             task["child_task_count"] = 0
         else:
             task["session_id"] = None
             task["child_task_count"] = 0
 
-    source_entry = task_source_store.get_source(task_id)
-    task["source"] = source_entry["source"]
-    task["source_ref"] = source_entry["source_ref"]
+    # →2985: list-style callers load the source store once and pass it in;
+    # get_source re-reads the whole JSON file on every call.
+    if source_map is not None:
+        source_entry = source_map.get(task_id) or {}
+        task["source"] = source_entry.get("source")
+        task["source_ref"] = source_entry.get("source_ref")
+    else:
+        source_entry = task_source_store.get_source(task_id)
+        task["source"] = source_entry["source"]
+        task["source_ref"] = source_entry["source_ref"]
 
     # Strategic theme tag (spec S009 Track 0.2). None means untagged and
     # keeps the row behaving exactly as before pillars existed.
@@ -258,6 +273,14 @@ async def list_tasks(
         session_pairs = session_task_map.all_session_task_pairs()
         children_counts = session_task_map.all_children_counts()
         pillar_map = pillar_store.get_all("tasks")
+        # →2985: batch the remaining per-task reads too. The source store
+        # and the child session map are each loaded once per request, and
+        # the session inversion dict is built once instead of per task.
+        source_map = task_source_store.get_all()
+        task_session_map = session_task_map.all_task_session_pairs()
+        task_to_parent_session = {
+            tid: sid for sid, tid in session_pairs.items()
+        }
         tasks = [
             _enrich_task(
                 t,
@@ -266,6 +289,9 @@ async def list_tasks(
                 session_task_map_pairs=session_pairs,
                 children_counts=children_counts,
                 pillar_map=pillar_map,
+                source_map=source_map,
+                task_to_parent_session=task_to_parent_session,
+                task_session_map=task_session_map,
             )
             for t in tasks
         ]

@@ -61,6 +61,8 @@ def _task_store_mocks(mock_tls, mock_ts, mock_stm):
     mock_ts.get_thread_for_task = MagicMock(return_value=None)
     mock_stm.all_session_task_pairs = MagicMock(return_value={})
     mock_stm.all_children_counts = MagicMock(return_value={})
+    # →2985: the list path now loads the child map once per request.
+    mock_stm.all_task_session_pairs = MagicMock(return_value={})
     mock_stm.get_session_for_task = MagicMock(return_value=None)
 
 

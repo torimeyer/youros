@@ -166,9 +166,13 @@ async def test_task_list_includes_plan_path_when_plan_exists(client, tmp_path, m
         mock_ts.get_thread_for_task = MagicMock(return_value=None)
         mock_stm.all_session_task_pairs = MagicMock(return_value={})
         mock_stm.all_children_counts = MagicMock(return_value={})
+        # →2985: the list path now loads the child map once per request.
+        mock_stm.all_task_session_pairs = MagicMock(return_value={})
         mock_stm.get_session_for_task = MagicMock(return_value=None)
         mock_order.apply_order = MagicMock(side_effect=lambda x: x)
         mock_src.get_source = MagicMock(return_value={"source": None, "source_ref": None})
+        # →2985: the list path now loads the source store once per request.
+        mock_src.get_all = MagicMock(return_value={})
 
         resp = await client.get("/api/tasks")
 
@@ -211,9 +215,13 @@ async def test_task_list_plan_path_null_when_no_plan(client, tmp_path, monkeypat
         mock_ts.get_thread_for_task = MagicMock(return_value=None)
         mock_stm.all_session_task_pairs = MagicMock(return_value={})
         mock_stm.all_children_counts = MagicMock(return_value={})
+        # →2985: the list path now loads the child map once per request.
+        mock_stm.all_task_session_pairs = MagicMock(return_value={})
         mock_stm.get_session_for_task = MagicMock(return_value=None)
         mock_order.apply_order = MagicMock(side_effect=lambda x: x)
         mock_src.get_source = MagicMock(return_value={"source": None, "source_ref": None})
+        # →2985: the list path now loads the source store once per request.
+        mock_src.get_all = MagicMock(return_value={})
 
         resp = await client.get("/api/tasks")
 

@@ -3255,6 +3255,29 @@ async def schedule_build_queue_startup_drain() -> None:
     asyncio.create_task(_drain())
 
 
+_startup_recovery_task: Optional[asyncio.Task] = None
+
+
+async def schedule_startup_recovery() -> None:
+    """→2985: run the startup stale-agent sweep off the event loop.
+
+    _recover_stale_agents() used to run at module import time on the main
+    thread. Each running worktree agent can cost up to three git
+    subprocess calls (~9 s of timeouts), so a cold start with N worktree
+    agents blocked for up to N x 9 seconds before serving. This keeps the
+    exact same sweep but moves it to a worker thread after startup.
+    """
+    global _startup_recovery_task
+
+    async def _run() -> None:
+        try:
+            await asyncio.to_thread(_recover_stale_agents)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("startup recovery failed: %s", exc)
+
+    _startup_recovery_task = asyncio.create_task(_run())
+
+
 # Persistent file for learned agent durations
 DURATION_STATS_PATH = OSTK_DIR / "agent_durations.json"
 
@@ -4727,6 +4750,15 @@ async def agent_duration_stats():
     return get_duration_stats()
 
 
+def _transcript_nonempty(path: Path) -> bool:
+    """→2985: sync exists+stat probe for a transcript file.
+
+    Named helper so the 500 ms snapshot path can dispatch the two disk
+    syscalls to an executor instead of blocking the event loop.
+    """
+    return path.exists() and path.stat().st_size > 0
+
+
 async def _compute_agents_snapshot_async(run_autocomplete: bool = True) -> dict:
     """Build the full unfiltered, enriched agent list.
 
@@ -4755,7 +4787,9 @@ async def _compute_agents_snapshot_async(run_autocomplete: bool = True) -> dict:
     audit_agents_list = await ostk.audit_agents()
     daemon_running = ps_result.get("daemon_running", False)
     daemon_agent_names = {a["name"] for a in ps_result.get("agents", [])}
-    deleted_names = _load_deleted_agents()
+    # →2985: deleted_agents.json is a bare disk read and this path runs
+    # every 500 ms; dispatch it to the executor like the registry read above.
+    deleted_names = await loop.run_in_executor(None, _load_deleted_agents)
 
     agents_map: dict[str, dict] = {}
 
@@ -4771,7 +4805,9 @@ async def _compute_agents_snapshot_async(run_autocomplete: bool = True) -> dict:
             if not daemon_running or agent["name"] not in daemon_agent_names:
                 if agent["name"] not in active_agents:
                     transcript = PROJECT_ROOT / "transcripts" / f"{agent['name']}.md"
-                    if transcript.exists() and transcript.stat().st_size > 0:
+                    # →2985: exists()/stat() are sync disk calls inside the
+                    # 500 ms hot loop; run them in the executor.
+                    if await loop.run_in_executor(None, _transcript_nonempty, transcript):
                         agent = {**agent, "status": "completed"}
                     else:
                         agent = {**agent, "status": "stopped"}
@@ -4967,7 +5003,8 @@ async def _compute_agents_snapshot_async(run_autocomplete: bool = True) -> dict:
             }
         else:
             transcript = PROJECT_ROOT / "transcripts" / f"{name}.md"
-            if transcript.exists() and transcript.stat().st_size > 0:
+            # →2985: same executor dispatch as the audit-agents pass above.
+            if await loop.run_in_executor(None, _transcript_nonempty, transcript):
                 agents_map[name] = {
                     "name": name,
                     "source": meta.get("source", "api"),
@@ -8986,7 +9023,10 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
     # and added to deleted_agents.json. Without this check, subsequent
     # /complete calls would see status=None (no metadata), bypass the guard
     # above, and keep writing new agent.completed audit rows indefinitely.
-    deleted_names = _load_deleted_agents()
+    # →2985: bare disk read on the event loop; wrapped in to_thread. The
+    # check-and-clear after the read stays synchronous so two concurrent
+    # /complete calls cannot interleave between the check and the save.
+    deleted_names = await asyncio.to_thread(_load_deleted_agents)
     if name in deleted_names:
         # →2956 (3): a deleted name must not permanently blacklist the
         # agent. Refuse only when there is NO live re-registered row —
@@ -12410,11 +12450,8 @@ async def team_idle_check(team_id: str, agent_name: str = ""):
 
 
 # ---------------------------------------------------------------------------
-# Deferred startup recovery (moved from earlier in module so that
-# _resolve_transcript_source is defined when _recover_stale_agents runs).
+# Startup recovery is scheduled from the lifespan handler via
+# schedule_startup_recovery() (→2985). It used to run right here at module
+# import, which blocked cold start on the main thread for up to ~9 s of git
+# subprocess calls per running worktree agent.
 # ---------------------------------------------------------------------------
-try:
-    _recover_stale_agents()
-except Exception as _e:  # noqa: BLE001
-    import logging
-    logging.getLogger(__name__).warning("startup recovery failed: %s", _e)

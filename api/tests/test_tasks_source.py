@@ -74,9 +74,10 @@ async def test_list_tasks_includes_source_null_by_default(client):
 async def test_list_tasks_returns_source_when_set(client):
     mock_tasks = [_make_task(id="t-slack")]
     with _patch_stack(list_tasks=AsyncMock(return_value=mock_tasks)) as ctx:
-        ctx.mock_tss.get_source = MagicMock(
-            return_value={"source": "slack", "source_ref": "slack:C123/1709123456.0001"}
-        )
+        # →2985: the list path reads the store once via get_all.
+        ctx.mock_tss.get_all = MagicMock(return_value={
+            "t-slack": {"source": "slack", "source_ref": "slack:C123/1709123456.0001"}
+        })
         resp = await client.get("/api/tasks")
 
     assert resp.status_code == 200
@@ -96,13 +97,11 @@ async def test_list_tasks_source_filter_returns_matching_tasks(client):
         _make_task(id="t-manual", title="Manual task"),
     ]
 
-    def _get_source(task_id):
-        if task_id == "t-slack":
-            return {"source": "slack", "source_ref": "slack:C123/1709.0001"}
-        return {"source": None, "source_ref": None}
+    # →2985: the list path reads the store once via get_all.
+    source_map = {"t-slack": {"source": "slack", "source_ref": "slack:C123/1709.0001"}}
 
     with _patch_stack(list_tasks=AsyncMock(return_value=mock_tasks)) as ctx:
-        ctx.mock_tss.get_source = MagicMock(side_effect=_get_source)
+        ctx.mock_tss.get_all = MagicMock(return_value=source_map)
         resp = await client.get("/api/tasks?source=slack")
 
     assert resp.status_code == 200

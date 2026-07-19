@@ -169,3 +169,12 @@ def all_children_counts() -> dict[str, int]:
 def all_session_task_pairs() -> dict[str, str]:
     """Return the full session_id -> task_id map as a fresh dict."""
     return dict(_load()["session_to_task"])
+
+
+def all_task_session_pairs() -> dict[str, str]:
+    """Return the full child task_id -> parent session_id map as a fresh dict.
+
+    Use this in list-style endpoints so each row resolves its parent
+    session from one load instead of re-reading the JSON per task (→2985).
+    """
+    return dict(_load()["task_to_session"])
