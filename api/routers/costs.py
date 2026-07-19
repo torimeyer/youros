@@ -980,7 +980,8 @@ def _compute_savings_for_period(period: Optional[str]) -> dict:
     ``today``, ``week``, ``month``, or ``all`` (default).
 
     Window semantics:
-    - ``today``: midnight UTC to now.
+    - ``today``: local midnight to now (the user's calendar day, matching
+      ``_filter_events_by_period`` and the "Today" pill in the UI).
     - ``week``: rolling 7-day window.
     - ``month``: rolling 30-day window.
     - ``all``: no filtering.
@@ -1004,7 +1005,15 @@ def _compute_savings_for_period(period: Optional[str]) -> dict:
     if not period or period == "all":
         cutoff = None
     elif period == "today":
-        cutoff = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        # "today" means the LOCAL calendar day, same as /api/costs.
+        # UTC midnight is wrong here: once UTC rolls over (5 PM Pacific)
+        # the window would start at that afternoon rollover and silently
+        # drop the entire local morning, making the savings card show its
+        # empty state while the rest of the page has data (→2957).
+        local_midnight = datetime.now().replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        cutoff = local_midnight.astimezone(timezone.utc)
     elif period == "week":
         cutoff = now - timedelta(days=7)
     elif period == "month":
@@ -1056,7 +1065,7 @@ def _compute_savings_for_period(period: Optional[str]) -> dict:
     # compression_pct for windowed periods: average across squash events in window.
     # Older squash events may not carry a "compression_pct" field but do carry
     # "original" and "compressed" byte counts -- derive pct from those when possible.
-    if cutoff is not None and squash_events_in_window:
+    if cutoff is not None:
         pcts = []
         for e in squash_events_in_window:
             if e.get("compression_pct") is not None:
@@ -1065,10 +1074,14 @@ def _compute_savings_for_period(period: Optional[str]) -> dict:
                 orig = float(e["original"])
                 comp = float(e.get("compressed", orig))
                 pcts.append(round((orig - comp) / orig * 100, 1))
-        # If no computable pct from window events, fall back to binary (None = use binary).
-        windowed_compression = round(sum(pcts) / len(pcts), 1) if pcts else None
+        # No computable squash data inside the window means nothing was
+        # compressed in this window, so the honest number is 0. Never fall
+        # back to the session-wide binary figure here: a "Today" or "Week"
+        # label must not display an all-time number, and the explain
+        # popover promises exactly this behavior (→2957).
+        windowed_compression = round(sum(pcts) / len(pcts), 1) if pcts else 0.0
     else:
-        windowed_compression = None  # will be filled from ostk binary below
+        windowed_compression = None  # period=all: use the ostk binary session figure
 
     # ------------------------------------------------------------------
     # 3. Get ostk binary data (always needed for savings_usd + fallback)

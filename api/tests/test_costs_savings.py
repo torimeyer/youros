@@ -765,3 +765,160 @@ async def test_savings_zero_compression_returns_zero_not_none(tmp_path, client):
     # but compression_pct == 0, which the frontend uses to show empty-state.
     assert data["available"] is True
     assert data["compression_pct"] == pytest.approx(0.0, abs=0.01)
+
+
+# ---------------------------------------------------------------------------
+# →2957: "today" must mean the LOCAL calendar day (same rule /api/costs uses),
+# and a windowed period must never silently show the session-wide compression
+# number when nothing was compressed inside the window.
+# ---------------------------------------------------------------------------
+
+def _chat_turn_line(ts: str, cache_read: int = 400, input_tokens: int = 500) -> str:
+    import json as _json
+    return _json.dumps({
+        "event": "chat_turn",
+        "model": "claude-sonnet-4",
+        "input_tokens": input_tokens,
+        "output_tokens": 100,
+        "has_ostk_boot": True,
+        "boot_context_bytes": 500,
+        "backend": "anthropic_api",
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": cache_read,
+        "ts": ts,
+    })
+
+
+@pytest.mark.asyncio
+async def test_savings_today_uses_local_midnight_not_utc(tmp_path, client):
+    """The savings "today" window must start at LOCAL midnight, exactly like
+    /api/costs does (_filter_events_by_period). With UTC midnight, once UTC
+    rolls over at 5 PM Pacific the card drops the entire local morning and
+    afternoon and shows the empty state while the rest of the page has data.
+
+    The test pins a timezone, places one event strictly between the UTC-day
+    cutoff and the local-day cutoff, and asserts availability follows the
+    LOCAL calendar day no matter what time of day the test runs.
+    """
+    import json as _json
+    import os
+    import time as _time_mod
+    from unittest.mock import patch as _patch
+    from datetime import datetime, timezone
+
+    old_tz = os.environ.get("TZ")
+    os.environ["TZ"] = "America/Los_Angeles"
+    _time_mod.tzset()
+    try:
+        now_utc = datetime.now(timezone.utc)
+        utc_mid_epoch = now_utc.replace(
+            hour=0, minute=0, second=0, microsecond=0
+        ).timestamp()
+        local_mid_epoch = (
+            datetime.now()
+            .replace(hour=0, minute=0, second=0, microsecond=0)
+            .astimezone(timezone.utc)
+            .timestamp()
+        )
+        # In a non-UTC timezone the two candidate cutoffs always differ.
+        assert utc_mid_epoch != local_mid_epoch
+
+        # An event exactly between the two cutoffs discriminates the
+        # bucketing rule: local-midnight and UTC-midnight windows disagree
+        # about whether it belongs to "today".
+        event_epoch = (utc_mid_epoch + local_mid_epoch) / 2
+        event_ts = datetime.fromtimestamp(event_epoch, tz=timezone.utc).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
+        expected_available = event_epoch >= local_mid_epoch
+
+        metrics_path = tmp_path / "metrics.jsonl"
+        metrics_path.write_text(_chat_turn_line(event_ts) + "\n")
+
+        ostk_payload = {
+            "prompt_cache": {"cache_savings_usd": 0.01, "efficiency_pct": 50.0,
+                             "cost_usd": 0.01, "no_cache_cost_usd": 0.02},
+            "squash": {"compression_pct": 45.48, "est_saved_usd": 0.02},
+        }
+
+        with _patch("services.token_metrics.subprocess.run") as mock_run, \
+             _patch("services.token_metrics._METRICS_PATH", metrics_path), \
+             _patch("routers.costs.token_metrics._METRICS_PATH", metrics_path):
+            mock_run.return_value = _fake_completed(_json.dumps(ostk_payload))
+            token_metrics.invalidate_savings_cache()
+            from routers import costs as costs_router
+            costs_router._savings_cache.clear()
+            costs_router.invalidate_metrics_parse_cache()
+
+            resp = await client.get("/api/costs/savings?period=today")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data.get("available", False) is expected_available, (
+            f"Event at {event_ts} (epoch {event_epoch}) sits between the UTC "
+            f"cutoff ({utc_mid_epoch}) and the local cutoff ({local_mid_epoch}). "
+            f"'Today' must follow the LOCAL calendar day, so available should "
+            f"be {expected_available}, got {data}"
+        )
+        if expected_available:
+            assert data["conversation_cache_read_tokens"] == 400
+    finally:
+        if old_tz is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = old_tz
+        _time_mod.tzset()
+
+
+@pytest.mark.asyncio
+async def test_windowed_compression_zero_when_no_squash_in_window(tmp_path, client):
+    """A windowed period (week/today) with zero squash events must report
+    compression_pct 0.0, never the session-wide number from the ostk binary.
+    The explain popover promises: "If nothing was compressed in this window,
+    the number is 0." The all-time period keeps the binary's session figure.
+    """
+    import json as _json
+    from unittest.mock import patch as _patch
+    from datetime import datetime, timezone
+
+    metrics_path = tmp_path / "metrics.jsonl"
+    recent_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    # A chat turn inside the window, but NO squash events at all.
+    metrics_path.write_text(_chat_turn_line(recent_ts) + "\n")
+
+    ostk_payload = {
+        "prompt_cache": {"cache_savings_usd": 0.05, "efficiency_pct": 55.0,
+                         "cost_usd": 0.04, "no_cache_cost_usd": 0.09},
+        "squash": {"compression_pct": 45.48, "est_saved_usd": 0.02},
+    }
+
+    with _patch("services.token_metrics.subprocess.run") as mock_run, \
+         _patch("services.token_metrics._METRICS_PATH", metrics_path), \
+         _patch("routers.costs.token_metrics._METRICS_PATH", metrics_path):
+        mock_run.return_value = _fake_completed(_json.dumps(ostk_payload))
+        token_metrics.invalidate_savings_cache()
+        from routers import costs as costs_router
+        costs_router._savings_cache.clear()
+        costs_router.invalidate_metrics_parse_cache()
+
+        resp_week = await client.get("/api/costs/savings?period=week")
+
+        costs_router._savings_cache.clear()
+        token_metrics.invalidate_savings_cache()
+        mock_run.return_value = _fake_completed(_json.dumps(ostk_payload))
+        resp_all = await client.get("/api/costs/savings?period=all")
+
+    assert resp_week.status_code == 200
+    data_week = resp_week.json()
+    assert data_week["available"] is True
+    assert data_week["compression_pct"] == pytest.approx(0.0), (
+        "week window has no squash events, so compression must be 0, "
+        f"not the session-wide binary figure. Got {data_week['compression_pct']}"
+    )
+
+    assert resp_all.status_code == 200
+    data_all = resp_all.json()
+    assert data_all["available"] is True
+    assert data_all["compression_pct"] == pytest.approx(45.48), (
+        "all-time keeps the ostk binary session figure"
+    )
