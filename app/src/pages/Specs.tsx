@@ -67,6 +67,11 @@ interface Spec {
   last_promote_error?: string | null;
   is_promoted?: boolean;
   no_ac_needed?: boolean;
+  // →2959: attached by GET /api/specs (→2955) when a spec marked done still
+  // has unchecked boxes in its file. status_warning is a ready-to-show
+  // plain-language sentence; ac_open_count is the number of open boxes.
+  ac_open_count?: number;
+  status_warning?: string;
 }
 
 interface SpecsResponse {
@@ -1660,6 +1665,22 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                         </button>
                       </div>
                     </div>
+
+                    {/* →2959: the backend attaches a ready-to-show sentence when
+                        a done spec's file still has unchecked boxes (→2955).
+                        Shown verbatim. Informs, never blocks: nothing else on the
+                        card changes, and specs without the field render exactly
+                        as before. Amber styling copied from done-unchecked-chip
+                        above. */}
+                    {doc.status_warning && (
+                      <p
+                        className="mt-2 ml-8 w-fit px-2 py-0.5 rounded-full text-xs font-medium bg-amber-500/20 text-amber-600 dark:text-amber-400"
+                        data-testid="spec-status-warning"
+                        title="Informational only, nothing is blocked."
+                      >
+                        {doc.status_warning}
+                      </p>
+                    )}
 
                     {/* Collapsed preview */}
                     {!isExpanded && doc.body && (

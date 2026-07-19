@@ -3070,3 +3070,83 @@ describe('→2624: done specs behind the history button', () => {
     expect(screen.getByTestId('show-history-button').textContent).toContain('Hide history')
   })
 })
+
+// →2959: since →2955 the backend enriches any done spec whose file still has
+// unchecked boxes with ac_open_count and a ready-to-show status_warning
+// sentence. The page shows that sentence verbatim on the card. It informs,
+// never blocks: specs without the field render exactly as before.
+describe('→2959: API status warning on done specs', () => {
+  const warningDocsResponse = {
+    docs: [
+      {
+        path: 'docs/spec/contradicted.md',
+        filename: 'contradicted.md',
+        title: 'contradicted spec',
+        status: 'complete',
+        created_at: '2026-07-01T00:00:00Z',
+        promoted_at: '2026-07-02T00:00:00Z',
+        body: '## Acceptance criteria\n- [x] first thing works\n- [ ] second thing works\n- [ ] third thing works',
+        acceptance_criteria: [
+          { text: 'first thing works', checked: true },
+          { text: 'second thing works', checked: false },
+          { text: 'third thing works', checked: false },
+        ],
+        task_summary: { total: 3, open: 0, closed: 3 },
+        ac_open_count: 2,
+        status_warning: 'Marked done, but 2 checkboxes are still unchecked in the spec file.',
+      },
+      {
+        path: 'docs/spec/clean-done.md',
+        filename: 'clean-done.md',
+        title: 'clean done spec',
+        status: 'complete',
+        created_at: '2026-07-01T00:00:00Z',
+        promoted_at: '2026-07-02T00:00:00Z',
+        body: '## Acceptance criteria\n- [x] alpha works\n- [x] beta works',
+        acceptance_criteria: [
+          { text: 'alpha works', checked: true },
+          { text: 'beta works', checked: true },
+        ],
+        task_summary: { total: 2, open: 0, closed: 2 },
+      },
+    ],
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/specs') return Promise.resolve(warningDocsResponse)
+      if (path === '/specs/templates') return Promise.resolve({ templates: [] })
+      if (path.includes('/tasks')) return Promise.resolve({ tasks: [] })
+      return Promise.resolve({})
+    })
+  })
+
+  it('shows the API status_warning sentence verbatim, in warning styling', async () => {
+    renderSpecs()
+    // Done specs live behind the history button (→2624).
+    fireEvent.click(await screen.findByTestId('show-history-button'))
+    await waitFor(() => expect(screen.getByText('contradicted spec')).toBeInTheDocument())
+    const cards = screen.getAllByTestId('spec-card')
+    const card = cards.find((c) => c.textContent?.includes('contradicted spec'))!
+    const warning = card.querySelector('[data-testid="spec-status-warning"]')
+    expect(warning).not.toBeNull()
+    expect(warning!.textContent).toBe(
+      'Marked done, but 2 checkboxes are still unchecked in the spec file.'
+    )
+    // Amber styling, same family as the done-unchecked-chip.
+    expect(warning!.className).toMatch(/amber/)
+  })
+
+  it('renders no warning for a spec without the field', async () => {
+    renderSpecs()
+    fireEvent.click(await screen.findByTestId('show-history-button'))
+    await waitFor(() => expect(screen.getByText('clean done spec')).toBeInTheDocument())
+    const cards = screen.getAllByTestId('spec-card')
+    const cleanCard = cards.find((c) => c.textContent?.includes('clean done spec'))!
+    expect(cleanCard.querySelector('[data-testid="spec-status-warning"]')).toBeNull()
+    // The whole page carries exactly one warning: the contradicted spec's.
+    expect(screen.getAllByTestId('spec-status-warning')).toHaveLength(1)
+  })
+})
