@@ -806,6 +806,28 @@ async def list_specs(clear_to_build: Optional[bool] = None):
                 for d in docs:
                     d.setdefault("clear_to_build", False)
                     d.setdefault("clear_to_build_checks", [])
+
+            # →2955: a spec must not claim complete while its own checkboxes
+            # contradict it. Progress used to live in hidden per-box ledger
+            # rows, which could all be closed while the file's boxes sat
+            # unchecked — the file is now the single source of truth (→2938),
+            # so the listing attaches the contradiction instead of hiding it.
+            # Status itself is never rewritten: a spec the user marked done
+            # stays done (informs, never blocks — same stance as b4fba786).
+            for d in docs:
+                if d.get("status") not in ("complete", "done"):
+                    continue
+                open_boxes = sum(
+                    1 for c in (d.get("acceptance_criteria") or [])
+                    if not c.get("checked")
+                )
+                if open_boxes:
+                    d["ac_open_count"] = open_boxes
+                    noun = "checkbox is" if open_boxes == 1 else "checkboxes are"
+                    d["status_warning"] = (
+                        f"Marked done, but {open_boxes} {noun} still unchecked "
+                        "in the spec file."
+                    )
             return docs
 
         docs = await asyncio.to_thread(_enrich_specs_sync, docs, needle_statuses)
