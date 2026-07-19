@@ -1540,19 +1540,11 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                           .map((c, i) => (
                             <ClaimSourceChip key={i} agent={c.agent} source={c.source} started_at={c.started_at} />
                           ))}
-                        {/* →2232: the board marks a spec fully done only when every
-                            criterion is checked. A done spec with unchecked criteria
-                            keeps its Done chip (nothing blocks, →2234) and gains this
-                            informational count. */}
-                        {doc.status === "complete" && criteria.some((c) => !c.checked) && (
-                          <span
-                            className="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-500/20 text-amber-600 dark:text-amber-400 flex-shrink-0"
-                            data-testid="done-unchecked-chip"
-                            title="Marked done with criteria left unchecked. Informational only, nothing is blocked."
-                          >
-                            {criteria.filter((c) => !c.checked).length} unconfirmed
-                          </span>
-                        )}
+                        {/* →2232 added a local "N unconfirmed" chip here; →2966
+                            merged it into the API-driven status warning below
+                            (spec-status-warning) so a contradicted done spec
+                            shows one clear note, not two. The spec still keeps
+                            its Done chip: nothing blocks (→2234). */}
                         {doc.needs_clarity && (
                           <NeedsClarityChip
                             mode="spec"
@@ -1670,8 +1662,9 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                         a done spec's file still has unchecked boxes (→2955).
                         Shown verbatim. Informs, never blocks: nothing else on the
                         card changes, and specs without the field render exactly
-                        as before. Amber styling copied from done-unchecked-chip
-                        above. */}
+                        as before. Since →2966 this is the single unchecked-boxes
+                        indicator on the card (it absorbed the old "N unconfirmed"
+                        chip, whose amber styling it kept). */}
                     {doc.status_warning && (
                       <p
                         className="mt-2 ml-8 w-fit px-2 py-0.5 rounded-full text-xs font-medium bg-amber-500/20 text-amber-600 dark:text-amber-400"

@@ -2773,6 +2773,10 @@ describe('Done with unchecked criteria (→2231-→2234)', () => {
           { text: 'third thing works', checked: false },
         ],
         task_summary: { total: 3, open: 0, closed: 3 },
+        // →2955: the backend always attaches these when a done spec still
+        // has unchecked boxes, so the fixture mirrors the real payload.
+        ac_open_count: 2,
+        status_warning: 'Marked done, but 2 checkboxes are still unchecked in the spec file.',
       },
       {
         path: 'docs/spec/all-done.md',
@@ -2841,7 +2845,11 @@ describe('Done with unchecked criteria (→2231-→2234)', () => {
     expect(screen.queryByTestId('done-unchecked-info')).toBeNull()
   })
 
-  it('collapsed card shows an unconfirmed count chip only for done-with-unchecked (→2232)', async () => {
+  // →2966: the local "N unconfirmed" chip merged into the API-driven
+  // status warning (→2959). Same scenario as the old →2232 chip test:
+  // the collapsed card carries the unchecked-count indicator only for
+  // done-with-unchecked, and there is exactly one such indicator.
+  it('collapsed card shows one unchecked-count warning only for done-with-unchecked (→2232, →2966)', async () => {
     renderSpecs()
     fireEvent.click(await screen.findByTestId('show-history-button'))
     await waitFor(() => {
@@ -2851,10 +2859,15 @@ describe('Done with unchecked criteria (→2231-→2234)', () => {
     const halfCard = cards.find((c) => c.textContent?.includes('half done spec'))!
     const allCard = cards.find((c) => c.textContent?.includes('all done spec'))!
 
-    const chip = halfCard.querySelector('[data-testid="done-unchecked-chip"]')
-    expect(chip).not.toBeNull()
-    expect(chip!.textContent).toContain('2')
-    expect(allCard.querySelector('[data-testid="done-unchecked-chip"]')).toBeNull()
+    const warning = halfCard.querySelector('[data-testid="spec-status-warning"]')
+    expect(warning).not.toBeNull()
+    expect(warning!.textContent).toContain('2')
+    expect(allCard.querySelector('[data-testid="spec-status-warning"]')).toBeNull()
+
+    // The superseded local chip is gone: one warning per contradicted
+    // spec, page-wide, not two.
+    expect(document.querySelector('[data-testid="done-unchecked-chip"]')).toBeNull()
+    expect(screen.getAllByTestId('spec-status-warning')).toHaveLength(1)
   })
 
   // →2234: information, never a refusal. The spec still reads as Done.
@@ -3135,7 +3148,8 @@ describe('→2959: API status warning on done specs', () => {
     expect(warning!.textContent).toBe(
       'Marked done, but 2 checkboxes are still unchecked in the spec file.'
     )
-    // Amber styling, same family as the done-unchecked-chip.
+    // Amber styling, the same family the old done-unchecked-chip used
+    // before →2966 merged it into this note.
     expect(warning!.className).toMatch(/amber/)
   })
 
