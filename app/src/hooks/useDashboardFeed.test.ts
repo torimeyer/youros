@@ -190,3 +190,78 @@ describe('useDashboardFeed polling', () => {
     expect(fetchMock.mock.calls.length).toBe(callsAfterSuccess + 1)
   })
 })
+
+// →2982: the HTTP fallback poll must pause while the tab is hidden and
+// resume when it becomes visible again. Polling a local backend every 5s
+// from a backgrounded tab is pure waste.
+function setTabHidden(hidden: boolean) {
+  Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })
+  document.dispatchEvent(new Event('visibilitychange'))
+}
+
+describe('useDashboardFeed visibility guard (→2982)', () => {
+  let fetchMock: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    FakeWebSocket.instances = []
+    vi.stubGlobal('WebSocket', FakeWebSocket)
+    vi.useFakeTimers()
+    fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ counts: { open: 3 } }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    useDashboardStore.setState({ agentsCount: 0, tasksCount: 0, wsConnected: false })
+  })
+
+  afterEach(() => {
+    Reflect.deleteProperty(document, 'hidden')
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  it('pauses polling while the tab is hidden', async () => {
+    renderHook(() => useDashboardFeed())
+    const ws = FakeWebSocket.instances[FakeWebSocket.instances.length - 1]
+    act(() => ws.triggerOpen())
+    act(() => ws.triggerClose())
+    await act(async () => {})
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    act(() => setTabHidden(true))
+    act(() => { vi.advanceTimersByTime(30_000) })
+    await act(async () => {})
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('resumes polling when the tab becomes visible again', async () => {
+    renderHook(() => useDashboardFeed())
+    const ws = FakeWebSocket.instances[FakeWebSocket.instances.length - 1]
+    act(() => ws.triggerOpen())
+    act(() => ws.triggerClose())
+    await act(async () => {})
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    act(() => setTabHidden(true))
+    act(() => { vi.advanceTimersByTime(30_000) })
+    await act(async () => {})
+
+    act(() => setTabHidden(false))
+    await act(async () => {})
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not begin polling on WS close while hidden, but does once visible', async () => {
+    renderHook(() => useDashboardFeed())
+    const ws = FakeWebSocket.instances[FakeWebSocket.instances.length - 1]
+    act(() => ws.triggerOpen())
+    act(() => setTabHidden(true))
+    act(() => ws.triggerClose())
+    await act(async () => {})
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    act(() => setTabHidden(false))
+    await act(async () => {})
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+})

@@ -7,6 +7,7 @@ import TemplateCard from "../components/TemplateCard";
 import { AgentChatThread } from "../components/AgentChatThread";
 import ConfirmModal from "../components/ConfirmModal";
 import { useConfirm } from "../hooks/useConfirm";
+import { useNowTick } from "../hooks/useNowTick";
 import { api, ApiError, ApiTimeoutError } from "../lib/api";
 import { reportError } from '../lib/reportError';
 import { onAgentsChange, addDismissed, isDismissed, clearDismissed } from "../lib/sidebarBus";
@@ -1455,7 +1456,7 @@ function TranscriptContent({ content }: { content: string }) {
   );
 }
 
-function AgentStatusBar({ spawnedAt, budget, model, transcriptBytes, transcriptLines, durationStats }: {
+export function AgentStatusBar({ spawnedAt, budget, model, transcriptBytes, transcriptLines, durationStats }: {
   spawnedAt: string;
   budget?: string;
   model?: string;
@@ -1463,12 +1464,9 @@ function AgentStatusBar({ spawnedAt, budget, model, transcriptBytes, transcriptL
   transcriptLines?: number;
   durationStats?: { median_seconds: number; sample_count: number } | null;
 }) {
-  const [now, setNow] = useState(Date.now());
-
-  useEffect(() => {
-    const interval = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(interval);
-  }, []);
+  // Shared 1s clock (→2982): one interval total, no matter how many
+  // agent cards are mounted.
+  const now = useNowTick();
 
   const startMs = new Date(spawnedAt).getTime();
   const elapsedSec = Math.max(0, Math.floor((now - startMs) / 1000));
@@ -1538,7 +1536,7 @@ function AgentStatusBar({ spawnedAt, budget, model, transcriptBytes, transcriptL
 // Mirrors the AgentStatusBar but in a single inline row so the card stays
 // tiny. Tori asked for this so the Active Sessions list is scannable by
 // default and the full chat + controls only appear on demand.
-function AgentCompactSummary({ spawnedAt, budget, model, costEstimate: _costEstimate, durationStats, transcriptBytes }: {
+export function AgentCompactSummary({ spawnedAt, budget, model, costEstimate: _costEstimate, durationStats, transcriptBytes }: {
   spawnedAt?: string;
   budget?: string;
   model?: string;
@@ -1546,12 +1544,9 @@ function AgentCompactSummary({ spawnedAt, budget, model, costEstimate: _costEsti
   durationStats?: { median_seconds: number; sample_count: number } | null;
   transcriptBytes?: number;
 }) {
-  const [now, setNow] = useState(Date.now());
-
-  useEffect(() => {
-    const interval = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(interval);
-  }, []);
+  // Shared 1s clock (→2982): one interval total, no matter how many
+  // agent cards are mounted.
+  const now = useNowTick();
 
   const segments: string[] = [];
   if (spawnedAt) {

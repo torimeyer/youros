@@ -501,7 +501,21 @@ function GiphyPicker({ initialSearch, onSelect, onClose }: {
 }
 
 export function ChatPanel() {
-  const { chatOpen, toggleChat, chatWidth, setChatWidth, isResizing, setIsResizing, defaultChatModel, setDefaultChatModel, sideBySideEnabled, setSideBySideEnabled, chatPrefill, setChatPrefill } = useAppStore()
+  // →2982: ChatPanel is always mounted inside Layout, so it must subscribe
+  // with narrow selectors. A bare useAppStore() re-rendered this whole panel
+  // on every app-store write from any page or polling feed.
+  const chatOpen = useAppStore((s) => s.chatOpen)
+  const toggleChat = useAppStore((s) => s.toggleChat)
+  const chatWidth = useAppStore((s) => s.chatWidth)
+  const setChatWidth = useAppStore((s) => s.setChatWidth)
+  const isResizing = useAppStore((s) => s.isResizing)
+  const setIsResizing = useAppStore((s) => s.setIsResizing)
+  const defaultChatModel = useAppStore((s) => s.defaultChatModel)
+  const setDefaultChatModel = useAppStore((s) => s.setDefaultChatModel)
+  const sideBySideEnabled = useAppStore((s) => s.sideBySideEnabled)
+  const setSideBySideEnabled = useAppStore((s) => s.setSideBySideEnabled)
+  const chatPrefill = useAppStore((s) => s.chatPrefill)
+  const setChatPrefill = useAppStore((s) => s.setChatPrefill)
   const displayOsName = useAppStore((s) => s.displayOsName())
 
   // One-time "New" pulse on the All pill after a Build-it feature lands.

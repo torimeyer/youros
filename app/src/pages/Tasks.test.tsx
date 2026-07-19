@@ -3892,3 +3892,55 @@ describe('Theme (pillar) chips and filter', () => {
     expect(screen.getByText('Grow signups')).toBeInTheDocument()
   })
 })
+
+// →2982: the filter/sort pipeline ran bare in the render body, so every
+// keystroke in the quick-add input re-sorted the entire task list. The
+// pipeline must be memoized on its actual inputs.
+describe('→2982 filter/sort memoization', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.clear()
+    useAppStore.setState({ chatOpen: true, osName: 'yourOS', darkMode: true })
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/tasks' || path.startsWith('/tasks?')) return Promise.resolve({ tasks: mockTasks })
+      if (path === '/labels') return Promise.resolve({ labels: mockLabels })
+      return Promise.resolve({})
+    })
+    mockedApiPost.mockResolvedValue({})
+  })
+
+  it('typing in the quick-add input does not re-run the task sort', async () => {
+    renderTasks()
+    await waitFor(() => expect(screen.getByText('Fix login bug')).toBeInTheDocument())
+
+    // jsdom's own CSS engine (css-tree) sorts arrays on every DOM update, so
+    // a bare global count is never zero. Count only sorts issued from this
+    // page's code: before the pipeline was memoized (→2982), every keystroke
+    // produced Tasks.tsx sort frames here.
+    const appSorts: string[] = []
+    const origSort = Array.prototype.sort
+    const sortSpy = vi.spyOn(Array.prototype, 'sort').mockImplementation(function (
+      this: unknown[],
+      cmp?: (a: unknown, b: unknown) => number
+    ) {
+      const stack = new Error('sort-probe').stack || ''
+      if (stack.includes('/src/pages/Tasks.tsx')) appSorts.push(stack)
+      return origSort.call(this, cmp as never) as never
+    })
+    const input = screen.getByPlaceholderText('What needs to be done?')
+    fireEvent.change(input, { target: { value: 'n' } })
+    fireEvent.change(input, { target: { value: 'ne' } })
+    fireEvent.change(input, { target: { value: 'new' } })
+    sortSpy.mockRestore()
+    expect(appSorts).toEqual([])
+  })
+
+  it('changing the status filter still recomputes the visible list', async () => {
+    renderTasks()
+    await waitFor(() => expect(screen.getByText('Fix login bug')).toBeInTheDocument())
+    // "Old completed task" is closed; the closed pill must still swap the list.
+    selectOnlyStatus('closed')
+    await waitFor(() => expect(screen.getByText('Old completed task')).toBeInTheDocument())
+    expect(screen.queryByText('Fix login bug')).not.toBeInTheDocument()
+  })
+})

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, Fragment } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import {
   DndContext,
@@ -95,6 +95,15 @@ interface Task {
 // the Tasks tab. See needle 277 for the regression context.
 function isActiveTask(t: { status: string }): boolean {
   return t.status !== "closed" && t.status !== "shelved";
+}
+
+// Module-scoped so the memoized filter pipeline below can use it without
+// depending on a per-render closure.
+function isThisWeek(dateStr: string): boolean {
+  const d = new Date(dateStr);
+  const now = new Date();
+  const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  return d >= weekAgo;
 }
 
 
@@ -1329,21 +1338,12 @@ export default function Tasks() {
     }
   };
 
-  const isThisWeek = (dateStr: string) => {
-    const d = new Date(dateStr);
-    const now = new Date();
-    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    return d >= weekAgo;
-  };
-
-  // Build a lookup map: label id -> Label
-  const labelsById = new Map(labels.map((l) => [l.id, l]));
+  // Build a lookup map: label id -> Label. Memoized (→2982): rebuilt only
+  // when the labels list changes, not on every render.
+  const labelsById = useMemo(() => new Map(labels.map((l) => [l.id, l])), [labels]);
 
   // Build a lookup map: task id -> Task (for showing dependency titles)
-  const tasksById = new Map(tasks.map((t) => [t.id, t]));
-
-  // Filtering logic
-  let filteredTasks = tasks;
+  const tasksById = useMemo(() => new Map(tasks.map((t) => [t.id, t])), [tasks]);
 
   // Determine whether we're in a tri-state pill view (Open/InProgress/Closed)
   // or a legacy single-select view (all/shelved/week/recurring). Legacy
@@ -1354,116 +1354,127 @@ export default function Tasks() {
     statusFilter === "week" ||
     statusFilter === "recurring";
 
-  if (isLegacyView) {
-    if (statusFilter === "shelved") {
-      filteredTasks = filteredTasks.filter((t) => t.status === "shelved");
-    } else if (statusFilter === "week") {
-      filteredTasks = filteredTasks.filter(
-        (t) => isActiveTask(t) && isThisWeek(t.created_at)
-      );
-    }
-    // recurring branch is handled separately in the render; skip here.
-  } else {
-    // Single-select pill. Shelved tasks are a legacy bucket that the four
-    // pills do not cover, so they are always hidden here.
-    filteredTasks = filteredTasks.filter((t) => {
-      if (t.status === "shelved") return false;
-      if (selectedStatus === "all") return true;
-      const effective: StatusPill = (runningAgentTaskIds.has(t.id) && t.status !== "closed")
-        ? "in_progress"
-        : t.status === "closed"
-        ? "closed"
-        : "open";
-      return effective === selectedStatus;
-    });
-    if (showNeedsClarity) {
-      filteredTasks = filteredTasks.filter((t) => t.needs_clarity === true);
-    }
-  }
-
-  // Theme filter (spec S009 Track 0.2). Inactive when no theme is chosen,
-  // so installs without themes see no change in behavior.
-  if (pillarFilter) {
-    filteredTasks = filteredTasks.filter((t) => t.pillar === pillarFilter);
-  }
-
   const onlyClosedSelected = !isLegacyView && selectedStatus === "closed";
 
-  if (!isLegacyView && selectedStatus === "all") {
-    filteredTasks = [...filteredTasks].sort((a, b) => {
-      // 1. Status group: running agents first, closed last
-      const statusPriority = (t: typeof a) => {
-        if (runningAgentTaskIds.has(t.id) && t.status !== "closed") return 0;
-        if (t.status === "closed") return 2;
-        return 1;
-      };
-      const statusDiff = statusPriority(a) - statusPriority(b);
-      if (statusDiff !== 0) return statusDiff;
-      // 2. When a date-based sort is active, respect it across ALL statuses (→1066)
-      if (sortBy === "date-desc") {
-        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+  // Filtering + sorting pipeline. Memoized on its actual inputs (→2982) so
+  // unrelated re-renders (typing in the quick-add input, hover state,
+  // toggling modals) no longer re-filter and re-sort the entire list.
+  const filteredTasks = useMemo(() => {
+    let filteredTasks = tasks;
+
+    if (isLegacyView) {
+      if (statusFilter === "shelved") {
+        filteredTasks = filteredTasks.filter((t) => t.status === "shelved");
+      } else if (statusFilter === "week") {
+        filteredTasks = filteredTasks.filter(
+          (t) => isActiveTask(t) && isThisWeek(t.created_at)
+        );
       }
-      if (sortBy === "date-asc") {
-        return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+      // recurring branch is handled separately in the render; skip here.
+    } else {
+      // Single-select pill. Shelved tasks are a legacy bucket that the four
+      // pills do not cover, so they are always hidden here.
+      filteredTasks = filteredTasks.filter((t) => {
+        if (t.status === "shelved") return false;
+        if (selectedStatus === "all") return true;
+        const effective: StatusPill = (runningAgentTaskIds.has(t.id) && t.status !== "closed")
+          ? "in_progress"
+          : t.status === "closed"
+          ? "closed"
+          : "open";
+        return effective === selectedStatus;
+      });
+      if (showNeedsClarity) {
+        filteredTasks = filteredTasks.filter((t) => t.needs_clarity === true);
       }
-      // 3. Default: priority (P0 < P1 < P2 < P3 < none), then newest first
-      const priorityOrder = (t: typeof a) => {
-        const p = t.priority;
-        if (p === "P0") return 0;
-        if (p === "P1") return 1;
-        if (p === "P2") return 2;
-        if (p === "P3") return 3;
-        return 4;
-      };
-      const priorityDiff = priorityOrder(a) - priorityOrder(b);
-      if (priorityDiff !== 0) return priorityDiff;
-      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-    });
-  } else if (onlyClosedSelected) {
-    filteredTasks = [...filteredTasks].sort((a, b) => {
-      const aTime = a.closed_at ? new Date(a.closed_at).getTime() : 0;
-      const bTime = b.closed_at ? new Date(b.closed_at).getTime() : 0;
-      return closedSortOrder === "oldest" ? aTime - bTime : bTime - aTime;
-    });
-  } else {
-    // Apply the user-chosen sort order to non-closed views.
-    filteredTasks = [...filteredTasks].sort((a, b) => {
-      if (sortBy === "date-asc") {
-        return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
-      }
-      if (sortBy === "date-desc") {
-        const aRun = runningAgentTaskIds.has(a.id) && a.status !== "closed";
-        const bRun = runningAgentTaskIds.has(b.id) && b.status !== "closed";
-        if (aRun !== bRun) return aRun ? -1 : 1;
-        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-      }
-      if (sortBy === "status") {
-        // Open tasks before closed/shelved; within same status keep by date desc.
-        const statusOrder: Record<string, number> = { in_progress: 0, open: 1, shelved: 2, closed: 3 };
-        const aOrd = statusOrder[a.status] ?? 99;
-        const bOrd = statusOrder[b.status] ?? 99;
-        if (aOrd !== bOrd) return aOrd - bOrd;
-        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-      }
-      if (sortBy === "label") {
-        // Find the first label name for each task, alphabetically.
-        const getLabelName = (task: Task) => {
-          const id = (task.label_ids || [])[0];
-          if (!id) return "\uFFFF"; // tasks without labels sort last
-          return labels.find((l) => l.id === id)?.name ?? "\uFFFF";
+    }
+
+    // Theme filter (spec S009 Track 0.2). Inactive when no theme is chosen,
+    // so installs without themes see no change in behavior.
+    if (pillarFilter) {
+      filteredTasks = filteredTasks.filter((t) => t.pillar === pillarFilter);
+    }
+
+    if (!isLegacyView && selectedStatus === "all") {
+      filteredTasks = [...filteredTasks].sort((a, b) => {
+        // 1. Status group: running agents first, closed last
+        const statusPriority = (t: typeof a) => {
+          if (runningAgentTaskIds.has(t.id) && t.status !== "closed") return 0;
+          if (t.status === "closed") return 2;
+          return 1;
         };
-        const aName = getLabelName(a);
-        const bName = getLabelName(b);
-        if (aName !== bName) return aName.localeCompare(bName);
+        const statusDiff = statusPriority(a) - statusPriority(b);
+        if (statusDiff !== 0) return statusDiff;
+        // 2. When a date-based sort is active, respect it across ALL statuses (→1066)
+        if (sortBy === "date-desc") {
+          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+        }
+        if (sortBy === "date-asc") {
+          return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+        }
+        // 3. Default: priority (P0 < P1 < P2 < P3 < none), then newest first
+        const priorityOrder = (t: typeof a) => {
+          const p = t.priority;
+          if (p === "P0") return 0;
+          if (p === "P1") return 1;
+          if (p === "P2") return 2;
+          if (p === "P3") return 3;
+          return 4;
+        };
+        const priorityDiff = priorityOrder(a) - priorityOrder(b);
+        if (priorityDiff !== 0) return priorityDiff;
         return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-      }
-      // Default: newest first
-      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-    });
-  }
+      });
+    } else if (onlyClosedSelected) {
+      filteredTasks = [...filteredTasks].sort((a, b) => {
+        const aTime = a.closed_at ? new Date(a.closed_at).getTime() : 0;
+        const bTime = b.closed_at ? new Date(b.closed_at).getTime() : 0;
+        return closedSortOrder === "oldest" ? aTime - bTime : bTime - aTime;
+      });
+    } else {
+      // Apply the user-chosen sort order to non-closed views.
+      filteredTasks = [...filteredTasks].sort((a, b) => {
+        if (sortBy === "date-asc") {
+          return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+        }
+        if (sortBy === "date-desc") {
+          const aRun = runningAgentTaskIds.has(a.id) && a.status !== "closed";
+          const bRun = runningAgentTaskIds.has(b.id) && b.status !== "closed";
+          if (aRun !== bRun) return aRun ? -1 : 1;
+          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+        }
+        if (sortBy === "status") {
+          // Open tasks before closed/shelved; within same status keep by date desc.
+          const statusOrder: Record<string, number> = { in_progress: 0, open: 1, shelved: 2, closed: 3 };
+          const aOrd = statusOrder[a.status] ?? 99;
+          const bOrd = statusOrder[b.status] ?? 99;
+          if (aOrd !== bOrd) return aOrd - bOrd;
+          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+        }
+        if (sortBy === "label") {
+          // Find the first label name for each task, alphabetically.
+          const getLabelName = (task: Task) => {
+            const id = (task.label_ids || [])[0];
+            if (!id) return "\uFFFF"; // tasks without labels sort last
+            return labels.find((l) => l.id === id)?.name ?? "\uFFFF";
+          };
+          const aName = getLabelName(a);
+          const bName = getLabelName(b);
+          if (aName !== bName) return aName.localeCompare(bName);
+          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+        }
+        // Default: newest first
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      });
+    }
+
+
+    return filteredTasks;
+  }, [tasks, isLegacyView, statusFilter, selectedStatus, showNeedsClarity, pillarFilter, runningAgentTaskIds, sortBy, closedSortOrder, onlyClosedSelected, labels]);
 
   // Render groups: wave-grouped when sortBy==="wave", flat for "all" view, priority-grouped otherwise.
-  const taskGroups: { key: string; label?: string; tasks: Task[] }[] =
+  // Grouping walks the whole filtered list; memoized for the same reason.
+  const taskGroups: { key: string; label?: string; tasks: Task[] }[] = useMemo(() =>
     sortBy === "wave"
       ? (() => {
           const waveMap = new Map<number, Task[]>();
@@ -1493,20 +1504,24 @@ export default function Tasks() {
           );
           if (grouped.length > 0) acc.push({ key: p, tasks: grouped });
           return acc;
-        }, []);
+        }, []),
+  [sortBy, filteredTasks, waveAssignments, isLegacyView, selectedStatus]);
 
   // Unfiltered counts used by the FilterDrawer status badge pills so the
   // user can see how many tasks live in each status bucket before choosing
   // one. These deliberately ignore priority/label/thread filters.
-  const openCount = tasks.filter(
-    (t) =>
-      isActiveTask(t) &&
-      !runningAgentTaskIds.has(t.id)
-  ).length;
-  const inProgressCount = tasks.filter(
-    (t) => runningAgentTaskIds.has(t.id) && t.status !== "closed"
-  ).length;
-  const closedCount = tasks.filter((t) => t.status === "closed").length;
+  const { openCount, inProgressCount, closedCount } = useMemo(() => ({
+    openCount: tasks.filter(
+      (t) =>
+        isActiveTask(t) &&
+        !runningAgentTaskIds.has(t.id)
+    ).length,
+    inProgressCount: tasks.filter(
+      (t) => runningAgentTaskIds.has(t.id) && t.status !== "closed"
+    ).length,
+    closedCount: tasks.filter((t) => t.status === "closed").length,
+  }), [tasks, runningAgentTaskIds]);
+
   const filterCounts: Partial<Record<StatusPill, number>> = {
     open: openCount,
     in_progress: inProgressCount,
