@@ -583,6 +583,38 @@ def _save_deleted_agents(names: set[str]) -> None:
         pass
 
 
+def _cleanup_dead_numbered_copies(base_name: str) -> list:
+    """→2956 (4): when an agent reclaims its base row, remove leftover DEAD
+    numbered-copy rows the old 409 register path forced it to mint
+    (``name-2``, ``name-retry-1``, ``name-r2``). Copies still running are
+    never touched — a live agent that happens to carry a suffixed name is
+    not a leftover. Removed rows are tombstoned in deleted_agents.json so
+    their audit-log entries stay hidden from the list endpoint too (they
+    can always self-reclaim by re-registering, like any deleted name).
+    """
+    import re as _re
+    pattern = _re.compile(
+        rf"^{_re.escape(base_name)}-(?:retry-[A-Za-z0-9_]+|r\d+|\d+)$"
+    )
+    removed: list = []
+    for other_name, other_meta in list(agent_metadata.items()):
+        if other_name == base_name or not pattern.match(other_name):
+            continue
+        if (other_meta or {}).get("status") not in _TERMINAL_STATUSES:
+            continue
+        agent_metadata.pop(other_name, None)
+        removed.append(other_name)
+    if removed:
+        _tombstones = _load_deleted_agents()
+        _tombstones.update(removed)
+        _save_deleted_agents(_tombstones)
+        logger.info(
+            "register.reclaim_cleaned_copies base=%s removed=%s",
+            base_name, ",".join(removed),
+        )
+    return removed
+
+
 _PRUNE_TTL_DAYS = 7
 _last_prune_time: float = -999999.0
 _PRUNE_INTERVAL_SECONDS = 300
@@ -670,12 +702,34 @@ def _prune_reaped_worktree_agents() -> int:
                 continue  # alive: PermissionError or success both mean the PID exists
             except (ProcessLookupError, OSError):
                 pass  # dead — fall through to prune
+        elif meta.get("status") not in _TERMINAL_STATUSES:
+            # →2956: no pid on record and the row still says running — the
+            # saa-2953 shape. A reaped worktree dir alone must never delete
+            # a live agent: registration-only agents work in isolated
+            # workspaces whose dir cleanup can remove while the process
+            # keeps working elsewhere (and their transcript byte counter
+            # reads 0, so absence of output is not evidence either). Only
+            # when the row is ALSO silent on the heartbeat channel, holds
+            # no live proc handle, and shows no fresh transcript growth may
+            # it be hidden.
+            _prune_now = datetime.now(timezone.utc)
+            _last_seen = _last_seen_dt(meta)
+            if _last_seen is not None and (
+                (_prune_now - _last_seen).total_seconds()
+                <= STALE_AGENT_TIMEOUT_SECONDS
+            ):
+                continue  # fresh heartbeat: alive
+            if _proc_handle_is_alive(name):
+                continue
+            if _transcript_recently_active(name, _prune_now):
+                continue
         # Both worktree and PID are gone: mark terminal if not already, then hide.
         if meta.get("status") not in _TERMINAL_STATUSES:
             _set_agent_status(
                 name, "terminated_stale",
                 terminated_at=now_iso,
                 terminated_reason="reaped: worktree dir gone and PID dead",
+                flagged_by="stale_sweep",
             )
         deleted.add(name)
         pruned += 1
@@ -2381,6 +2435,17 @@ def _sweep_stale_running_agents() -> bool:
         # given the mailbox instruction block.
         if _transcript_recently_active(name, now):
             continue
+        # →2956: for a row that follows the heartbeat contract, heartbeat
+        # silence alone is never death. Require one POSITIVE death signal
+        # (dead pid, or a non-empty transcript gone idle) before any flip.
+        # Registration-only agents in isolated workspaces have no pid and
+        # an unresolvable or 0-byte transcript; those rows stay running
+        # until real evidence appears.
+        _evidence_detail = ""
+        if _has_heartbeat_contract(meta):
+            _allow_flip, _evidence_detail = _stale_flip_evidence(name, meta, now)
+            if not _allow_flip:
+                continue
 
         # Check if we should attempt recovery instead of terminating
         recovery_count = meta.get("recovery_count", 0)
@@ -2395,6 +2460,9 @@ def _sweep_stale_running_agents() -> bool:
                 f"No heartbeat for {int(age_seconds)}s "
                 f"(limit {STALE_AGENT_TIMEOUT_SECONDS}s)"
             )
+            if _evidence_detail:
+                # →2956: record WHY the board believed this flip.
+                reason += f"; evidence: {_evidence_detail}"
             if recovery_count >= MAX_RECOVERY_ATTEMPTS:
                 reason += (
                     f". Recovery exhausted ({recovery_count}/{MAX_RECOVERY_ATTEMPTS})"
@@ -2427,6 +2495,67 @@ def _transcript_grew_recently(
         return (now - mtime).total_seconds() <= window_seconds
     except OSError:
         return False
+
+
+def _has_heartbeat_contract(meta: dict) -> bool:
+    """→2956: True when this row has PROVEN it follows the heartbeat
+    contract. Only a real POST /heartbeat carrying a step writes
+    ``current_step``, and only the revive/reclaim paths write
+    ``revival_count`` / ``reclaim_count`` — so any of these fields is
+    proof a live process has been talking to the board. Rows that never
+    spoke after registration carry no such proof and keep the legacy
+    timeout behaviour: an inert row is indistinguishable from a dead
+    one, and the old sweeps are what clears those zombies.
+    """
+    return bool(
+        meta.get("current_step")
+        or meta.get("revival_count")
+        or meta.get("reclaim_count")
+    )
+
+
+def _stale_flip_evidence(name: str, meta: dict, now: datetime) -> tuple:
+    """→2956 evidence standard for reaper flips of a heartbeat-contract row.
+
+    Returns ``(allow_flip, detail)``. Beyond the stale heartbeat that
+    triggered the check, the board needs at least one POSITIVE death
+    signal before flipping a running contract row:
+
+      * a stored pid that ``os.kill(pid, 0)`` reports dead, or
+      * a resolvable, NON-EMPTY transcript whose mtime went idle past
+        ``STALE_AGENT_TIMEOUT_SECONDS``.
+
+    Absence of a signal is never evidence: registration-only agents
+    record no pid, and the transcript resolver finds nothing for agents
+    working in isolated workspaces (their byte counter reads 0). A
+    missing or zero-byte transcript therefore never counts as death.
+    Silence on ONE signal is never death (saa-2944/2945/2946/2953).
+    """
+    pid = meta.get("pid")
+    if pid:
+        try:
+            pid_int = int(pid)
+        except (TypeError, ValueError):
+            pid_int = None
+        if pid_int:
+            if _is_pid_alive(pid_int):
+                return (False, "pid alive")
+            return (True, f"pid {pid_int} probed dead (os.kill)")
+    source = _resolve_transcript_source(name)
+    if source is not None:
+        try:
+            st = source.stat()
+        except OSError:
+            st = None
+        if st is not None and st.st_size > 0:
+            mtime = datetime.fromtimestamp(st.st_mtime, tz=timezone.utc)
+            idle_seconds = (now - mtime).total_seconds()
+            if idle_seconds <= STALE_AGENT_TIMEOUT_SECONDS:
+                return (False, "transcript recently active")
+            return (True, f"non-empty transcript idle for {int(idle_seconds)}s")
+        # Resolvable but empty (0 bytes) or unreadable: NOT evidence —
+        # the byte counter reads 0 for isolated workspaces.
+    return (False, "no positive death evidence beyond heartbeat silence")
 
 
 _STALE_SWEEP_SUMMARY_NO_WORK = (
@@ -4942,6 +5071,19 @@ async def _compute_agents_snapshot_async(run_autocomplete: bool = True) -> dict:
                 pass
         if _transcript_recently_active(name, now_for_sweep):
             continue
+        # →2956: same evidence standard as _sweep_stale_running_agents.
+        # A heartbeat-contract row (real steps seen) is never demoted on
+        # heartbeat silence alone — this 480s path is what closed
+        # saa-2944/2945/2946 mid-run while they sat inside long test runs
+        # with no pid on record and an unresolvable (isolated workspace,
+        # 0-byte counter) transcript.
+        _gate_meta = agent_metadata.get(name) or agent
+        if _has_heartbeat_contract(_gate_meta):
+            _allow_flip, _gate_detail = _stale_flip_evidence(
+                name, _gate_meta, now_for_sweep
+            )
+            if not _allow_flip:
+                continue
         terminated_at = now_for_sweep.isoformat()
         demoted_status = "completed_timeout" if is_cc_subagent else "terminated_stale"
         reason = (
@@ -7985,22 +8127,54 @@ async def register_agent(body: AgentSpawn, request: Request = None):
     # Uses the module-level _TERMINAL_STATUSES (->2625): a local copy of the
     # list drifted once already and is banned by the drift-guard test.
     existing_status = existing.get("status", "")
-    # Reject re-registration of a name that already holds a terminal status
-    # as running. A Claude Code subprocess that keeps heartbeating after a
-    # user cancel must NOT resurrect the same row: the correct behaviour
-    # is for the caller to pick a fresh name (suffix with a short random
-    # token) so the cancelled row stays cancelled and the new work gets a
-    # new row. Returning 409 tells the caller to retry with a new name.
+    # Reject re-registration of a name that already holds an EXPLICIT
+    # terminal status as running. A Claude Code subprocess that keeps
+    # heartbeating after a user cancel must NOT resurrect the same row:
+    # the cancelled row stays cancelled and the new work gets a new row.
+    #
+    # →2956 exception — self-reclaim: a terminal status a SWEEP inferred
+    # (terminated_stale / completed_timeout, or any status stamped
+    # flagged_by=idle_sweep/stale_sweep) is a guess, not a fact — the
+    # same doctrine as the →2896 heartbeat revive. The agent itself
+    # re-registering under its OWN name is proof the guess was wrong:
+    # reclaim the row in place (history preserved) instead of forcing a
+    # numbered '-retry-N' / '-rN' copy that breaks byte-count tracking
+    # (→2936) and leaves dead duplicate rows behind (saa-2945 became
+    # '-retry-1', saa-2946 became '-r2').
+    _reclaimed_row = False
     if existing_status in _TERMINAL_STATUSES and status == "running":
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"Agent '{body.name}' already terminated with status "
-                f"'{existing_status}'. Register under a fresh name "
-                "(e.g. append '-retry-XXXX') so the terminal row is "
-                "preserved and the new work gets its own row."
-            ),
+        _sweep_inferred = (
+            existing_status in ("terminated_stale", "completed_timeout")
+            or existing.get("flagged_by") in ("idle_sweep", "stale_sweep")
         )
+        if not _sweep_inferred:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Agent '{body.name}' already terminated with status "
+                    f"'{existing_status}'. Register under a fresh name "
+                    "(e.g. append '-retry-XXXX') so the terminal row is "
+                    "preserved and the new work gets its own row."
+                ),
+            )
+        _reclaimed_row = True
+        logger.info(
+            "register.self_reclaim name=%s from_status=%s flagged_by=%s",
+            body.name, existing_status, existing.get("flagged_by"),
+        )
+
+    # →2956 (3): a deleted name is not a permanent blacklist. When a live
+    # agent registers it again as running, clear the tombstone so the row
+    # is visible in GET /api/agents and its /complete is honored again.
+    # The deleted-agents guard keeps its original protection: a zombie
+    # /complete with no live re-registered row is still refused (see
+    # mark_agent_complete).
+    if status == "running":
+        _del_names = _load_deleted_agents()
+        if body.name in _del_names:
+            _del_names.discard(body.name)
+            _save_deleted_agents(_del_names)
+            logger.info("register.tombstone_cleared name=%s", body.name)
 
     # When an agent was REST-spawned (has a pid), preserve the spawn-time model
     # rather than letting the agent's own /register call overwrite it. The
@@ -8170,6 +8344,24 @@ async def register_agent(body: AgentSpawn, request: Request = None):
         record["chat_mode"] = "conversational"
     elif existing.get("chat_mode"):
         record["chat_mode"] = existing["chat_mode"]
+    if _reclaimed_row:
+        # →2956: reclaim bookkeeping. The fresh record dict already
+        # dropped the sweep's terminal fields (completed_at,
+        # terminated_at / terminated_reason, failed_at, flagged_by and
+        # the synthetic sweep summary); carry the agent's live context
+        # forward and count the reclaim so the board can see how often
+        # its guesses were wrong.
+        record["reclaim_count"] = int(existing.get("reclaim_count") or 0) + 1
+        record["reclaimed_at"] = now_iso
+        for _keep_field in (
+            "current_step", "current_step_updated_at",
+            "pending_summary", "pending_summary_at", "revival_count",
+        ):
+            if existing.get(_keep_field) and _keep_field not in record:
+                record[_keep_field] = existing[_keep_field]
+        # (4) Reclaiming the base row also cleans up the dead numbered
+        # copies the old 409 path forced this agent to mint.
+        _cleanup_dead_numbered_copies(body.name)
     agent_metadata[body.name] = record
     # Persistently mark the needle in_progress when an agent registers
     # for it (→1714). Fire-and-forget so register latency is unaffected.
@@ -8792,10 +8984,22 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
     # above, and keep writing new agent.completed audit rows indefinitely.
     deleted_names = _load_deleted_agents()
     if name in deleted_names:
-        return {
-            "result": f"Agent '{name}' was deleted, complete ignored",
-            "status": "deleted",
-        }
+        # →2956 (3): a deleted name must not permanently blacklist the
+        # agent. Refuse only when there is NO live re-registered row —
+        # that is the original abuse this guard was built for (a zombie
+        # /complete after deletion must not upsert rows or keep writing
+        # agent.completed audit events). An agent that came back and
+        # re-registered (self-reclaim) has a live row here; its
+        # /complete is real — honor it and clear the tombstone
+        # (saa-2953: this guard refused the recovered summary forever).
+        _live_row = agent_metadata.get(name)
+        if not _live_row or _live_row.get("status") in _TERMINAL_STATUSES:
+            return {
+                "result": f"Agent '{name}' was deleted, complete ignored",
+                "status": "deleted",
+            }
+        deleted_names.discard(name)
+        _save_deleted_agents(deleted_names)
 
     # Guard: refuse idle-sweep auto-complete when the backend-spawned subprocess
     # (PID recorded at spawn time) is still alive. Without this, the idle sweep
