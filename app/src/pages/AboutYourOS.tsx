@@ -114,12 +114,6 @@ export default function AboutYourOS() {
             to configure your AI provider, standing instructions, and connected services.
           </li>
           <li>
-            <a href="/settings#shortcuts" className="underline hover:text-slate-200">
-              Keyboard shortcuts
-            </a>{' '}
-            for the moves that save the most time.
-          </li>
-          <li>
             <a href="/privacy" className="underline hover:text-slate-200">
               Privacy
             </a>{' '}

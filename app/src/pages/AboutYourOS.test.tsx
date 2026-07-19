@@ -130,10 +130,11 @@ describe('AboutYourOS page', () => {
     expect(screen.queryByTestId('about-counters')).toBeNull()
   })
 
-  it('includes a Keyboard shortcuts link in "where to look next"', () => {
+  it('does not mention keyboard shortcuts after that settings section was removed', () => {
     renderPage()
     const section = screen.getByTestId('about-section-where-to-look-next')
-    expect(section.textContent).toMatch(/Keyboard shortcuts/i)
+    expect(section.textContent).not.toMatch(/Keyboard shortcuts/i)
+    expect(section.querySelector('a[href="/settings#shortcuts"]')).toBeNull()
   })
 
   it('renders section headings with correct text', () => {
