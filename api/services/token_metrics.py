@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import threading
 import time
 from pathlib import Path
 from typing import Optional
@@ -234,13 +235,20 @@ def safe_record_chat_turn(**kwargs) -> None:
         record_chat_turn(**kwargs)
     except Exception:
         pass
+    # →2960: chat turns are the natural heartbeat for the compression
+    # feed. Throttled and run on a daemon thread so the chat path (which
+    # sits on the event loop) never blocks on the kernel subprocess.
+    try:
+        maybe_record_compression()
+    except Exception:
+        pass
 
 
-def _fetch_ostk_savings_raw() -> Optional[dict]:
-    """Shell out to ``ostk os metrics --json`` and return parsed savings dict.
+def _run_ostk_metrics_json() -> Optional[dict]:
+    """Shell out to ``ostk os metrics --json`` and return the raw payload.
 
-    Returns ``None`` on any failure. This is the cold-path call; callers
-    should normally go through ``get_ostk_savings`` which adds a TTL cache.
+    Returns ``None`` on any failure (missing binary, timeout, non-zero
+    exit, unparseable output). Never raises and never invents data.
     """
     try:
         result = subprocess.run(
@@ -262,6 +270,18 @@ def _fetch_ostk_savings_raw() -> Optional[dict]:
         return None
 
     if not isinstance(payload, dict):
+        return None
+    return payload
+
+
+def _fetch_ostk_savings_raw() -> Optional[dict]:
+    """Shell out to ``ostk os metrics --json`` and return parsed savings dict.
+
+    Returns ``None`` on any failure. This is the cold-path call; callers
+    should normally go through ``get_ostk_savings`` which adds a TTL cache.
+    """
+    payload = _run_ostk_metrics_json()
+    if payload is None:
         return None
 
     prompt_cache = payload.get("prompt_cache") or {}
@@ -347,3 +367,250 @@ def invalidate_savings_cache() -> None:
     """
     global _SAVINGS_CACHE
     _SAVINGS_CACHE = None
+
+
+# ---------------------------------------------------------------------------
+# →2960: compression feed
+#
+# The kernel keeps session-scoped squash counters (``ostk os metrics --json``
+# -> "squash": {original_bytes, compressed_bytes, events, token_savings}).
+# Chat turns only ever wrote chat_turn events to metrics.jsonl, so the
+# windowed savings reader (_compute_savings_for_period in routers/costs.py)
+# honestly reported 0 compression for today/week. This recorder closes the
+# gap: whenever the kernel counters have advanced since the last recorded
+# event, it appends ONE squash event carrying the delta, plus the new
+# counter totals (kernel_*_total fields) so the next delta needs no extra
+# state file: the state lives inside the last event itself.
+#
+# Triggered from safe_record_chat_turn (throttled to at most one kernel
+# read per _COMPRESSION_RECORD_INTERVAL_SECONDS, on a daemon thread). A
+# day with zero chat turns therefore still shows 0 windowed compression:
+# acceptable and honest, because nothing drives the recorder that day and
+# the all-time number still comes from the kernel binary directly.
+#
+# Failure behavior: kernel call fails -> record nothing, never a
+# fabricated event. No counter advance -> no event (idempotent).
+# ---------------------------------------------------------------------------
+
+_COMPRESSION_RECORD_INTERVAL_SECONDS = 600  # at most one kernel read per 10 min
+_COMPRESSION_LOCK = threading.Lock()
+# In-memory copy of the last recorded kernel counters. Cold after restart;
+# reloaded from the last kernel_counters event in metrics.jsonl.
+_LAST_SQUASH_COUNTERS: Optional[dict] = None
+_LAST_COMPRESSION_ATTEMPT: Optional[float] = None
+
+# Only recorder-written events carry this key, which makes it a reliable
+# needle for the backwards scan below.
+_KERNEL_COUNTER_MARKER = b'"kernel_original_bytes_total"'
+
+
+def invalidate_compression_recorder_state() -> None:
+    """Reset the recorder's in-memory state (tests and diagnostics)."""
+    global _LAST_SQUASH_COUNTERS, _LAST_COMPRESSION_ATTEMPT
+    _LAST_SQUASH_COUNTERS = None
+    _LAST_COMPRESSION_ATTEMPT = None
+
+
+def _as_int(value) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _parse_kernel_counter_line(raw: bytes) -> Optional[dict]:
+    try:
+        ev = json.loads(raw.decode("utf-8", errors="replace"))
+    except (ValueError, json.JSONDecodeError):
+        return None
+    if not isinstance(ev, dict):
+        return None
+    if ev.get("event") != "squash" or ev.get("source") != "kernel_counters":
+        return None
+    return {
+        "events": _as_int(ev.get("kernel_events_total")),
+        "original_bytes": _as_int(ev.get("kernel_original_bytes_total")),
+        "compressed_bytes": _as_int(ev.get("kernel_compressed_bytes_total")),
+        "token_savings": _as_int(ev.get("kernel_token_savings_total")),
+    }
+
+
+def _find_last_kernel_squash_counters(
+    max_scan_bytes: int = 8 * 1024 * 1024,
+) -> Optional[dict]:
+    """Return the counter totals stored in the most recent recorder event.
+
+    Scans metrics.jsonl backwards in chunks: the usual case (the recorder
+    fires on chat turns, so its last event sits near the tail) reads a few
+    KB, never the whole 500 MB+ file. The scan is capped; not finding the
+    marker within the cap is treated as "no previous event", which only
+    re-baselines (zero-delta event), never fabricates savings.
+    """
+    try:
+        if not _METRICS_PATH.exists():
+            return None
+        size = _METRICS_PATH.stat().st_size
+    except OSError:
+        return None
+    if size == 0:
+        return None
+
+    chunk_size = 64 * 1024
+    buf = b""
+    pos = size
+    try:
+        with open(_METRICS_PATH, "rb") as f:
+            while pos > 0 and (size - pos) < max_scan_bytes:
+                step = min(chunk_size, pos)
+                pos -= step
+                f.seek(pos)
+                buf = f.read(step) + buf
+                if _KERNEL_COUNTER_MARKER not in buf:
+                    continue
+                lines = buf.split(b"\n")
+                # Unless we reached the start of the file, the first line
+                # is a potentially partial fragment: skip it and let the
+                # next chunk complete it.
+                candidates = lines if pos == 0 else lines[1:]
+                for raw in reversed(candidates):
+                    if _KERNEL_COUNTER_MARKER not in raw:
+                        continue
+                    counters = _parse_kernel_counter_line(raw)
+                    if counters is not None:
+                        return counters
+    except OSError:
+        return None
+    return None
+
+
+def _build_squash_event(
+    d_original: int, d_compressed: int, d_tokens: int, totals: dict
+) -> dict:
+    return {
+        "event": "squash",
+        "source": "kernel_counters",
+        "original": int(d_original),
+        "compressed": int(d_compressed),
+        "saved": int(d_original) - int(d_compressed),
+        "tokens_saved": int(d_tokens),
+        "kernel_events_total": totals["events"],
+        "kernel_original_bytes_total": totals["original_bytes"],
+        "kernel_compressed_bytes_total": totals["compressed_bytes"],
+        "kernel_token_savings_total": totals["token_savings"],
+        "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+
+
+def _append_metrics_event(event: dict) -> bool:
+    _ensure_parent()
+    try:
+        with open(_METRICS_PATH, "a", encoding="utf-8") as f:
+            f.write(json.dumps(event, separators=(",", ":")) + "\n")
+        return True
+    except OSError:
+        return False
+
+
+def record_compression_event() -> Optional[dict]:
+    """Read kernel squash counters; append the delta as a squash event.
+
+    Returns the appended event dict, or ``None`` when nothing was
+    appended (kernel failure, no counter advance, or write failure).
+    """
+    with _COMPRESSION_LOCK:
+        return _record_compression_event_locked()
+
+
+def _record_compression_event_locked() -> Optional[dict]:
+    global _LAST_SQUASH_COUNTERS
+
+    payload = _run_ostk_metrics_json()
+    if payload is None:
+        return None
+    squash = payload.get("squash")
+    if not isinstance(squash, dict) or not squash:
+        return None
+
+    current = {
+        "events": _as_int(squash.get("events")),
+        "original_bytes": _as_int(squash.get("original_bytes")),
+        "compressed_bytes": _as_int(squash.get("compressed_bytes")),
+        "token_savings": _as_int(squash.get("token_savings")),
+    }
+
+    last = _LAST_SQUASH_COUNTERS or _find_last_kernel_squash_counters()
+
+    if last is None:
+        # First run ever: establish the baseline with a zero-delta event.
+        # The session's pre-existing compression is already inside the
+        # all-time number; attributing it to today would be fabrication.
+        event = _build_squash_event(0, 0, 0, current)
+        if not _append_metrics_event(event):
+            return None
+        _LAST_SQUASH_COUNTERS = current
+        return event
+
+    reset = (
+        current["original_bytes"] < last["original_bytes"]
+        or current["events"] < last["events"]
+    )
+    if reset:
+        # Session-scoped counters restarted. Everything currently on the
+        # counters happened after the reset (which happened after our last
+        # event), so the honest delta is the counters themselves. Squashes
+        # from intervening sessions we never observed are lost:
+        # undercounting, never overcounting.
+        if current["original_bytes"] <= 0:
+            return None
+        d_original = current["original_bytes"]
+        d_compressed = current["compressed_bytes"]
+        d_tokens = current["token_savings"]
+    else:
+        d_original = current["original_bytes"] - last["original_bytes"]
+        d_compressed = current["compressed_bytes"] - last["compressed_bytes"]
+        d_tokens = current["token_savings"] - last["token_savings"]
+        if d_original <= 0:
+            # No advance: nothing to record (idempotent). Cache the
+            # counters so the next check skips the disk scan.
+            _LAST_SQUASH_COUNTERS = current
+            return None
+
+    event = _build_squash_event(
+        d_original, max(d_compressed, 0), max(d_tokens, 0), current
+    )
+    if not _append_metrics_event(event):
+        # Leave the baseline untouched so a later attempt retries the delta.
+        return None
+    _LAST_SQUASH_COUNTERS = current
+    return event
+
+
+def maybe_record_compression() -> Optional[threading.Thread]:
+    """Throttled, non-blocking entry point for the chat-turn path.
+
+    At most one kernel read per ``_COMPRESSION_RECORD_INTERVAL_SECONDS``,
+    run on a daemon thread because callers sit on the event loop. Returns
+    the started thread (so tests can join it) or ``None`` when throttled.
+    Never raises.
+    """
+    global _LAST_COMPRESSION_ATTEMPT
+    try:
+        now = time.monotonic()
+        if (
+            _LAST_COMPRESSION_ATTEMPT is not None
+            and now - _LAST_COMPRESSION_ATTEMPT < _COMPRESSION_RECORD_INTERVAL_SECONDS
+        ):
+            return None
+        _LAST_COMPRESSION_ATTEMPT = now
+        thread = threading.Thread(target=_record_compression_thread, daemon=True)
+        thread.start()
+        return thread
+    except Exception:
+        return None
+
+
+def _record_compression_thread() -> None:
+    try:
+        record_compression_event()
+    except Exception:
+        pass
