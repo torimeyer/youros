@@ -7,11 +7,6 @@ export type AccentColor = 'blue' | 'pink' | 'purple' | 'cyan' | 'orange'
 
 export const TEAM_MODE_VISIBLE = false
 
-// Text yourOS (iMessage/Telegram bridge) is paused: the owner does not use
-// it. The code stays; only the entry points in Settings are hidden. Flip to
-// true to bring the feature back.
-export const TEXT_YOUROS_VISIBLE = false
-
 // Default order and visibility for home dashboard widgets. Users can
 // hide any of these and reorder them via the Customize modal.
 export const DEFAULT_DASHBOARD_WIDGETS: string[] = [
