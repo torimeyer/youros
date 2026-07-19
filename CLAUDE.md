@@ -51,6 +51,7 @@ You are yourOS, built on ostk. Not Claude Code. ostk is your substrate. Project 
 
 - **Register on spawn**: subagents POST /api/agents/register before any work.
 - **Spec Comments**: Always check specs (user specs live in `~/.youros/specs/` via /api/specs; legacy repo specs in docs/spec/*.md are still read) for a `## USER FEEDBACK` or `## DECISION` section. User instructions there supersede the original spec.
+- **No reports in spec folders**: investigation notes and verdicts never go in `~/.youros/specs/` or `~/.youros/drafts/`. Shareable findings with no personal data go in repo `docs/research/`; anything containing personal content stays at the `~/.youros/` top level.
 - **Mailbox block**: every agent prompt includes `agent_mailbox_instruction()` from `api/routers/agents.py`.
 - **Progress updates**: wakeup every 20s to check and report. Silence causes anxiety.
 - **Keep going**: finish the job without nudges. Don't wait for background agents. Don't pick new tasks unprompted.

@@ -33,6 +33,38 @@ class OstkError(Exception):
     pass
 
 
+# →2954: keys the spec pipeline guarantees in frontmatter. Every draft
+# endpoint writes ``status: draft``; doc_promote() writes ``status: spec``
+# plus promoted_at/spec_id even when the draft had no frontmatter at all.
+_SPEC_MARKER_KEYS = ("status", "spec_id", "promoted_at")
+
+
+def is_spec_shaped(text: str) -> bool:
+    """True when a markdown file has the frontmatter every real spec carries.
+
+    A real spec (draft or promoted) always opens with a closed YAML
+    frontmatter block containing at least one of the pipeline marker keys
+    (status/spec_id/promoted_at). Investigation reports, bug notes, and
+    other stray markdown are plain documents without that block, so they
+    must never show on the Specs page (→2954).
+    """
+    lines = text.split("\n")
+    if not lines or lines[0].strip() != "---":
+        return False
+    found_marker = False
+    # Real frontmatter blocks are short; cap the scan so a huge document
+    # that merely opens with a horizontal rule is never walked in full.
+    for line in lines[1:200]:
+        stripped = line.strip()
+        if stripped == "---":
+            return found_marker
+        if ":" in stripped and not stripped.startswith("#"):
+            key = stripped.split(":", 1)[0].strip().lower()
+            if key in _SPEC_MARKER_KEYS:
+                found_marker = True
+    return False
+
+
 def get_effective_root() -> Path:
     """Return the effective project root for the current execution context.
 
@@ -2794,7 +2826,7 @@ class OstkService:
                 break
         return "no plan needed" in first or "work is already done" in first
 
-    async def list_docs(self) -> list[dict]:
+    async def list_docs(self, misfiled_out: Optional[list] = None) -> list[dict]:
         """Scan docs/draft and docs/spec directories for documents.
 
         Returns a list of dicts with path, title, status, timestamps,
@@ -2804,6 +2836,12 @@ class OstkService:
         Also scans transcripts/ for plan files matching ^plan-(\\d+)\\.md$
         and emits them with status="plan" so the Recent Documents widget
         can surface them alongside specs.
+
+        →2954: markdown files in the user specs/drafts dirs that were
+        never produced by the spec pipeline (see is_spec_shaped) are
+        excluded from the result. Pass ``misfiled_out`` (a list) to
+        receive their filenames so callers can report them instead of
+        letting them vanish silently.
         """
         import re as _re
         from datetime import datetime, timezone as _tz
@@ -2835,9 +2873,31 @@ class OstkService:
             # (→1512/→2104); this locks reads to match so no spec ever leaves
             # the machine that created it.
 
+            # →2954: only spec-shaped files may list. Anything else in
+            # these dirs (investigation reports, bug notes) is reported
+            # as misfiled — excluded but never silently invisible.
+            def _misfiled(md: Path) -> bool:
+                try:
+                    text = md.read_text(errors="replace")
+                except OSError:
+                    return False  # unreadable: let the parser's error surface
+                if is_spec_shaped(text):
+                    return False
+                _logger.warning(
+                    "specs listing: %s in %s is not a spec "
+                    "(no spec frontmatter) — reported as misfiled",
+                    md.name,
+                    md.parent,
+                )
+                if misfiled_out is not None:
+                    misfiled_out.append(md.name)
+                return True
+
             # 1. User-local specs (private/promoted, from ~/.youros/specs/)
             if USER_SPECS_DIR.is_dir():
                 for md in sorted(USER_SPECS_DIR.glob("*.md")):
+                    if _misfiled(md):
+                        continue
                     _seen_names.add(md.name)
                     doc = self._parse_doc_frontmatter(md, "spec")
                     doc["is_user_local"] = True
@@ -2848,6 +2908,8 @@ class OstkService:
                 for md in sorted(USER_DRAFTS_DIR.glob("*.md")):
                     if md.name in _seen_names:
                         continue  # a promoted spec already covers this slug
+                    if _misfiled(md):
+                        continue
                     _seen_names.add(md.name)
                     doc = self._parse_doc_frontmatter(md, "draft")
                     doc["is_user_local"] = True
@@ -4251,13 +4313,22 @@ class OstkService:
         env_passthrough: list[str] | None = None,
         runtime: str = "host",
         dry_run: bool = False,
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
     ) -> dict:
         """Wrap ``ostk run <agentfile> [--env-passthrough K] [--runtime R] [--dry-run]``.
 
         Returns a dict with stdout/stderr/exit_code/pid (pid is None; subprocess.run
         does not expose pid after completion). Dry-run mode emits what would happen
         without spawning anything.
+
+        ``cwd`` overrides the working directory the agent runs in (→1887: the
+        spawn path passes the short worktree cwd here so isolated agents do not
+        inherit the server's checkout). ``env`` is a set of overrides merged
+        over the parent environment; pair each key with ``env_passthrough`` so
+        ``ostk run`` forwards it into the agent process.
         """
+        import os as _os
         import subprocess
 
         cmd: list[str] = ["ostk", "run", agentfile_path]
@@ -4270,13 +4341,15 @@ class OstkService:
             cmd.append("--dry-run")
 
         timeout = 30 if dry_run else 300
+        full_env = {**_os.environ, **env} if env else None
         try:
             result = await asyncio.to_thread(
                 subprocess.run,
                 cmd,
                 capture_output=True,
                 text=True,
-                cwd=self.cwd,
+                cwd=cwd or self.cwd,
+                env=full_env,
                 timeout=timeout,
                 stdin=subprocess.DEVNULL,
             )

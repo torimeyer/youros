@@ -640,7 +640,11 @@ async def list_specs(clear_to_build: Optional[bool] = None):
         # dependencies (list_docs, list_tasks) first, then run the entire
         # synchronous enrichment body in a worker thread so the loop stays
         # responsive. list_docs itself now offloads its own file scan too.
-        docs = await ostk.list_docs()
+        # →2954: non-spec markdown in the user specs/drafts dirs is
+        # excluded by list_docs; collect the filenames so the response
+        # can report them instead of hiding them silently.
+        misfiled: list[str] = []
+        docs = await ostk.list_docs(misfiled_out=misfiled)
         docs = [d for d in docs if d.get("status") != "plan"]
 
         # Resolve task statuses up front (the only other await in the body) so
@@ -807,7 +811,7 @@ async def list_specs(clear_to_build: Optional[bool] = None):
         docs = await asyncio.to_thread(_enrich_specs_sync, docs, needle_statuses)
         if clear_to_build is not None:
             docs = [d for d in docs if d.get("clear_to_build") is clear_to_build]
-        return {"docs": docs}
+        return {"docs": docs, "misfiled": misfiled}
     except OstkError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
