@@ -30,8 +30,12 @@
   --color-error: #f43f5e;
   --color-info: #8b5cf6;
 
-  /* Surface */
-  --color-base: #f4f4f5;
+  /* Surface.
+     Never name a surface token after a font-size step (base, sm, lg, xl...):
+     Tailwind resolves text-<name> against color tokens first, so a token like
+     --color-base turns every `text-base` in the app into near-white TEXT COLOR
+     instead of a font size. That made icons invisible on light-mode buttons
+     (→2968). Icon.test.tsx guards this. */
   --color-panel: #ffffff;
   --color-card: #ffffff;
   --color-card-hover: #f0f0f2;
