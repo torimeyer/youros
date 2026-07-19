@@ -272,6 +272,15 @@ class ReducedRuntimeProvider(_BaseRuntimeProvider):
 # ---------------------------------------------------------------------------
 # Skill recipe resolution (shared by providers that run skills as agentfiles)
 # ---------------------------------------------------------------------------
+#: Chat skill id -> recipe basename, for the few skills whose chat command
+#: does not match their agentfile name. The chat command is ``/build`` but the
+#: recipe shipped on disk is ``agents/builder.agent``; the resolver owns that
+#: mapping in ONE place so every runtime agrees on what ``/build`` runs (→2947).
+SKILL_ALIASES: dict[str, str] = {
+    "build": "builder",
+}
+
+
 def resolve_skill_agentfile(skill_id: str) -> Optional[Path]:
     """Resolve a skill id to its agentfile recipe path, or None if not found.
 
@@ -280,11 +289,13 @@ def resolve_skill_agentfile(skill_id: str) -> Optional[Path]:
     own runtime. We look first in the repo's ``agents/`` directory (built-in
     skills shipped with yourOS), then in the user's ``~/.youros/skills/``
     directory (user-defined skills). The id may carry a leading slash
-    (``/review``) which is stripped.
+    (``/review``) which is stripped, and may be an alias (``build`` ->
+    ``builder.agent``, see :data:`SKILL_ALIASES`).
     """
     sid = skill_id.lstrip("/").strip()
     if not sid:
         return None
+    sid = SKILL_ALIASES.get(sid, sid)
 
     candidates: list[Path] = []
     try:
@@ -345,6 +356,7 @@ __all__ = [
     "RuntimeProvider",
     "DefaultRuntimeProvider",
     "ReducedRuntimeProvider",
+    "SKILL_ALIASES",
     "resolve_skill_agentfile",
     "default_provider",
 ]

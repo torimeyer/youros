@@ -24,10 +24,15 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["skills"])
 
 # Skills that are allowed to be invoked via this endpoint.
+# build and diagnose are the chat skills spec S007 names; each resolves to an
+# agentfile recipe (services.runtime_provider.resolve_skill_agentfile) so every
+# runtime can run it (→2947).
 ALLOWED_SKILLS: set[str] = {
     "handoff",
     "review",
     "init",
+    "build",
+    "diagnose",
 }
 
 class SkillRunRequest(BaseModel):

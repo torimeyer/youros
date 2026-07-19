@@ -110,12 +110,19 @@ async def test_gemini_invoke_skill_no_binary_is_graceful():
     assert result is None
 
 
-# ---- the three allowed skills all have a recipe on disk --------------------
+# ---- every allowed skill has a recipe on disk ------------------------------
+
+from routers.skills import ALLOWED_SKILLS  # noqa: E402
 
 
-@pytest.mark.parametrize("skill_id", ["handoff", "review", "init"])
+@pytest.mark.parametrize("skill_id", sorted(ALLOWED_SKILLS))
 def test_allowed_skills_have_recipes(skill_id):
-    """Every skill the /skills/run endpoint allows must have an agentfile recipe."""
+    """Every skill the /skills/run endpoint allows must have an agentfile recipe.
+
+    The list is pulled from the router itself (not hardcoded) so adding a new
+    chat skill without a runnable recipe fails here immediately (→2947). The
+    recipe is what makes a skill work on every runtime, not just Claude.
+    """
     path = resolve_skill_agentfile(skill_id)
-    assert path is not None, f"{skill_id} must have agents/{skill_id}.agent recipe"
+    assert path is not None, f"{skill_id} must have an agentfile recipe"
     assert path.exists()

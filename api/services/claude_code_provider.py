@@ -914,14 +914,37 @@ class ClaudeCodeRuntimeProvider(DefaultRuntimeProvider):
 
         logger = logging.getLogger(__name__)
 
-        ALLOWED_SKILLS = {
+        from services.runtime_provider import resolve_skill_agentfile
+
+        sid = skill_id.lstrip("/").strip()
+
+        # Skills with a native claude-code slash command run it directly.
+        NATIVE_SLASH_COMMANDS = {
             "handoff": "/handoff",
             "review": "/review",
             "init": "/init",
         }
-        claude_arg = ALLOWED_SKILLS.get(skill_id)
-        if not claude_arg:
-            raise ValueError(f"Unknown skill '{skill_id}' for ClaudeCodeRuntimeProvider")
+        claude_arg = NATIVE_SLASH_COMMANDS.get(sid)
+        if claude_arg is None:
+            # No native command (e.g. build, diagnose): run the skill's
+            # model-neutral agentfile recipe as the prompt, the same recipe
+            # the Gemini provider runs. A skill that works on one runtime
+            # must not crash on the other (→2947).
+            from services.agentfile_parser import parse_agentfile
+
+            recipe_path = resolve_skill_agentfile(sid)
+            if recipe_path is None:
+                raise ValueError(
+                    f"Unknown skill '{sid}' for ClaudeCodeRuntimeProvider: "
+                    f"no native command and no agents/{sid}.agent recipe found"
+                )
+            config = parse_agentfile(recipe_path)
+            claude_arg = config.prompt or ""
+            if not claude_arg.strip():
+                raise ValueError(
+                    f"Skill '{sid}' recipe {recipe_path.name} has no PROMPT "
+                    "to run"
+                )
 
         claude_bin = shutil.which("claude")
         job_id = str(uuid.uuid4())[:8]
