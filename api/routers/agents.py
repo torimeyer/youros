@@ -148,6 +148,17 @@ def _set_agent_status(name: str, new_status: str, **extra_fields) -> None:
     meta["status"] = new_status
     for k, v in extra_fields.items():
         meta[k] = v
+    # →2953: a /complete that arrived while the spawn PID was still alive
+    # parked its summary as pending_summary (see mark_agent_complete's
+    # deferral branch). Attach it now that the row actually completes.
+    # The agent's own parked words beat any synthesized sweep placeholder
+    # passed via extra_fields; a newer direct /complete clears the parked
+    # copy before this runs, so the newest summary always wins.
+    if new_status == "completed":
+        _pending_summary = meta.pop("pending_summary", None)
+        meta.pop("pending_summary_at", None)
+        if isinstance(_pending_summary, str) and _pending_summary.strip():
+            meta["summary"] = _pending_summary
     _fire_delta(name, new_status)
     if new_status in _TERMINAL_STATUSES:
         # Reset any in_progress needle(s) this agent held back to open, so a task
@@ -8771,6 +8782,26 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
             os.kill(int(_spawn_pid), 0)
             # Subprocess is still running. Defer this /complete so the agent
             # keeps working. Return 200 so the caller (idle sweep) does not retry.
+            # →2953: keep the posted summary. Deferring used to drop
+            # body.summary entirely, so an agent that reported done while its
+            # process was still alive lost its final summary when the PID-exit
+            # reconciler later flipped the row to completed. Park it as
+            # pending_summary; _set_agent_status attaches it on the completed
+            # flip. Repeated deferred posts overwrite it (latest wins). The
+            # idle detector's synthesized text is not the agent's own words,
+            # so it is never parked.
+            if (
+                body
+                and body.summary
+                and body.summary.strip()
+                and "auto-completed by heartbeat idle detector" not in body.summary
+                and name in agent_metadata
+            ):
+                agent_metadata[name]["pending_summary"] = body.summary.strip()
+                agent_metadata[name]["pending_summary_at"] = (
+                    datetime.now(timezone.utc).isoformat()
+                )
+                await _save_agent_state_async()
             logger.info(
                 "mark_agent_complete.deferred_live_pid name=%s pid=%s",
                 name, _spawn_pid,
@@ -8962,6 +8993,11 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
         agent_metadata[name]["status"] = "completed"
         if _completion_summary:
             agent_metadata[name]["summary"] = _completion_summary
+            # →2953: this /complete carries a newer summary than any copy
+            # parked by an earlier deferred /complete. Drop the parked one
+            # so _set_agent_status below does not resurrect it.
+            agent_metadata[name].pop("pending_summary", None)
+            agent_metadata[name].pop("pending_summary_at", None)
         # Generate actionable_doc for template-run agents so the Recent tab
         # can surface a plain-language one-liner of what the run produced.
         _tpl = str(agent_metadata[name].get("template") or "").strip()
