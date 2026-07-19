@@ -193,7 +193,11 @@ async def is_gemini_cli_available(force: bool = False) -> bool:
 # ---------------------------------------------------------------------------
 # RuntimeProvider implementation (→1891, →1892, →2145)
 # ---------------------------------------------------------------------------
-from services.runtime_provider import Feature, _BaseRuntimeProvider  # noqa: E402
+from services.runtime_provider import (  # noqa: E402
+    Feature,
+    SpawnNotSupportedError,
+    _BaseRuntimeProvider,
+)
 
 # Feature set based on code inspection: gemini CLI streams tokens (stream-json
 # output format) but has no worktrees, plan mode, hooks, isolation, monitor,
@@ -205,6 +209,22 @@ class GeminiCliRuntimeProvider(_BaseRuntimeProvider):
     """RuntimeProvider for the local gemini CLI. Streaming only."""
 
     _features = _GEMINI_CLI_FEATURES
+    display_name = "Gemini"
+
+    async def spawn_subagent(self, request=None, /, **fields):
+        """Refuse loudly: the Gemini runtime cannot start agents yet (→2945).
+
+        The spawn endpoint injects its in-process spawn internals (the
+        Claude implementation) into whichever provider the runtime switch
+        picks. This override guarantees Gemini never runs them: the user
+        chose Gemini, and silently spawning Claude instead would misreport
+        what is actually running.
+        """
+        raise SpawnNotSupportedError(
+            "Agent spawning is not yet supported on Gemini. Chat still works "
+            "on Gemini, but agents need Claude for now. Switch your provider "
+            "to Claude in Settings to start agents."
+        )
 
     async def invoke_skill(self, skill_id: str, **args: Any) -> None:
         """Run a skill on the gemini runtime via its agentfile recipe.

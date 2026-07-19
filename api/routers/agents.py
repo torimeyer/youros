@@ -5773,10 +5773,9 @@ def _host_has_claude_subscription() -> bool:
 
 @router.post("/agents/spawn")
 async def spawn_agent(body: AgentSpawn, request: Request = None, response: Response = None):
-    # TODO(→1895, →2145): wire DefaultRuntimeProvider.spawn_subagent() here so
-    # callers CAN go through the provider. The provider in
-    # services/runtime_provider.py accepts an injected spawn_fn so existing
-    # behaviour is byte-for-byte unchanged until this is wired.
+    # →1895/→2945: the native subprocess path at the bottom of this endpoint
+    # goes through the RuntimeProvider seam. The runtime comes from the user's
+    # saved ``default_provider`` setting; this endpoint holds no vendor branch.
     from services.rate_limit import rate_limit_check
     if request is not None:
         rate_limit_check(request, "agents.spawn")
@@ -6083,12 +6082,24 @@ async def spawn_agent(body: AgentSpawn, request: Request = None, response: Respo
         # Fall through to the RuntimeProvider spawn path below.
 
     # -----------------------------------------------------------------------
-    # Fallback / Native Subprocess Path via RuntimeProvider
+    # Native subprocess path, reached through the RuntimeProvider seam (→2945)
     # -----------------------------------------------------------------------
-    from services.runtime_provider import default_provider, SpawnRequest, SpawnResult
+    # The runtime is picked by default_provider() from the user's saved
+    # ``default_provider`` setting (YOUROS_RUNTIME is a test-only override).
+    # The provider gets our in-process spawn internals injected: the Claude
+    # provider runs them as its own spawn implementation, and a runtime
+    # without agent support refuses loudly (SpawnNotSupportedError) instead
+    # of silently spawning a vendor the user did not pick.
+    from services.runtime_provider import (
+        SpawnNotSupportedError,
+        SpawnRequest,
+        SpawnResult,
+        default_provider,
+    )
 
-    async def _provider_spawn_fn(req: SpawnRequest) -> SpawnResult:
-        # Re-map SpawnRequest to the AgentSpawn body the legacy path expects
+    async def _native_spawn_internals(req: SpawnRequest) -> SpawnResult:
+        # Map the provider-neutral SpawnRequest back onto the AgentSpawn body
+        # the in-process spawn implementation expects.
         body.name = req.name
         body.prompt = req.prompt
         body.model = req.model
@@ -6105,14 +6116,13 @@ async def spawn_agent(body: AgentSpawn, request: Request = None, response: Respo
         body.locks = req.extra.get("locks")
         
         legacy_result = await _legacy_bespoke_spawn(body, request, response, _brief_warning)
-        
-        from services.runtime_provider import SpawnResult
+
         return SpawnResult(
             name=legacy_result.get("name", req.name),
             pid=legacy_result.get("pid"),
             status=legacy_result.get("status", "running"),
             transcript_path=legacy_result.get("transcript"),
-            detail=legacy_result
+            detail=legacy_result,
         )
 
     req = SpawnRequest(
@@ -6131,9 +6141,14 @@ async def spawn_agent(body: AgentSpawn, request: Request = None, response: Respo
             "locks": body.locks,
         }
     )
-    provider = default_provider(spawn_fn=_provider_spawn_fn)
-    result = await provider.spawn_subagent(req)
-    
+    provider = default_provider(spawn_fn=_native_spawn_internals)
+    try:
+        result = await provider.spawn_subagent(req)
+    except SpawnNotSupportedError as exc:
+        # The active runtime cannot start agents. Say so in plain language
+        # instead of quietly spawning a different vendor.
+        raise HTTPException(status_code=501, detail=str(exc))
+
     # Return the dictionary from _legacy_bespoke_spawn if it was executed.
     if "result" in result.detail:
         return result.detail

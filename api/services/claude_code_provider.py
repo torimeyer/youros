@@ -892,9 +892,17 @@ from services.runtime_provider import ALL_FEATURES, DefaultRuntimeProvider  # no
 
 
 class ClaudeCodeRuntimeProvider(DefaultRuntimeProvider):
-    """RuntimeProvider for the local claude-code CLI. Supports the full feature set."""
+    """RuntimeProvider for the local claude-code CLI. Supports the full feature set.
+
+    Spawn composition (→2945): ``spawn_subagent`` here IS the Claude spawn
+    implementation. It runs the spawn callable the endpoint injects (the
+    in-process bespoke spawn internals in ``routers/agents.py``), which are
+    Claude-specific by construction. Owning that delegation in this class
+    keeps the spawn endpoint itself free of vendor knowledge.
+    """
 
     _features = ALL_FEATURES
+    display_name = "Claude Code"
 
     async def invoke_skill(self, skill_id: str, **args: Any) -> None:
         import os

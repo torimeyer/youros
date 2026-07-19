@@ -26,11 +26,11 @@ This module introduces that seam without changing any current behaviour:
   * ``DefaultRuntimeProvider`` — the concrete provider that models the
     CURRENT claude-code spawn behaviour and reports the full feature set.
     It does NOT reach into ``agents.py``; instead the real spawn callable
-    is injected (``spawn_fn``). Wiring the live spawn path to call
-    ``provider.spawn_subagent`` is deliberately a LATER pass (needle
-    →1895) because that path is contended and needs a design decision
-    first. Until it is wired, an unconfigured default provider raises
-    ``NotImplementedError`` rather than silently doing nothing.
+    is injected (``spawn_fn``). The live spawn path in ``agents.py`` now
+    calls ``provider.spawn_subagent`` with its in-process spawn internals
+    injected (needle →1895, wired by →2945). An unconfigured default
+    provider still raises ``NotImplementedError`` rather than silently
+    doing nothing.
   * ``ReducedRuntimeProvider`` — a small reference provider that omits
     ``plan_mode`` and ``monitor``. It exists to prove the seam: switching
     providers changes the capability map (needle →1896 / →1917) while the
@@ -71,6 +71,17 @@ class Feature(str, Enum):
 
 # Convenience: the complete capability set, used by the default provider.
 ALL_FEATURES: frozenset[Feature] = frozenset(Feature)
+
+
+class SpawnNotSupportedError(NotImplementedError):
+    """A runtime was asked to start an agent it cannot run.
+
+    Raised by providers whose runtime has no agent-spawning support yet.
+    The spawn endpoint shows the message to the user as-is, so keep it
+    plain language: say what did not happen and what to do next. A
+    provider must raise this rather than silently borrowing another
+    runtime's spawn implementation (→2945).
+    """
 
 
 # ---------------------------------------------------------------------------
@@ -166,6 +177,9 @@ class _BaseRuntimeProvider:
     #: Concrete providers override this with their capability set.
     _features: frozenset[Feature] = frozenset()
 
+    #: Human name of the runtime, used in user-facing error messages.
+    display_name: str = "this runtime"
+
     def __init__(self, spawn_fn: Optional[SpawnFn] = None) -> None:
         self._spawn_fn = spawn_fn
 
@@ -194,6 +208,16 @@ class _BaseRuntimeProvider:
         self, request: Optional[SpawnRequest] = None, /, **fields
     ) -> SpawnResult:
         req = self._coerce_request(request, fields)
+        if Feature.SUBAGENTS not in self._features:
+            # A runtime without agent support must refuse loudly, even when
+            # a spawn callable was injected: the injected callable is another
+            # runtime's implementation, and running it would silently hand
+            # the user a vendor they did not pick (→2945).
+            raise SpawnNotSupportedError(
+                f"Agent spawning is not yet supported on {self.display_name}. "
+                "Chat still works there, but starting agents needs a runtime "
+                "that supports them. Pick one in Settings and try again."
+            )
         if self._spawn_fn is None:
             raise NotImplementedError(
                 f"{type(self).__name__} has no spawn_fn wired. Inject the "
@@ -226,9 +250,9 @@ class DefaultRuntimeProvider(_BaseRuntimeProvider):
 
     The real spawn callable is injected via ``spawn_fn`` so this module
     never imports ``agents.py`` (which would create an import cycle and
-    drag the whole FastAPI app into a unit test). When the live spawn path
-    is wired in (→1895) it will construct this provider with the real
-    callable; until then ``spawn_subagent`` raises ``NotImplementedError``.
+    drag the whole FastAPI app into a unit test). The live spawn path
+    (→1895, wired by →2945) constructs this provider with the real
+    callable; without one, ``spawn_subagent`` raises ``NotImplementedError``.
     """
 
     _features = ALL_FEATURES
@@ -282,10 +306,26 @@ def resolve_skill_agentfile(skill_id: str) -> Optional[Path]:
 def default_provider(spawn_fn: Optional[SpawnFn] = None) -> RuntimeProvider:
     """Return the provider yourOS uses by default.
 
-    Reads the YOUROS_RUNTIME environment variable (default: "claude").
+    The user's saved ``default_provider`` setting is the source of truth:
+    it holds "claude" or "gemini", the value the Settings page provider
+    toggle writes (→2945). The ``YOUROS_RUNTIME`` environment variable is
+    a TEST-ONLY override: when a suite sets it explicitly it wins, so
+    tests can pin a runtime without touching the user's saved settings
+    (see the S007 verification step "Repeat with YOUROS_RUNTIME=gemini").
+    Unrecognised values and settings read failures fall back to claude,
+    the runtime that is always present.
     """
     import os
-    runtime = os.environ.get("YOUROS_RUNTIME", "claude").lower()
+
+    runtime = os.environ.get("YOUROS_RUNTIME", "").strip().lower()
+    if not runtime:
+        try:
+            from services.settings_store import settings_store
+            runtime = str(
+                settings_store.get("default_provider", "claude") or "claude"
+            ).strip().lower()
+        except Exception:
+            runtime = "claude"
 
     if runtime == "gemini":
         from services.gemini_cli_provider import GeminiCliRuntimeProvider
@@ -298,6 +338,7 @@ def default_provider(spawn_fn: Optional[SpawnFn] = None) -> RuntimeProvider:
 __all__ = [
     "Feature",
     "ALL_FEATURES",
+    "SpawnNotSupportedError",
     "SpawnRequest",
     "SpawnResult",
     "SpawnFn",
