@@ -1294,7 +1294,7 @@ async def test_spec_counts_returns_unfinished_and_total(
     """
     from services import ostk as ostk_module
 
-    async def fake_list_docs():
+    async def fake_list_docs(misfiled_out=None):
         return [
             {"path": "docs/draft/a.md", "status": "draft"},
             {"path": "docs/spec/b.md", "status": "ready"},
@@ -1320,7 +1320,7 @@ async def test_spec_counts_zero_when_no_specs(
     """An empty workspace returns zero for both counts (badge hides)."""
     from services import ostk as ostk_module
 
-    async def fake_list_docs():
+    async def fake_list_docs(misfiled_out=None):
         return []
 
     monkeypatch.setattr(ostk_module.ostk, "list_docs", fake_list_docs)
@@ -2695,7 +2695,7 @@ async def test_spec_counts_excludes_plan_transcripts(client, monkeypatch):
     """
     from services import ostk as ostk_module
 
-    async def fake_list_docs():
+    async def fake_list_docs(misfiled_out=None):
         return [
             # Two plan transcript files — must NOT be counted.
             {
@@ -3055,7 +3055,7 @@ async def test_spec_counts_by_stage_breakdown(client, monkeypatch):
     """spec_counts returns by_stage dict with correct counts (→1512)."""
     from services import ostk as ostk_module
 
-    async def fake_list_docs():
+    async def fake_list_docs(misfiled_out=None):
         # →1561: 3-stage model — draft/ready/in_progress only; no shipped/building
         return [
             {"path": "docs/draft/a.md", "status": "draft", "stage": "draft"},
@@ -3344,7 +3344,7 @@ async def test_auto_archived_specs_not_surfaced(client, tmp_path, monkeypatch):
         "All acceptance criteria met. No remaining work.\n"
     )
 
-    async def fake_list_docs():
+    async def fake_list_docs(misfiled_out=None):
         return [
             {
                 "path": str(spec_file),  # absolute path bypasses PROJECT_ROOT join
@@ -3397,7 +3397,7 @@ async def test_draft_in_user_drafts_dir_not_auto_archived(client, tmp_path, monk
         "## Acceptance Criteria\n\n- [ ] First step\n"
     )
 
-    async def fake_list_docs():
+    async def fake_list_docs(misfiled_out=None):
         return [
             {
                 "path": str(draft_file),
