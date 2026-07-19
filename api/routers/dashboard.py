@@ -15,7 +15,7 @@ from services.task_visibility import (
     is_session_task,
     is_visible_task,
 )
-from services.dashboard_events import bus as _dashboard_events_bus
+from services.event_bus import bus as _event_bus, DASHBOARD_SNAPSHOT
 
 _SERVER_START = time.time()
 
@@ -379,7 +379,7 @@ async def _publish_dashboard_state() -> None:
     """Recompute dashboard data and push to WS subscribers. Best-effort."""
     try:
         data = await _build_dashboard_data()
-        await _dashboard_events_bus.publish("snapshot", data)
+        await _event_bus.publish(DASHBOARD_SNAPSHOT, data)
     except Exception:
         pass
 
@@ -409,11 +409,17 @@ async def dashboard_data_ws(websocket: WebSocket) -> None:
     try:
         data = await _build_dashboard_data()
         await websocket.send_json({"type": "snapshot", **data})
-        async with _dashboard_events_bus.subscribe() as q:
+        # →2946: subscribes to the consolidated bus; only dashboard domain
+        # events surface here so the frame shape is unchanged for clients.
+        async with _event_bus.subscribe() as q:
             while True:
                 try:
                     event = await asyncio.wait_for(q.get(), timeout=15.0)
-                    await websocket.send_json({"type": event.type, **event.payload})
+                    if not event.type.startswith("dashboard."):
+                        continue
+                    await websocket.send_json(
+                        {"type": event.type.split(".", 1)[1], **event.payload}
+                    )
                 except asyncio.TimeoutError:
                     await websocket.send_json({"type": "ping"})
     except WebSocketDisconnect:

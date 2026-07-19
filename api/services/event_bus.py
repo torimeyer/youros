@@ -1,9 +1,10 @@
 """Consolidated async pub/sub event bus for the entire backend.
 
-All domain-specific buses (agent_events, dashboard_events, etc.) bridge into
-this single bus so cross-cutting consumers (SSE /api/events, analytics) see
-every event. Domain buses publish with a namespace prefix (e.g. "agent.delta")
-while their own subscribers continue to receive events without the prefix.
+→2946: agent_events.py and dashboard_events.py are fully merged into this
+bus; their publishers and subscribers use it directly with namespaced event
+types ("agent.delta", "dashboard.snapshot"). The remaining domain buses
+still stand alone and migrate here over time. Cross-cutting consumers
+(SSE GET /api/events, analytics) subscribe once and see every event.
 
 Non-blocking by design: publish is always O(n_subscribers) put_nowait;
 never holds a lock across an await (→2042 freeze-class).
@@ -63,6 +64,12 @@ CHANNEL_MESSAGE_RECEIVED = "channel.message_received"
 TASK_CREATED = "task.created"
 TASK_CLOSED = "task.closed"
 TEAM_MEMBER_IDLE = "team.member_idle"
+
+# →2946: domain event names for the migrated buses. agent_events.py and
+# dashboard_events.py are gone; their publishers use these types on this bus.
+AGENT_DELTA = "agent.delta"
+AGENT_SWEEP = "agent.sweep"
+DASHBOARD_SNAPSHOT = "dashboard.snapshot"
 
 # Global singleton — all domain buses bridge into this.
 bus = EventBus()

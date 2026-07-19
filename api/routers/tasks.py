@@ -28,6 +28,7 @@ from services.task_labeling import (
 )
 from services import session_task_map
 from services.notifications_events import bus as _notifications_events_bus
+from services.event_bus import bus as _event_bus, TASK_CREATED, TASK_CLOSED
 from services import recent_deletes
 from services.task_visibility import is_session_task, is_ac_child_task
 from services.tracing import trace_event
@@ -1356,6 +1357,12 @@ async def create_task(body: TaskCreate, include_test_data: bool = False):
 
     trace_event("task_created", task_id=new_id, title=clean_title, priority=body.priority)
 
+    # →2946: announce on the consolidated event bus (GET /api/events).
+    try:
+        await _event_bus.publish(TASK_CREATED, {"task_id": new_id, "title": clean_title})
+    except Exception:
+        pass
+
     # Silently apply any tier-3 approved patterns (never blocks task creation).
     try:
         from services.pattern_watcher import apply_silent_patterns as _pw_apply
@@ -1868,6 +1875,11 @@ async def close_task(
 
     trace_event("task_closed", task_id=task_id, reason=structured_reason)
     await _notifications_events_bus.publish("needle_closed", {"task_id": normalised_id})
+    # →2946: announce on the consolidated event bus (GET /api/events).
+    try:
+        await _event_bus.publish(TASK_CLOSED, {"task_id": normalised_id})
+    except Exception:
+        pass
     return {"result": result}
 
 

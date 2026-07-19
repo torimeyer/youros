@@ -1,61 +1,66 @@
-"""Tests that the agent_events bus is fired at mutation sites in agents.py."""
+"""Tests that agent events fire at mutation sites in agents.py.
+
+→2946: the agent_events bus is gone; mutation sites publish AGENT_DELTA
+(and AGENT_COMPLETED on terminal transitions) on the consolidated
+services/event_bus.bus.
+"""
 import asyncio
+import sys
+from pathlib import Path
+from unittest.mock import patch
+
 import pytest
-from unittest.mock import AsyncMock, patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from services.event_bus import Event, EventBus
 
 
 @pytest.mark.asyncio
 async def test_fire_delta_schedules_publish():
-    """_fire_delta schedules a publish on the bus without blocking."""
-    import sys
-    sys.path.insert(0, "api") if "api" not in sys.path[0] else None
-
+    """_fire_delta schedules a publish on the consolidated bus without blocking."""
     from routers.agents import _fire_delta
-    from services.agent_events import AgentEvent
 
-    received: list[AgentEvent] = []
+    received: list[Event] = []
 
     async def _fake_publish(event_type: str, payload: dict) -> None:
-        received.append(AgentEvent(type=event_type, payload=payload))
+        received.append(Event(type=event_type, payload=payload))
 
-    with patch("routers.agents._agent_events_bus.publish", new=_fake_publish):
+    with patch("routers.agents._event_bus.publish", new=_fake_publish):
         # _fire_delta schedules a task — need a running loop
-        loop = asyncio.get_event_loop()
         _fire_delta("test-agent", "running")
         # Drain scheduled tasks
         await asyncio.sleep(0)
 
     assert len(received) == 1
-    assert received[0].type == "delta"
+    assert received[0].type == "agent.delta"
     assert received[0].payload == {"name": "test-agent", "status": "running"}
 
 
 @pytest.mark.asyncio
 async def test_fire_delta_cancelled_status():
-    import sys
-    sys.path.insert(0, "api") if "api" not in sys.path[0] else None
-
+    """Terminal statuses publish agent.delta plus agent.completed."""
     from routers.agents import _fire_delta
-    from services.agent_events import AgentEvent
 
-    received: list[AgentEvent] = []
+    received: list[Event] = []
 
     async def _fake_publish(event_type: str, payload: dict) -> None:
-        received.append(AgentEvent(type=event_type, payload=payload))
+        received.append(Event(type=event_type, payload=payload))
 
-    with patch("routers.agents._agent_events_bus.publish", new=_fake_publish):
+    with patch("routers.agents._event_bus.publish", new=_fake_publish):
         _fire_delta("cancelled-agent", "cancelled")
         await asyncio.sleep(0)
 
+    types = [e.type for e in received]
+    assert types == ["agent.delta", "agent.completed"]
     assert received[0].payload["status"] == "cancelled"
+    assert received[0].payload["terminal"] is True
+    assert received[1].payload == {"name": "cancelled-agent", "status": "cancelled"}
 
 
 @pytest.mark.asyncio
 async def test_fire_delta_no_running_loop_is_silent():
     """_fire_delta must not raise when called outside an event loop."""
-    import sys
-    sys.path.insert(0, "api") if "api" not in sys.path[0] else None
-
     from routers.agents import _fire_delta
 
     # Simulate no running loop by running in a fresh thread
@@ -78,19 +83,14 @@ async def test_fire_delta_no_running_loop_is_silent():
 
 @pytest.mark.asyncio
 async def test_bus_receives_sweep_event():
-    """The bus can carry 'sweep' events (used by stale sweep sites)."""
-    import sys
-    sys.path.insert(0, "api") if "api" not in sys.path[0] else None
-
-    from services.agent_events import AgentEventBus
-
-    bus = AgentEventBus()
+    """The consolidated bus can carry agent.sweep events (stale sweep sites)."""
+    bus = EventBus()
     received = []
 
     async with bus.subscribe() as q:
-        await bus.publish("sweep", {})
+        await bus.publish("agent.sweep", {})
         event = q.get_nowait()
         received.append(event)
 
-    assert received[0].type == "sweep"
+    assert received[0].type == "agent.sweep"
     assert received[0].payload == {}

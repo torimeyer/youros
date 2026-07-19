@@ -1,10 +1,12 @@
 """
 Tests for →1903/1904/1905: consolidated event bus, event types, SSE /api/events.
 
-TDD: these tests are written first and drive the implementation in:
-  api/services/event_bus.py
-  api/services/agent_events.py  (migration: forwards to event_bus.bus)
-  api/services/dashboard_events.py  (migration: forwards to event_bus.bus)
+→2946 update: the bridge era is over. agent_events.py and dashboard_events.py
+are removed; publishers and subscribers use event_bus.bus directly. The bridge
+tests that lived here moved to test_2946_event_bus.py as full-migration tests.
+
+Covers:
+  api/services/event_bus.py  (core pub/sub + type constants)
   api/routers/events.py  (SSE endpoint)
 """
 import asyncio
@@ -97,75 +99,6 @@ async def test_new_event_types_can_be_published():
     assert e1.type == "agent.spawned"
     assert e2.type == "agent.completed"
     assert e3.type == "task.created"
-
-
-# ---------------------------------------------------------------------------
-# →1903: Migration — agent_events bridges to event_bus.bus
-# ---------------------------------------------------------------------------
-
-@pytest.mark.asyncio
-async def test_agent_events_still_delivers_to_own_subscribers():
-    """AgentEventBus.subscribe() still works unchanged for existing consumers."""
-    from services.agent_events import AgentEventBus
-
-    b = AgentEventBus()
-    async with b.subscribe() as q:
-        await b.publish("delta", {"agent_id": "a1"})
-        event = await asyncio.wait_for(q.get(), timeout=1.0)
-    assert event.type == "delta"
-    assert event.payload == {"agent_id": "a1"}
-
-
-@pytest.mark.asyncio
-async def test_agent_events_forwards_to_consolidated_bus():
-    """Publishing on AgentEventBus also delivers to the global event_bus.bus."""
-    from services import event_bus as eb
-    from services.agent_events import AgentEventBus
-
-    # Use a fresh EventBus instance so test isolation is preserved
-    fresh_bus = eb.EventBus()
-    b = AgentEventBus(global_bus=fresh_bus)
-
-    async with fresh_bus.subscribe() as q:
-        await b.publish("delta", {"agent_id": "b1"})
-        event = await asyncio.wait_for(q.get(), timeout=1.0)
-
-    assert event.type == "agent.delta"
-    assert event.payload == {"agent_id": "b1"}
-
-
-# ---------------------------------------------------------------------------
-# →1903: Migration — dashboard_events bridges to event_bus.bus
-# ---------------------------------------------------------------------------
-
-@pytest.mark.asyncio
-async def test_dashboard_events_still_delivers_to_own_subscribers():
-    """DashboardEventBus.subscribe() still works unchanged for existing consumers."""
-    from services.dashboard_events import DashboardEventBus
-
-    b = DashboardEventBus()
-    async with b.subscribe() as q:
-        await b.publish("snapshot", {"widgets": []})
-        event = await asyncio.wait_for(q.get(), timeout=1.0)
-    assert event.type == "snapshot"
-    assert event.payload == {"widgets": []}
-
-
-@pytest.mark.asyncio
-async def test_dashboard_events_forwards_to_consolidated_bus():
-    """Publishing on DashboardEventBus also delivers to the global event_bus.bus."""
-    from services import event_bus as eb
-    from services.dashboard_events import DashboardEventBus
-
-    fresh_bus = eb.EventBus()
-    b = DashboardEventBus(global_bus=fresh_bus)
-
-    async with fresh_bus.subscribe() as q:
-        await b.publish("snapshot", {"widgets": []})
-        event = await asyncio.wait_for(q.get(), timeout=1.0)
-
-    assert event.type == "dashboard.snapshot"
-    assert event.payload == {"widgets": []}
 
 
 # ---------------------------------------------------------------------------

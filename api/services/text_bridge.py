@@ -258,6 +258,16 @@ class TextBridge:
         chat_id = msg.get("chat_id")
 
         logger.info("TextBridge: processing %s message from %s: %s", service, sender, text[:50])
+
+        # →2946: announce on the consolidated event bus (GET /api/events).
+        # Payload carries routing metadata only, never the message text.
+        try:
+            from services.event_bus import bus as _event_bus, CHANNEL_MESSAGE_RECEIVED
+            await _event_bus.publish(
+                CHANNEL_MESSAGE_RECEIVED, {"service": service, "sender": effective_sender}
+            )
+        except Exception:
+            pass
         
         # Mirror user message to chat history
         append_chat_interaction("user", f"[{service}] {text}")

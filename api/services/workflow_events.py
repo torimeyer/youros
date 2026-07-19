@@ -1,4 +1,4 @@
-"""Event bus for workflow status changes — mirrors services/agent_events.py."""
+"""Event bus for workflow status changes. Not yet merged into services/event_bus.py (→2946 migrated agent and dashboard events first)."""
 import asyncio
 import contextlib
 from dataclasses import dataclass

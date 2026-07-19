@@ -18,7 +18,13 @@ from services import recent_deletes
 from services import agent_chat_responder
 from services import teams as _teams_svc
 from services.tracing import trace_event
-from services.agent_events import bus as _agent_events_bus
+from services.event_bus import (
+    bus as _event_bus,
+    AGENT_DELTA,
+    AGENT_SWEEP,
+    AGENT_SPAWNED,
+    AGENT_COMPLETED,
+)
 from services.grants_events import GrantsEventBus
 import services.locks_events as _locks_events_mod
 from services.youros_paths import youros_home
@@ -51,16 +57,35 @@ _TERMINAL_STATUSES = frozenset({
 
 
 def _fire_delta(name: str, status: str) -> None:
-    """Schedule a delta publish on the agent event bus without blocking the caller."""
+    """Schedule a delta publish on the consolidated event bus without blocking the caller.
+
+    →2946: publishes AGENT_DELTA ("agent.delta") on services/event_bus.bus.
+    Terminal transitions additionally publish AGENT_COMPLETED so SSE
+    consumers of GET /api/events see completions without parsing deltas.
+    """
     payload: dict = {"name": name, "status": status}
-    if status in _TERMINAL_STATUSES:
+    terminal = status in _TERMINAL_STATUSES
+    if terminal:
         meta = agent_metadata.get(name) or {}
         payload["terminal"] = True
         _plf = globals().get("_plain_language_feedback")
         payload["feedback"] = _plf(name, meta) if _plf else ""
     try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return  # no running loop (startup / test context)
+    loop.create_task(_event_bus.publish(AGENT_DELTA, payload))
+    if terminal:
+        loop.create_task(
+            _event_bus.publish(AGENT_COMPLETED, {"name": name, "status": status})
+        )
+
+
+def _fire_event(event_type: str, payload: dict) -> None:
+    """Schedule a publish of any event type on the consolidated bus. Non-blocking."""
+    try:
         asyncio.get_running_loop().create_task(
-            _agent_events_bus.publish("delta", payload)
+            _event_bus.publish(event_type, payload)
         )
     except RuntimeError:
         pass  # no running loop (startup / test context)
@@ -4956,7 +4981,7 @@ async def _compute_agents_snapshot_async(run_autocomplete: bool = True) -> dict:
             ac_changed = await asyncio.to_thread(_autocomplete_exited_subagents)
     if ac_changed:
         await _save_agent_state_async()
-        await _agent_events_bus.publish("sweep", {})
+        await _event_bus.publish(AGENT_SWEEP, {})
         for name, meta in agent_metadata.items():
             if meta.get("status") == "completed" and name in agents_map:
                 if agents_map[name].get("status") == "running":
@@ -8159,6 +8184,11 @@ async def register_agent(body: AgentSpawn, request: Request = None):
     await _save_agent_state_async()
     _set_agent_status(body.name, status)
 
+    # →2946: fresh registrations announce themselves on the consolidated
+    # bus so SSE consumers of GET /api/events see agent.spawned directly.
+    if status == "running" and not existing:
+        _fire_event(AGENT_SPAWNED, {"name": body.name, "task": body.task or ""})
+
     # Start the ack bot on first registration so Tori's inline chat
     # gets a warm acknowledgment within two seconds even when the
     # subagent is inside a long tool call and cannot poll /nudges. The
@@ -9943,7 +9973,7 @@ async def _reconcile_loop():
 
             if stale_changed or ac_changed:
                 await _save_agent_state_async()
-                await _agent_events_bus.publish("sweep", {})
+                await _event_bus.publish(AGENT_SWEEP, {})
             # Drain ghost retry queue populated by _autocomplete_exited_subagents.
             retries = _pending_ghost_retries[:]
             _pending_ghost_retries.clear()
@@ -11755,14 +11785,21 @@ async def agents_state_ws(websocket: WebSocket):
     try:
         await websocket.send_json({"type": "snapshot", **_compute_running_snapshot()})
         keepalive = asyncio.create_task(_ws_keepalive(websocket))
-        async with _agent_events_bus.subscribe() as q:
+        # →2946: subscribes to the consolidated bus; only the agent domain
+        # events surface here so the frame shape is unchanged for clients.
+        async with _event_bus.subscribe() as q:
             while True:
                 try:
                     event = await asyncio.wait_for(q.get(), timeout=1.0)
                 except asyncio.TimeoutError:
                     continue
-                frame: dict = {"type": event.type, **_compute_running_snapshot()}
-                if event.type == "delta":
+                if event.type not in (AGENT_DELTA, AGENT_SWEEP):
+                    continue
+                frame: dict = {
+                    "type": event.type.split(".", 1)[1],
+                    **_compute_running_snapshot(),
+                }
+                if event.type == AGENT_DELTA:
                     frame["changed"] = event.payload
                 await websocket.send_json(frame)
     except WebSocketDisconnect:
