@@ -122,6 +122,21 @@ describe('McpInstaller', () => {
     fireEvent.click(screen.getByLabelText('Close'));
     expect(onClose).toHaveBeenCalledTimes(1);
   });
+
+  it('no longer uses the dead BEM class names (no stylesheet defines them)', async () => {
+    const { container } = render(<McpInstaller />);
+    await waitFor(() => screen.getByTestId('mcp-entry-GitHub'));
+    expect(container.querySelector('[class*="mcp-installer"]')).toBeNull();
+  });
+
+  it('styles the rows with Tailwind classes, dark mode included', async () => {
+    render(<McpInstaller />);
+    await waitFor(() => screen.getByTestId('mcp-entry-GitHub'));
+    const row = screen.getByTestId('mcp-entry-GitHub');
+    expect(row.className).toContain('flex');
+    const search = screen.getByTestId('mcp-installer-search');
+    expect(search.className).toContain('dark:');
+  });
 });
 
 describe('McpInstaller allow in chat', () => {
