@@ -19,7 +19,7 @@ vi.mock('../lib/api', () => ({
 vi.mock('../lib/pushNotifications', () => ({
   isPushSupported: vi.fn().mockReturnValue(false),
   isSubscribed: vi.fn().mockResolvedValue(false),
-  subscribe: vi.fn().mockResolvedValue(false),
+  subscribe: vi.fn().mockResolvedValue({ ok: false, reason: 'error' }),
   unsubscribe: vi.fn().mockResolvedValue(false),
 }))
 
@@ -94,18 +94,6 @@ describe('Settings', () => {
         { label: 'Automations', enabled: false },
         { label: 'Cost Tracking', enabled: true },
       ],
-    })
-  })
-
-  describe('System Features toggle labels', () => {
-    it('shows the Cost Tracking feature as "Usage" to match the nav', () => {
-      renderSettings()
-      // The Settings toggle row should display "Usage", not "Cost Tracking",
-      // so the user sees the same name as the sidebar nav entry.
-      const usageToggle = screen.getByRole('switch', { name: 'Usage' })
-      expect(usageToggle).toBeInTheDocument()
-      // And the old wording must not appear as a visible label.
-      expect(screen.queryByRole('switch', { name: 'Cost Tracking' })).toBeNull()
     })
   })
 
@@ -214,39 +202,6 @@ describe('Settings', () => {
       await waitFor(() => expect(mockAddPersistentToast).toHaveBeenCalledWith(
         expect.objectContaining({ title: "Couldn't save" })
       ))
-    })
-  })
-
-  describe('Feature toggles', () => {
-    it('updates features in the global store when toggled', () => {
-      renderSettings()
-      // Click the toggle switch for Automations (disabled by default)
-      const toggle = screen.getByRole('switch', { name: /Automations/i })
-      fireEvent.click(toggle)
-
-      const updated = useAppStore.getState().features
-      const automations = updated.find((f) => f.label === 'Automations')
-      expect(automations?.enabled).toBe(true)
-    })
-
-    it('persists feature toggles to API', () => {
-      renderSettings()
-      const toggle = screen.getByRole('switch', { name: /Automations/i })
-      fireEvent.click(toggle)
-
-      expect(mockedApiPatch).toHaveBeenCalledWith('/settings', expect.objectContaining({
-        features: expect.objectContaining({ Automations: true }),
-      }))
-    })
-
-    it('disabling a feature updates the store', () => {
-      renderSettings()
-      const toggle = screen.getByRole('switch', { name: /Tasks/i })
-      fireEvent.click(toggle)
-
-      const updated = useAppStore.getState().features
-      const tasks = updated.find((f) => f.label === 'Tasks')
-      expect(tasks?.enabled).toBe(false)
     })
   })
 
@@ -702,7 +657,7 @@ describe('Settings', () => {
       })
     })
 
-    it('hides every Text yourOS surface while the feature is paused (TEXT_YOUROS_VISIBLE=false)', async () => {
+    it('the texting-from-phone surfaces are fully removed (→2970)', async () => {
       renderSettings()
 
       await waitFor(() => {
@@ -712,6 +667,8 @@ describe('Settings', () => {
       expect(screen.queryByTestId('pill-imessage')).not.toBeInTheDocument()
       expect(screen.queryByTestId('text-youros-section')).not.toBeInTheDocument()
       expect(screen.queryByTestId('text-bridge-section')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('channel-routing-rules-section')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('inbound-imessage-toggle')).not.toBeInTheDocument()
     })
 
     it('expands Google pill details when clicked', async () => {
@@ -814,11 +771,9 @@ describe('Settings', () => {
       })
     })
 
-    // The →1695 iMessage status-dot tests lived here. The dot sits inside
-    // the iMessage pill, hidden while Text yourOS is paused
-    // (TEXT_YOUROS_VISIBLE=false in stores/app.ts). They come back with the
-    // pill when the flag flips; the paused state itself is covered by the
-    // "hides every Text yourOS surface" test above.
+    // The →1695 iMessage status-dot tests lived here. The texting-from-phone
+    // pills were removed for good in →2970; the removal is pinned by the
+    // "texting-from-phone surfaces are fully removed" test above.
   })
 
   describe('Chat backend section (Fix 2: separate card)', () => {
@@ -1242,19 +1197,69 @@ describe('Settings page: Push notifications toggle', () => {
     expect(toggle).not.toBeInTheDocument()
   })
 
-  it('clicking push toggle calls subscribe when not subscribed', async () => {
+  it('clicking push toggle calls subscribe and turns on when subscribe succeeds', async () => {
     const { isPushSupported, subscribe, isSubscribed } = await import('../lib/pushNotifications')
     vi.mocked(isPushSupported).mockReturnValue(true)
     vi.mocked(isSubscribed).mockResolvedValue(false)
-    vi.mocked(subscribe).mockResolvedValue(true)
+    vi.mocked(subscribe).mockResolvedValue({ ok: true })
 
     renderSettings()
     const toggle = await screen.findByTestId('push-toggle')
-    
+
     fireEvent.click(toggle)
     await waitFor(() => {
       expect(vi.mocked(subscribe)).toHaveBeenCalled()
     })
+    await waitFor(() => {
+      expect(toggle).toHaveAttribute('aria-checked', 'true')
+    })
+    expect(screen.queryByTestId('push-help-message')).not.toBeInTheDocument()
+  })
+
+  it('keeps the toggle off and explains when the browser has notifications blocked', async () => {
+    const { isPushSupported, subscribe, isSubscribed } = await import('../lib/pushNotifications')
+    vi.mocked(isPushSupported).mockReturnValue(true)
+    vi.mocked(isSubscribed).mockResolvedValue(false)
+    vi.mocked(subscribe).mockResolvedValue({ ok: false, reason: 'blocked' })
+
+    renderSettings()
+    const toggle = await screen.findByTestId('push-toggle')
+
+    fireEvent.click(toggle)
+    const message = await screen.findByTestId('push-help-message')
+    expect(message.textContent).toMatch(/turned off for this site in your browser/i)
+    expect(message.textContent).toMatch(/site settings/i)
+    expect(toggle).toHaveAttribute('aria-checked', 'false')
+  })
+
+  it('keeps the toggle off and explains when the server part fails', async () => {
+    const { isPushSupported, subscribe, isSubscribed } = await import('../lib/pushNotifications')
+    vi.mocked(isPushSupported).mockReturnValue(true)
+    vi.mocked(isSubscribed).mockResolvedValue(false)
+    vi.mocked(subscribe).mockResolvedValue({ ok: false, reason: 'error' })
+
+    renderSettings()
+    const toggle = await screen.findByTestId('push-toggle')
+
+    fireEvent.click(toggle)
+    const message = await screen.findByTestId('push-help-message')
+    expect(message.textContent).toMatch(/couldn't turn on notifications/i)
+    expect(toggle).toHaveAttribute('aria-checked', 'false')
+  })
+
+  it('explains when the permission popup was closed without an answer', async () => {
+    const { isPushSupported, subscribe, isSubscribed } = await import('../lib/pushNotifications')
+    vi.mocked(isPushSupported).mockReturnValue(true)
+    vi.mocked(isSubscribed).mockResolvedValue(false)
+    vi.mocked(subscribe).mockResolvedValue({ ok: false, reason: 'dismissed' })
+
+    renderSettings()
+    const toggle = await screen.findByTestId('push-toggle')
+
+    fireEvent.click(toggle)
+    const message = await screen.findByTestId('push-help-message')
+    expect(message.textContent).toMatch(/choose allow/i)
+    expect(toggle).toHaveAttribute('aria-checked', 'false')
   })
 
   it('clicking push toggle calls unsubscribe when subscribed', async () => {
@@ -1359,28 +1364,31 @@ describe('Settings page: Push notifications toggle', () => {
     })
   })
 
-  describe('Help section in Preferences (→1421)', () => {
+  describe('Removed cards stay removed (→2970)', () => {
     function switchToPreferences() {
       const btn = screen.getAllByRole('button').find(b => b.textContent?.trim() === 'Preferences')
       if (btn) fireEvent.click(btn)
     }
 
-    it('renders a "Take the tour" button in Settings Preferences', () => {
+    it('the Take the tour card is gone (the tour lives in the sidebar now)', () => {
       renderSettings()
       switchToPreferences()
-      expect(screen.getByTestId('settings-tour-button')).toBeInTheDocument()
-      expect(screen.getByText('Take the tour')).toBeInTheDocument()
+      expect(screen.queryByTestId('settings-tour-button')).not.toBeInTheDocument()
+      expect(screen.queryByText('Take the tour')).not.toBeInTheDocument()
     })
 
-    it('"Take the tour" button calls setShowTour(true) when clicked', () => {
-      const setShowTour = vi.fn()
-      useAppStore.setState({ setShowTour })
+    it('the Features card is gone (the sidebar handles hiding and restoring items)', () => {
       renderSettings()
       switchToPreferences()
-      fireEvent.click(screen.getByTestId('settings-tour-button'))
-      expect(setShowTour).toHaveBeenCalledWith(true)
+      expect(screen.queryByRole('heading', { name: 'Features' })).not.toBeInTheDocument()
     })
 
+    it('the Shortcuts card is gone', () => {
+      renderSettings()
+      switchToPreferences()
+      expect(screen.queryByRole('heading', { name: 'Shortcuts' })).not.toBeInTheDocument()
+      expect(screen.queryByText('Add shortcut')).not.toBeInTheDocument()
+    })
   })
 })
 
@@ -1908,47 +1916,6 @@ describe('Settings load path never echoes accent color, default model, or termin
       expect(useAppStore.getState().useOstkTerms).toBe(false)
     } finally {
       recordSettingsWriteSettled(['use_ostk_terms'])
-    }
-  })
-})
-
-// ---------------------------------------------------------------------------
-// →2885: every sidebar nav item now has a feature switch, so the Settings
-// Features list gained rows for Tasks-page style entries that never had one
-// (Portfolio, Executive Summary, iMessage, Jira, Confluence, ostk). Each new
-// row needs a plain-language name and its own icon, not the generic fallback.
-// ---------------------------------------------------------------------------
-describe('Settings Features list covers the new nav switches (→2885)', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    useAppStore.setState({
-      osName: 'yourOS',
-      darkMode: true,
-      accentColor: 'blue',
-      features: [
-        { label: 'Tasks', enabled: true },
-        { label: 'Specs', enabled: true },
-        { label: 'Executive Summary', enabled: true },
-        { label: 'Portfolio', enabled: true },
-        { label: 'iMessage', enabled: true },
-        { label: 'Jira', enabled: true },
-        { label: 'Confluence', enabled: true },
-        { label: 'ostk', enabled: true },
-      ],
-    })
-  })
-
-  it('shows the iMessage switch as "Messages" to match the nav', () => {
-    renderSettings()
-    expect(screen.getByRole('switch', { name: 'Messages' })).toBeInTheDocument()
-    expect(screen.queryByRole('switch', { name: 'iMessage' })).toBeNull()
-  })
-
-  it('every new switch has its own icon, not the generic fallback', () => {
-    renderSettings()
-    for (const label of ['Portfolio', 'Executive Summary', 'Jira', 'Confluence', 'ostk', 'Messages']) {
-      const row = screen.getByRole('switch', { name: label }).closest('div')
-      expect(row?.textContent, `${label} row uses the fallback icon`).not.toContain('extension')
     }
   })
 })

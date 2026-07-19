@@ -37,34 +37,51 @@ export async function isSubscribed(): Promise<boolean> {
 }
 
 /**
+ * Why turning on notifications failed:
+ * - 'unsupported': this browser cannot do push notifications at all.
+ * - 'blocked': the browser has notifications turned off for this site.
+ * - 'dismissed': the permission popup was closed without an answer.
+ * - 'error': permission was given but the server part failed.
+ */
+export type SubscribeFailureReason = 'unsupported' | 'blocked' | 'dismissed' | 'error'
+
+export type SubscribeResult = { ok: true } | { ok: false; reason: SubscribeFailureReason }
+
+/**
  * Subscribe to push notifications.
  * Requests permission if not yet granted, subscribes via the Push API,
- * and sends the subscription to the backend.
+ * and sends the subscription to the backend. Returns a result that says
+ * WHY it failed, so the UI can explain instead of silently reverting.
  */
-export async function subscribe(): Promise<boolean> {
-  if (!isPushSupported()) return false
+export async function subscribe(): Promise<SubscribeResult> {
+  if (!isPushSupported()) return { ok: false, reason: 'unsupported' }
 
   // Ask permission
   const permission = await Notification.requestPermission()
-  if (permission !== 'granted') return false
+  if (permission === 'denied') return { ok: false, reason: 'blocked' }
+  if (permission !== 'granted') return { ok: false, reason: 'dismissed' }
 
-  // Get the VAPID public key from the backend
-  const { public_key } = await api.get<{ public_key: string }>('/push/vapid-public-key')
+  try {
+    // Get the VAPID public key from the backend
+    const { public_key } = await api.get<{ public_key: string }>('/push/vapid-public-key')
 
-  // Convert URL-safe base64 to Uint8Array
-  const applicationServerKey = urlBase64ToUint8Array(public_key)
+    // Convert URL-safe base64 to Uint8Array
+    const applicationServerKey = urlBase64ToUint8Array(public_key)
 
-  // Subscribe via the Push API
-  const reg = await navigator.serviceWorker.ready
-  const subscription = await reg.pushManager.subscribe({
-    userVisibleOnly: true,
-    applicationServerKey: applicationServerKey as BufferSource,
-  })
+    // Subscribe via the Push API
+    const reg = await navigator.serviceWorker.ready
+    const subscription = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: applicationServerKey as BufferSource,
+    })
 
-  // Send the subscription to our backend
-  await api.post('/push/subscribe', subscription.toJSON())
+    // Send the subscription to our backend
+    await api.post('/push/subscribe', subscription.toJSON())
 
-  return true
+    return { ok: true }
+  } catch {
+    return { ok: false, reason: 'error' }
+  }
 }
 
 /**

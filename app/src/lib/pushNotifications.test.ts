@@ -116,13 +116,13 @@ describe('pushNotifications', () => {
   })
 
   describe('subscribe', () => {
-    it('returns false when push is not supported', async () => {
+    it('reports unsupported when push is not available in this browser', async () => {
       setupPushEnv({ hasPushManager: false })
       const result = await subscribe()
-      expect(result).toBe(false)
+      expect(result).toEqual({ ok: false, reason: 'unsupported' })
     })
 
-    it('returns false when permission is denied', async () => {
+    it('reports blocked when the browser has notifications turned off for the site', async () => {
       const mockReg = { pushManager: { subscribe: vi.fn() } }
       setupPushEnv({
         hasPushManager: true,
@@ -130,7 +130,30 @@ describe('pushNotifications', () => {
         swReady: mockReg,
       })
       const result = await subscribe()
-      expect(result).toBe(false)
+      expect(result).toEqual({ ok: false, reason: 'blocked' })
+    })
+
+    it('reports dismissed when the permission popup is closed without an answer', async () => {
+      const mockReg = { pushManager: { subscribe: vi.fn() } }
+      setupPushEnv({
+        hasPushManager: true,
+        requestPermission: vi.fn().mockResolvedValue('default') as unknown as () => Promise<string>,
+        swReady: mockReg,
+      })
+      const result = await subscribe()
+      expect(result).toEqual({ ok: false, reason: 'dismissed' })
+    })
+
+    it('reports an error when the server part fails after permission is granted', async () => {
+      const mockReg = { pushManager: { subscribe: vi.fn() } }
+      setupPushEnv({
+        hasPushManager: true,
+        requestPermission: vi.fn().mockResolvedValue('granted') as unknown as () => Promise<string>,
+        swReady: mockReg,
+      })
+      mockedApiGet.mockRejectedValue(new Error('backend down'))
+      const result = await subscribe()
+      expect(result).toEqual({ ok: false, reason: 'error' })
     })
 
     it('subscribes and sends to backend when permission is granted', async () => {
@@ -152,7 +175,7 @@ describe('pushNotifications', () => {
       mockedApiPost.mockResolvedValue({ result: 'ok' })
 
       const result = await subscribe()
-      expect(result).toBe(true)
+      expect(result).toEqual({ ok: true })
       expect(mockedApiGet).toHaveBeenCalledWith('/push/vapid-public-key')
       expect(mockedApiPost).toHaveBeenCalledWith('/push/subscribe', { endpoint: 'https://push.example.com/1', keys: {} })
     })

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { NavLink } from 'react-router-dom';
-import { useAppStore, PROVIDER_TO_MODEL, TEXT_YOUROS_VISIBLE, type AccentColor } from '../stores/app';
+import { useAppStore, PROVIDER_TO_MODEL, type AccentColor } from '../stores/app';
 import Icon from '../components/Icon';
 import PageShell from '../components/PageShell';
 import TopNavTabs from '../components/TopNavTabs';
@@ -25,7 +25,6 @@ function notifySettingsSaveError(): void {
 }
 import { isPushSupported, isSubscribed, subscribe as pushSubscribe, unsubscribe as pushUnsubscribe } from '../lib/pushNotifications';
 import SlackConnect from '../components/SlackConnect';
-import TextYourOS from '../components/TextYourOS';
 import { GithubSetupCard } from '../components/OnboardingWizard';
 import AtlassianConnect from '../components/AtlassianConnect';
 import CustomVerbs from '../components/CustomVerbs';
@@ -43,38 +42,8 @@ interface SettingsData {
   model?: string;
   notifications?: Record<string, boolean>;
   quiet_hours?: boolean;
-  shortcuts?: Record<string, string>;
   [key: string]: unknown;
 }
-
-const featureIcons: Record<string, string> = {
-  'Chat': 'chat',
-  'Tasks': 'task_alt',
-  'Activity': 'history',
-  'Agents': 'smart_toy',
-  'Projects': 'folder',
-  'Drive': 'cloud',
-  'Calendar': 'calendar_month',
-  'Gmail': 'mail',
-  'Specs': 'description',
-  'Executive Summary': 'insights',
-  'Portfolio': 'donut_small',
-  'iMessage': 'sms',
-  'Jira': 'bug_report',
-  'Confluence': 'menu_book',
-  'ostk': 'terminal',
-  'Transcripts': 'mic',
-  'Automations': 'account_tree',
-  'Cost Tracking': 'payments',
-};
-
-// Display names for features. Internal keys use ostk terminology that users should not see.
-const featureDisplayNames: Record<string, string> = {
-  'Transcripts': 'History',
-  'Cost Tracking': 'Usage',
-  'iMessage': 'Messages',
-};
-
 
 function Toggle({ checked, onChange, testId, disabled, label }: { checked: boolean; onChange: () => void; testId?: string; disabled?: boolean; label?: string; }) {
   return (
@@ -159,8 +128,6 @@ export default function Settings() {
   const [suggestions, setSuggestions] = useState<{ text: string; checked: boolean }[]>([]);
   const [suggestLoading, setSuggestLoading] = useState(false);
   const [suggestError, setSuggestError] = useState<string | null>(null);
-  const [editingShortcut, setEditingShortcut] = useState<string | null>(null);
-  const [customShortcuts, setCustomShortcuts] = useState<Record<string, string>>({});
   const [keySaveStatus, setKeySaveStatus] = useState<string | null>(null);
   const [googleOAuthAvailable, setGoogleOAuthAvailable] = useState(false);
   const [googleConnected, setGoogleConnected] = useState(false);
@@ -191,13 +158,14 @@ export default function Settings() {
     Calendar: { loading: true, connected: false, label: '' },
     Drive: { loading: true, connected: false, label: '' },
     Slack: { loading: true, connected: false, label: '' },
-    iMessage: { loading: true, connected: false, label: '' },
     GitHub: { loading: true, connected: false, label: '' },
   });
 
   // Push notification state
   const [settingsPushEnabled, setSettingsPushEnabled] = useState(false);
   const [pushToggling, setPushToggling] = useState(false);
+  // Plain-language explanation shown when the toggle cannot turn on.
+  const [pushMessage, setPushMessage] = useState<string | null>(null);
   const pushSupported = isPushSupported();
 
   // Sync state
@@ -218,40 +186,8 @@ export default function Settings() {
   const [filesDir, setFilesDir] = useState<string>('');
   const [projectsDir, setProjectsDir] = useState<string>('');
   const [plansBecomesSpecs, setPlansBecomesSpecs] = useState<boolean>(true);
-  const [inboundImessageRoutingEnabled, setInboundImessageRoutingEnabled] = useState<boolean>(false);
-  const [textBridgeEnabled, setTextBridgeEnabled] = useState<boolean>(false);
-  const [textBridgeChannels, setTextBridgeChannels] = useState<{ iMessage: boolean; Telegram: boolean }>({ iMessage: true, Telegram: false });
-  const [textBridgeTrustedContacts, setTextBridgeTrustedContacts] = useState<string[]>([]);
-  const [textBridgeConfirmCommands, setTextBridgeConfirmCommands] = useState<string | null>(null);
-  const [textBridgeTelegramToken, setTextBridgeTelegramToken] = useState<string>('');
-  const [textBridgeTelegramChatId, setTextBridgeTelegramChatId] = useState<string>('');
-  const [contactSearch, setContactSearch] = useState('');
-  const [contactResults, setContactSearchResults] = useState<{ name: string; identifier: string }[]>([]);
   const [defaultConfluenceSpace, setDefaultConfluenceSpace] = useState('');
   const [wipeDataError, setWipeDataError] = useState<string | null>(null);
-  const handleUpdateTextBridgeConfig = async (updates: Partial<{ enabled: boolean; trusted_contacts: string[]; confirm_commands: string | null }>) => {
-    try {
-      const resp = await api.patch<{ ok: boolean; config: any }>('/text-bridge/config', updates);
-      if (resp.ok) {
-        setTextBridgeEnabled(resp.config.enabled);
-        setTextBridgeTrustedContacts(resp.config.trusted_contacts);
-        setTextBridgeConfirmCommands(resp.config.confirm_commands);
-      }
-    } catch (err) {
-      reportError('Failed to update Text Bridge config', err);
-    }
-  };
-
-  const handleUpdateTelegramConfig = async (updates: Partial<{ token: string; chat_id: string }>) => {
-    // These live in regular settings.json under a telegram key
-    try {
-      await api.patch('/settings', { telegram: updates });
-      if (updates.token !== undefined) setTextBridgeTelegramToken(updates.token);
-      if (updates.chat_id !== undefined) setTextBridgeTelegramChatId(updates.chat_id);
-    } catch (err) {
-      reportError('Failed to update Telegram config', err);
-    }
-  };
 
 
   useEffect(() => {
@@ -343,8 +279,6 @@ export default function Settings() {
         if ((data as any).files_dir) setFilesDir((data as any).files_dir);
         if ((data as any).projects_dir) setProjectsDir((data as any).projects_dir);
         if ((data as any).plans_become_specs !== undefined) setPlansBecomesSpecs(!!(data as any).plans_become_specs);
-        if ((data as any).inbound_imessage_routing_enabled !== undefined) setInboundImessageRoutingEnabled(!!(data as any).inbound_imessage_routing_enabled);
-        if ((data as any).shortcuts) setCustomShortcuts((data as any).shortcuts);
         if ((data as any).auto_template_matching !== undefined) {
           setAutoTemplateMatching((data as any).auto_template_matching);
         }
@@ -446,14 +380,12 @@ export default function Settings() {
       type CalStatus = { authenticated: boolean; email: string | null };
       type DriveStatus = { authenticated: boolean; email: string | null };
       type SlackStat = { connected: boolean; team_name: string };
-      type iMessageStat = { available: boolean; reason: string };
       type GitHubStat = { connected: boolean };
-      const [gmail, cal, drive, slack, imsg, github] = await Promise.all([
+      const [gmail, cal, drive, slack, github] = await Promise.all([
         api.get<GmailStatus>('/gmail/auth/status').catch(() => ({ authenticated: false, email: null })),
         api.get<CalStatus>('/calendar/auth/status').catch(() => ({ authenticated: false, email: null })),
         api.get<DriveStatus>('/drive/auth/status').catch(() => ({ authenticated: false, email: null })),
         api.get<SlackStat>('/slack/status').catch(() => ({ connected: false, team_name: '' })),
-        api.get<iMessageStat>('/imessage/status').catch(() => ({ available: false, reason: '' })),
         api.get<GitHubStat>('/github/status').catch(() => ({ connected: false })),
       ]);
       setConnectionStatus({
@@ -461,7 +393,6 @@ export default function Settings() {
         Calendar: { loading: false, connected: !!cal.authenticated, label: cal.email || '' },
         Drive: { loading: false, connected: !!drive.authenticated, label: drive.email || '' },
         Slack: { loading: false, connected: !!slack.connected, label: slack.team_name || '' },
-        iMessage: { loading: false, connected: !!imsg.available, label: '' },
         GitHub: { loading: false, connected: !!github.connected, label: '' },
       });
     })();
@@ -470,14 +401,6 @@ export default function Settings() {
         setSyncConfigured(data.configured ?? false);
         setSyncRepoUrl(data.remote_url ?? null);
         setSyncLastSynced(data.last_synced ?? null);
-      })
-      .catch(() => {});
-    // Fetch Text Bridge status
-    api.get<{ enabled: boolean; trusted_contacts: string[]; confirm_commands: string | null }>('/text-bridge/status')
-      .then((data) => {
-        setTextBridgeEnabled(data.enabled);
-        setTextBridgeTrustedContacts(data.trusted_contacts);
-        setTextBridgeConfirmCommands(data.confirm_commands);
       })
       .catch(() => {});
     // Check push subscription state
@@ -489,16 +412,31 @@ export default function Settings() {
 
   const handlePushToggle = async () => {
     setPushToggling(true);
+    setPushMessage(null);
     try {
       if (settingsPushEnabled) {
         await pushUnsubscribe();
         setSettingsPushEnabled(false);
       } else {
-        const ok = await pushSubscribe();
-        setSettingsPushEnabled(ok);
+        const result = await pushSubscribe();
+        if (result.ok) {
+          setSettingsPushEnabled(true);
+        } else {
+          // Keep the toggle off and say why, instead of silently flipping back.
+          setSettingsPushEnabled(false);
+          if (result.reason === 'blocked') {
+            setPushMessage("Notifications are turned off for this site in your browser. To get alerts, open your browser's site settings, allow notifications for this site, then try again.");
+          } else if (result.reason === 'dismissed') {
+            setPushMessage('The permission popup was closed without an answer. Click the toggle again and choose Allow.');
+          } else if (result.reason === 'unsupported') {
+            setPushMessage("This browser can't show desktop notifications.");
+          } else {
+            setPushMessage("Couldn't turn on notifications. Check that the app is running and try again.");
+          }
+        }
       }
     } catch {
-      // ignore
+      setPushMessage("Couldn't update notifications. Check that the app is running and try again.");
     } finally {
       setPushToggling(false);
     }
@@ -533,18 +471,6 @@ export default function Settings() {
     if (currentOsName === lastQueuedOsName) return
     lastQueuedOsName = currentOsName
     api.patch('/settings', { os_name: currentOsName }).catch(notifySettingsSaveError);
-  };
-
-  const handleFeatureToggle = (index: number) => {
-    const updated = features.map((f, i) =>
-      i === index ? { ...f, enabled: !f.enabled } : f
-    );
-    setFeatures(updated);
-    const featuresObj: Record<string, boolean> = {};
-    updated.forEach((f: { label: string; enabled: boolean }) => {
-      featuresObj[f.label] = f.enabled;
-    });
-    api.patch('/settings', { features: featuresObj }).catch(notifySettingsSaveError);
   };
 
   const handleProviderSelect = (name: string) => {
@@ -635,20 +561,6 @@ export default function Settings() {
     const next = !quietHours;
     setQuietHours(next);
     api.patch('/settings', { quiet_hours: next }).catch(notifySettingsSaveError);
-  };
-
-  const handleShortcutEdit = (label: string, keys: string) => {
-    const updated = { ...customShortcuts, [label]: keys };
-    setCustomShortcuts(updated);
-    setEditingShortcut(null);
-    api.patch('/settings', { shortcuts: updated }).catch(notifySettingsSaveError);
-  };
-
-  const handleShortcutReset = (label: string) => {
-    const updated = { ...customShortcuts };
-    delete updated[label];
-    setCustomShortcuts(updated);
-    api.patch('/settings', { shortcuts: updated }).catch(notifySettingsSaveError);
   };
 
   const handleAutoTemplateMatchingToggle = () => {
@@ -935,33 +847,6 @@ export default function Settings() {
                   api.patch('/settings', { plans_become_specs: next }).catch(notifySettingsSaveError);
                 }} testId="plans-become-specs-toggle" />
               </div>
-              {/* iMessage routing toggle */}
-              <div className="flex items-center justify-between pt-4 border-t border-slate-200 dark:border-slate-800">
-                <div className="pr-3">
-                  <p className="text-sm font-medium text-slate-800 dark:text-slate-200">Act on incoming messages</p>
-                  <p className="text-xs text-slate-500">When on, torios reads new iMessages and can kick off tasks from them automatically.</p>
-                </div>
-                <Toggle checked={inboundImessageRoutingEnabled} onChange={() => {
-                  const next = !inboundImessageRoutingEnabled;
-                  setInboundImessageRoutingEnabled(next);
-                  api.patch('/settings', { inbound_imessage_routing_enabled: next }).catch(notifySettingsSaveError);
-                }} testId="inbound-imessage-toggle" />
-              </div>
-              {/* Text-to-agent (formerly "Channel Routing Rules") */}
-              <div className="pt-4 border-t border-slate-200 dark:border-slate-800" data-testid="channel-routing-rules-section">
-                <p className="text-sm font-medium text-slate-800 dark:text-slate-200 mb-1">Text-to-agent</p>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">
-                  Controls how messages sent to your phone get turned into agent actions. When the iMessage poller is active, incoming texts are read and parsed into one of these commands:
-                </p>
-                <ul className="text-xs text-slate-500 dark:text-slate-400 space-y-1 mb-3 list-none">
-                  <li><span className="font-mono text-slate-700 dark:text-slate-300">spawn &lt;name&gt; to &lt;task&gt;</span> - starts a new agent with that task</li>
-                  <li><span className="font-mono text-slate-700 dark:text-slate-300">nudge &lt;agent&gt; &lt;message&gt;</span> - sends a follow-up message to a running agent</li>
-                  <li><span className="font-mono text-slate-700 dark:text-slate-300">status</span> - returns a summary of what agents are currently running</li>
-                </ul>
-                <p className="text-xs text-slate-400 dark:text-slate-500">
-                  The live poller that reads new iMessages is off by default. Set the environment variable <span className="font-mono">CHANNEL_ROUTING_LIVE_POLLER_ENABLED=1</span> to turn it on.
-                </p>
-              </div>
               {/* Files location */}
               <div className="pt-4 border-t border-slate-200 dark:border-slate-800">
                 <p className="text-sm font-medium text-slate-800 dark:text-slate-200 mb-1">Where files are saved</p>
@@ -1238,26 +1123,6 @@ export default function Settings() {
 
           </div>
 
-          {/* Features (F) */}
-          <div className={`lg:col-span-2 ${activeSection !== 'section-preferences' ? 'hidden' : ''}`}>
-          <div className={cardClass}>
-          <h2 className="text-lg font-semibold mb-5">Features</h2>
-          <p className="text-xs text-slate-500 mb-3">Toggle to show or hide in the sidebar. Drag items in the sidebar itself to reorder.</p>
-          <div className="space-y-1.5">
-            {features.map((f: { label: string; enabled: boolean }, index: number) => (
-              <div
-                key={f.label}
-                className="flex items-center gap-3 bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/50 rounded-lg px-3 py-2.5"
-              >
-                <Icon name={featureIcons[f.label] || 'extension'} className="text-slate-600 dark:text-slate-400" size={18} />
-                <span className="flex-1 text-sm text-slate-700 dark:text-slate-300">{featureDisplayNames[f.label] || f.label}</span>
-                <Toggle checked={f.enabled} onChange={() => handleFeatureToggle(index)} label={featureDisplayNames[f.label] || f.label} />
-              </div>
-            ))}
-          </div>
-
-          </div>
-          </div>
           </div>
 
           {/* ── Power user (G) ────────────────────── */}
@@ -1831,71 +1696,6 @@ export default function Settings() {
               </div>
             )}
 
-            {/* Text yourOS pill (hidden while the feature is paused) */}
-            {TEXT_YOUROS_VISIBLE && <button
-              onClick={() => setExpandedConnection(expandedConnection === 'text-youros' ? null : 'text-youros')}
-              className="w-full flex items-center gap-3 px-4 py-3 bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/50 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/70 transition-colors text-left"
-              data-testid="pill-text-youros"
-            >
-              <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${connectionStatus.iMessage?.connected ? 'bg-emerald-400' : 'bg-slate-600'}`} />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-slate-800 dark:text-slate-200">Text yourOS</p>
-                <p className="text-xs text-slate-600 dark:text-slate-400">Send a text to start agents or create tasks</p>
-              </div>
-              <Icon name={expandedConnection === 'text-youros' ? 'expand_less' : 'expand_more'} size={18} className="text-slate-600 dark:text-slate-400 flex-shrink-0" />
-            </button>}
-            {TEXT_YOUROS_VISIBLE && expandedConnection === 'text-youros' && (
-              <div className={cardClass} data-testid="text-youros-section">
-                <div className="flex items-center gap-2 mb-4">
-                  <Icon name="sms" size={18} className="text-green-600 dark:text-green-400" />
-                  <h2 className="text-base font-semibold text-slate-900 dark:text-white">Text yourOS</h2>
-                </div>
-                <TextYourOS />
-              </div>
-            )}
-
-            {/* iMessage pill (hidden while Text yourOS is paused) */}
-            {TEXT_YOUROS_VISIBLE && <button
-              onClick={() => setExpandedConnection(expandedConnection === 'imessage' ? null : 'imessage')}
-              className="w-full flex items-center gap-3 px-4 py-3 bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/50 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/70 transition-colors text-left"
-              data-testid="pill-imessage"
-            >
-              <span
-                data-testid="imessage-status-dot"
-                className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
-                  connectionStatus.iMessage.loading
-                    ? 'bg-slate-600 animate-pulse'
-                    : connectionStatus.iMessage.connected
-                    ? 'bg-emerald-400'
-                    : 'bg-slate-600'
-                }`}
-              />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-slate-800 dark:text-slate-200">iMessage</p>
-                <p className="text-xs text-slate-600 dark:text-slate-400">{connectionStatus.iMessage.connected ? 'Connected' : 'Set up iMessage'}</p>
-              </div>
-              <Icon name={expandedConnection === 'imessage' ? 'expand_less' : 'expand_more'} size={18} className="text-slate-600 dark:text-slate-400 flex-shrink-0" />
-            </button>}
-            {TEXT_YOUROS_VISIBLE && expandedConnection === 'imessage' && (
-              <div className={cardClass} data-testid="imessage-connect-section">
-                <div className="flex items-center gap-2 mb-4">
-                  <Icon name="chat_bubble" size={18} className="text-green-600 dark:text-green-400" />
-                  <h2 className="text-base font-semibold text-slate-900 dark:text-white">iMessage</h2>
-                </div>
-                <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">
-                  Read and reply to iMessages from within yourOS. Requires macOS.
-                </p>
-                <a
-                  href="/imessage"
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-500 rounded-lg text-sm font-medium text-white transition-colors"
-                  data-testid="imessage-setup-link"
-                >
-                  <Icon name="open_in_new" size={16} />
-                  Set up iMessage
-                </a>
-              </div>
-            )}
-
             {/* GitHub pill */}
             <button
               onClick={() => setExpandedConnection(expandedConnection === 'github' ? null : 'github')}
@@ -2023,175 +1823,7 @@ export default function Settings() {
               <CustomVerbs />
             </div>
 
-            {/* Text yourOS section (->1872; hidden while the feature is paused) */}
-            {TEXT_YOUROS_VISIBLE && (
-            <div className={cardClass} data-testid="text-bridge-section">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                  <Icon name="sms" size={18} className="text-blue-600 dark:text-blue-400" />
-                  <h2 className="text-base font-semibold text-slate-800 dark:text-slate-200">Text yourOS</h2>
-                </div>
-                <Toggle
-                  checked={textBridgeEnabled}
-                  onChange={() => handleUpdateTextBridgeConfig({ enabled: !textBridgeEnabled })}
-                  testId="text-bridge-toggle"
-                />
-              </div>
-              <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
-                Command yourOS via iMessage or Telegram from your phone. Send a message like "remind me to call the vet" or "spawn research-agent to look into X".
-              </p>
 
-              {textBridgeEnabled && (
-                <div className="space-y-6 mt-6 pt-6 border-t border-slate-200 dark:border-slate-800 animate-in fade-in slide-in-from-top-2 duration-200">
-                  {/* Channels */}
-                  <div>
-                    <label className="text-sm font-medium text-slate-700 dark:text-slate-300 block mb-2">Channels</label>
-                    <div className="flex gap-4">
-                      <label className="flex items-center gap-2 cursor-pointer group">
-                        <input
-                          type="checkbox"
-                          checked={textBridgeChannels.iMessage}
-                          onChange={(e) => setTextBridgeChannels(prev => ({ ...prev, iMessage: e.target.checked }))}
-                          className="rounded border-slate-300 dark:border-slate-700 bg-transparent text-blue-500 focus:ring-blue-500"
-                        />
-                        <span className="text-sm text-slate-600 dark:text-slate-400 group-hover:text-slate-900 dark:group-hover:text-slate-200 transition-colors">iMessage</span>
-                      </label>
-                      <label className="flex items-center gap-2 cursor-pointer group">
-                        <input
-                          type="checkbox"
-                          checked={textBridgeChannels.Telegram}
-                          onChange={(e) => setTextBridgeChannels(prev => ({ ...prev, Telegram: e.target.checked }))}
-                          className="rounded border-slate-300 dark:border-slate-700 bg-transparent text-blue-500 focus:ring-blue-500"
-                        />
-                        <span className="text-sm text-slate-600 dark:text-slate-400 group-hover:text-slate-900 dark:group-hover:text-slate-200 transition-colors">Telegram</span>
-                      </label>
-                    </div>
-                  </div>
-
-                  {/* Trusted Contacts */}
-                  <div>
-                    <label className="text-sm font-medium text-slate-700 dark:text-slate-300 block mb-2">Trusted Contacts</label>
-                    <p className="text-xs text-slate-500 mb-3">
-                      Only messages from these identifiers will be processed.
-                    </p>
-                    
-                    <div className="space-y-2 mb-3">
-                      {textBridgeTrustedContacts.map(id => (
-                        <div key={id} className="flex items-center justify-between px-3 py-2 bg-slate-100 dark:bg-slate-800 rounded-lg group">
-                          <span className="text-sm font-mono text-slate-700 dark:text-slate-300">{id}</span>
-                          <button
-                            onClick={() => handleUpdateTextBridgeConfig({ 
-                              trusted_contacts: textBridgeTrustedContacts.filter(t => t !== id) 
-                            })}
-                            className="text-slate-400 hover:text-red-500 transition-colors"
-                          >
-                            <Icon name="close" size={16} />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-
-                    <div className="relative">
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          value={contactSearch}
-                          onChange={(e) => {
-                            setContactSearch(e.target.value);
-                            if (e.target.value.length > 2) {
-                              api.get<{ results: any[] }>(`/imessage/contacts/search?q=${encodeURIComponent(e.target.value)}`)
-                                .then(d => setContactSearchResults(d.results))
-                                .catch(() => {});
-                            } else {
-                              setContactSearchResults([]);
-                            }
-                          }}
-                          placeholder="Search iMessage contacts..."
-                          className="flex-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                        />
-                      </div>
-                      {contactResults.length > 0 && (
-                        <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xl z-10 max-h-48 overflow-y-auto">
-                          {contactResults.map(r => (
-                            <button
-                              key={r.identifier}
-                              onClick={() => {
-                                if (!textBridgeTrustedContacts.includes(r.identifier)) {
-                                  handleUpdateTextBridgeConfig({ 
-                                    trusted_contacts: [...textBridgeTrustedContacts, r.identifier] 
-                                  });
-                                }
-                                setContactSearch('');
-                                setContactSearchResults([]);
-                              }}
-                              className="w-full text-left px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                            >
-                              <p className="text-sm font-medium text-slate-800 dark:text-slate-200">{r.name}</p>
-                              <p className="text-xs text-slate-500">{r.identifier}</p>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Safety */}
-                  <div>
-                    <label className="text-sm font-medium text-slate-700 dark:text-slate-300 block mb-2">Safety</label>
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-slate-600 dark:text-slate-400">Confirm before running commands</span>
-                        <select
-                          value={textBridgeConfirmCommands || 'null'}
-                          onChange={(e) => handleUpdateTextBridgeConfig({ 
-                            confirm_commands: e.target.value === 'null' ? null : e.target.value 
-                          })}
-                          className="bg-slate-100 dark:bg-slate-800 border-none rounded-lg text-xs font-medium text-slate-700 dark:text-slate-300 focus:ring-1 focus:ring-blue-500"
-                        >
-                          <option value="null">Ask me on first use</option>
-                          <option value="always">Always ask</option>
-                          <option value="never">Never ask</option>
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-
-                  {textBridgeChannels.Telegram && (
-                    <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-800 animate-in fade-in duration-300">
-                      <div className="flex items-center gap-2 mb-3">
-                        <Icon name="send" size={16} className="text-sky-500" />
-                        <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">Telegram Bot</h3>
-                      </div>
-                      <div className="space-y-3">
-                        <div>
-                          <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1">Bot Token</label>
-                          <input
-                            type="password"
-                            value={textBridgeTelegramToken}
-                            onChange={(e) => setTextBridgeTelegramToken(e.target.value)}
-                            onBlur={() => handleUpdateTelegramConfig({ token: textBridgeTelegramToken })}
-                            placeholder="Enter your Telegram bot token"
-                            className="w-full rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1">Your Chat ID</label>
-                          <input
-                            type="text"
-                            value={textBridgeTelegramChatId}
-                            onChange={(e) => setTextBridgeTelegramChatId(e.target.value)}
-                            onBlur={() => handleUpdateTelegramConfig({ chat_id: textBridgeTelegramChatId })}
-                            placeholder="Enter your Telegram chat ID"
-                            className="w-full rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-            )}
 
           </div>
 
@@ -2314,6 +1946,11 @@ export default function Settings() {
                   </div>
                   <Toggle checked={settingsPushEnabled} onChange={handlePushToggle} testId="push-toggle" disabled={pushToggling} />
                 </div>
+              )}
+              {pushMessage && (
+                <p data-testid="push-help-message" role="alert" className="text-xs text-amber-700 dark:text-amber-400 mt-1">
+                  {pushMessage}
+                </p>
               )}
               <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-800">
                 <p className="text-xs font-medium text-slate-600 dark:text-slate-400 mb-3">What triggers notifications</p>
@@ -2529,70 +2166,6 @@ export default function Settings() {
                   </div>
                   <Toggle checked={adhdFocusMode} onChange={handleAdhdFocusModeToggle} testId="adhd-focus-toggle" />
                 </div>
-              </div>
-            </div>
-          </div>
-
-          {/* ── Shortcuts (I) ────────────────────── */}
-          <div id="section-shortcuts" className={`${activeSection !== 'section-preferences' ? 'hidden' : ''}` }>
-            <div className={cardClass}>
-              <h2 className="text-lg font-semibold mb-4">Shortcuts</h2>
-              {Object.keys(customShortcuts).length === 0 ? (
-                <div className="text-center py-6">
-                  <p className="text-sm text-slate-500 mb-3">No custom shortcuts yet.</p>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const label = prompt('Shortcut name (e.g. "Open Tasks")');
-                      if (!label) return;
-                      const next = { ...customShortcuts, [label]: '' };
-                      setCustomShortcuts(next);
-                      setEditingShortcut(label);
-                    }}
-                    className="px-3 py-1.5 text-sm font-medium rounded-lg bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-200 transition-colors"
-                  >
-                    Add shortcut
-                  </button>
-                </div>
-              ) : (
-                <div className="space-y-1">
-                  {Object.entries(customShortcuts).map(([label, keys]) => {
-                    const isEditing = editingShortcut === label;
-                    return (
-                      <div key={label} className="flex items-center justify-between py-2">
-                        <span className="text-sm text-slate-700 dark:text-slate-300">{label}</span>
-                        <div className="flex items-center gap-2">
-                          <button type="button" onClick={() => handleShortcutReset(label)} className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors" title="Remove">×</button>
-                          {isEditing ? (
-                            <kbd className="px-2.5 py-1 bg-slate-200 dark:bg-slate-700 border border-blue-500 rounded-md text-xs text-blue-700 dark:text-blue-300 font-mono min-w-[72px] text-center" onKeyDown={(e) => { e.preventDefault(); if (e.key === 'Escape') { setEditingShortcut(null); return; } const parts: string[] = []; if (e.metaKey) parts.push('⌘'); if (e.ctrlKey) parts.push('⌃'); if (e.altKey) parts.push('⌥'); if (e.shiftKey) parts.push('⇧'); const k = e.key; if (!['Meta','Control','Alt','Shift'].includes(k)) { parts.push(k.length === 1 ? k.toUpperCase() : k); } if (parts.length > 1 || (parts.length === 1 && !['⌘','⌃','⌥','⇧'].includes(parts[0]))) { handleShortcutEdit(label, parts.join('')); } }} tabIndex={0} autoFocus onBlur={() => setEditingShortcut(null)}>Press keys…</kbd>
-                          ) : (
-                            <kbd className="px-2.5 py-1 rounded-md text-xs font-mono cursor-pointer bg-slate-100 dark:bg-slate-800 border border-blue-500/50 text-blue-700 dark:text-blue-300" onClick={() => setEditingShortcut(label)} title="Click to edit">{keys || '…'}</kbd>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                  <button type="button" onClick={() => { const label = prompt('Shortcut name'); if (!label) return; const next = { ...customShortcuts, [label]: '' }; setCustomShortcuts(next); setEditingShortcut(label); }} className="mt-2 px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-200 dark:bg-slate-700 hover:bg-slate-600 text-slate-800 dark:text-slate-200 transition-colors">Add shortcut</button>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* ── Take the tour (J - Help dissolved, Tour standalone) ── */}
-          <div className={activeSection !== 'section-preferences' ? 'hidden' : ''}>
-            <div className={cardClass}>
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-lg font-semibold mb-1">Take the tour</h2>
-                  <p className="text-xs text-slate-500">Walk through what yourOS can do, step by step.</p>
-                </div>
-                <button
-                  data-testid="settings-tour-button"
-                  onClick={() => useAppStore.getState().setShowTour(true)}
-                  className="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-200 dark:bg-slate-700 hover:bg-slate-600 text-slate-800 dark:text-slate-200 transition-colors"
-                >
-                  Start
-                </button>
               </div>
             </div>
           </div>
