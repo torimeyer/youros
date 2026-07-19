@@ -19,18 +19,20 @@ function SuggestionTips({ savings, totalTokens }: { savings: SavingsData; totalT
       text: 'No usage yet. Spawn an agent or open chat to see stats.',
     })
   } else {
+    // Every tip states the measured number it is based on, so nothing on
+    // this card reads as unearned praise (→2957).
     if (cacheRate < 40) {
       suggestions.push({
         icon: 'warning',
         color: 'text-yellow-600 dark:text-yellow-400',
-        text: 'Low cache reuse. The AI is re-reading the same setup every turn. Save your standing instructions in Settings so it remembers between messages.',
+        text: `Low cache reuse at ${cacheRate.toFixed(1)}%. The AI is re-reading the same setup every turn. Save your standing instructions in Settings so it remembers between messages.`,
       })
     }
     if (cacheRate >= 40) {
       suggestions.push({
         icon: 'check_circle',
         color: 'text-green-600 dark:text-green-400',
-        text: 'Cache reuse is healthy. Keep having longer multi-turn conversations to hold the rate high.',
+        text: `Cache reuse is healthy at ${cacheRate.toFixed(1)}%. Longer multi-turn conversations keep it there.`,
       })
     }
   }
@@ -233,33 +235,36 @@ function WhatsWorkingPanel({
   )
 }
 
-/** Contextual tips for improving token savings. */
+/** Contextual tips for improving token savings.
+ *
+ * Every tip is computed from the savings payload and states the measured
+ * number it is based on. No unconditional filler lines: a tip that cannot
+ * point at a real number does not belong here (→2957).
+ */
 function OptimizationTips({ savings }: { savings: SavingsData }) {
   const [showTips, setShowTips] = useState(false)
   const cacheRate = savings.cache_efficiency_pct ?? 0
   const compressionRate = savings.compression_pct ?? 0
-  const convCache = savings.conversation_cache_pct ?? 0
+  const convCacheTokens = savings.conversation_cache_tokens ?? 0
   const tips: string[] = []
 
   if (cacheRate < 50) {
-    tips.push('Keep longer conversations instead of starting new ones. Each new chat has to send the full context from scratch.')
+    tips.push(`Cache reuse is at ${cacheRate.toFixed(1)}%. Keep longer conversations instead of starting new ones. Each new chat has to send the full context from scratch.`)
   } else if (cacheRate < 80) {
-    tips.push('Your cache hit rate is good. Reuse agent templates instead of writing new prompts each time to push it higher.')
+    tips.push(`Your cache reuse rate is ${cacheRate.toFixed(1)}%. Reuse agent templates instead of writing new prompts each time to push it higher.`)
   } else {
-    tips.push('Your cache hit rate is excellent. ostk is reusing most of your context efficiently.')
+    tips.push(`Your cache reuse rate is ${cacheRate.toFixed(1)}%. Most of your context is served from cache instead of being sent again.`)
   }
-  if (compressionRate < 10) {
-    tips.push('History compression is low right now. As your activity grows, compression kicks in automatically.')
+  if (compressionRate > 0) {
+    tips.push(`History compression made your stored history ${compressionRate.toFixed(1)}% smaller than raw.`)
   } else {
-    tips.push('History compression is working well. Your audit trail is ' + compressionRate.toFixed(0) + '% smaller than raw.')
+    tips.push('No history compression has been recorded in this window yet. It kicks in automatically as your activity grows.')
   }
-  if (convCache < 1) {
+  if (convCacheTokens > 0) {
+    tips.push(`Conversation caching is active. ${convCacheTokens.toLocaleString()} tokens came from cache instead of being sent again.`)
+  } else {
     tips.push('Have longer multi-turn conversations to take advantage of conversation caching. Short one-off questions can\'t be cached.')
-  } else {
-    tips.push('Conversation caching is active. Longer sessions save more tokens as turns build on each other.')
   }
-  tips.push('Use "saa" to spawn agents for complex tasks. Agents reuse cached system prompts across their entire run.')
-  tips.push('Specs that decompose into multiple tasks get the best cache efficiency because every agent shares the spec context.')
 
   return (
     <div className="mt-4">
@@ -271,7 +276,7 @@ function OptimizationTips({ savings }: { savings: SavingsData }) {
         {showTips ? 'Hide tips' : 'How to save more tokens'}
       </button>
       {showTips && (
-        <div className="mt-3 space-y-2">
+        <div className="mt-3 space-y-2" data-testid="optimization-tips">
           {tips.map((tip, i) => (
             <div key={i} className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-300">
               <Icon name="check_circle" size={16} className="text-green-600 dark:text-green-400 mt-0.5 shrink-0" />
@@ -674,6 +679,21 @@ interface SavingsData {
   subscription_output_tokens?: number
   squash_tokens_saved?: number
   period?: string
+}
+
+/** Plain-language reason the savings card is empty, matched to the active
+ *  time filter, so "nothing here" always says why and when numbers appear. */
+function savingsEmptyMessage(period: Period): string {
+  switch (period) {
+    case 'today':
+      return 'No usage has been recorded yet today. Savings numbers appear after your first chat or agent run of the day.'
+    case 'week':
+      return 'No usage has been recorded in the last 7 days. Savings numbers appear after your next chat or agent run.'
+    case 'month':
+      return 'No usage has been recorded in the last 30 days. Savings numbers appear after your next chat or agent run.'
+    default:
+      return 'No usage has been recorded yet. Savings numbers appear after your first chat or agent run.'
+  }
 }
 
 const periodLabels: Record<Period, string> = {
@@ -1158,9 +1178,7 @@ export default function CostTracking() {
                     ? `That's ${formattedTokens} tokens of work done for you.`
                     : `${formattedTokens} tokens processed.`}
                   {savings?.conversation_cache_tokens && savings.conversation_cache_tokens > 0
-                    ? ` ostk saved ${savings.conversation_cache_tokens.toLocaleString()} tokens through prompt caching and token compression.`
-                    : savings?.subscription_input_tokens && savings.subscription_input_tokens > 0
-                    ? ` ostk saved ${(savings.subscription_input_tokens).toLocaleString()} tokens through prompt caching and token compression.`
+                    ? ` ostk saved ${savings.conversation_cache_tokens.toLocaleString()} tokens through prompt caching.`
                     : ''}
                 </p>
               </div>
@@ -1190,7 +1208,7 @@ export default function CostTracking() {
             {savings === null ? (
               <p className="text-sm text-slate-500">Loading savings data...</p>
             ) : !savings.available ? (
-              <p className="text-sm text-slate-600 dark:text-slate-400">Savings data not available yet.</p>
+              <p className="text-sm text-slate-600 dark:text-slate-400">{savingsEmptyMessage(period)}</p>
             ) : (() => {
               const compressionPct = savings.compression_pct ?? 0
               // needle recall and hay hit are always n/a for now (no real data)

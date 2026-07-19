@@ -301,9 +301,12 @@ describe('CostTracking page', () => {
       routedApiGet(mockCostData, { available: false }) as never,
     )
     renderCostTracking()
+    // Default period is "week": the empty state must say why nothing shows
+    // and when numbers will appear, not a bare "not available yet".
     await waitFor(() => {
-      expect(screen.getByText('Savings data not available yet.')).toBeInTheDocument()
+      expect(screen.getByText('No usage has been recorded in the last 7 days. Savings numbers appear after your next chat or agent run.')).toBeInTheDocument()
     })
+    expect(screen.queryByText('Savings data not available yet.')).not.toBeInTheDocument()
     expect(screen.queryByText('Requests reused from memory')).not.toBeInTheDocument()
   })
 
@@ -313,11 +316,23 @@ describe('CostTracking page', () => {
     )
     renderCostTracking()
     await waitFor(() => {
-      expect(screen.getByText('Savings data not available yet.')).toBeInTheDocument()
+      expect(screen.getByText(/No usage has been recorded in the last 7 days/)).toBeInTheDocument()
     })
     // Should not show any of the live labels
     expect(screen.queryByText('yourOS saved you this session')).not.toBeInTheDocument()
     expect(screen.queryByText('Requests reused from memory')).not.toBeInTheDocument()
+  })
+
+  it('empty state names the day when the Today filter is active', async () => {
+    localStorage.setItem('myos_cost_period', 'today')
+    mockedApiGet.mockImplementation(
+      routedApiGet(mockCostData, mockSavingsUnavailable) as never,
+    )
+    renderCostTracking()
+    await waitFor(() => {
+      expect(screen.getByText('No usage has been recorded yet today. Savings numbers appear after your first chat or agent run of the day.')).toBeInTheDocument()
+    })
+    expect(screen.queryByText('Savings data not available yet.')).not.toBeInTheDocument()
   })
 
   it('does not show stale data when a fast filter switch resolves after a slow one', async () => {
@@ -606,6 +621,61 @@ describe('CostTracking page', () => {
     expect(screen.queryByText('Cache hit rate')).not.toBeInTheDocument()
     expect(screen.queryByText('Compression')).not.toBeInTheDocument()
     expect(screen.queryByText('Requests reused from memory')).not.toBeInTheDocument()
+  })
+
+  // →2957: tips must be computed from the real numbers, never canned praise
+  it('suggestion tip states the real cache reuse percentage', async () => {
+    mockedApiGet.mockImplementation(routedApiGet(
+      mockCostData,
+      { ...mockSavingsData, cache_efficiency_pct: 61.1 },
+    ) as never)
+    renderCostTracking()
+    await waitFor(() => {
+      expect(screen.getByTestId('suggestions-section')).toBeInTheDocument()
+    })
+    const section = screen.getByTestId('suggestions-section')
+    // The healthy-cache tip must carry the measured number, not bare praise.
+    expect(section.textContent).toMatch(/61\.1%/)
+  })
+
+  it('optimization tips carry real numbers and drop the canned lines', async () => {
+    mockedApiGet.mockImplementation(routedApiGet(
+      mockCostData,
+      { ...mockSavingsData, cache_efficiency_pct: 61.1, compression_pct: 45.5, conversation_cache_tokens: 204000 },
+    ) as never)
+    renderCostTracking()
+    await waitFor(() => {
+      expect(screen.getByTestId('ostk-savings-card')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByText('How to save more tokens'))
+    const tips = screen.getByTestId('optimization-tips')
+    // Every remaining tip states a measured number from the API payload.
+    expect(tips.textContent).toMatch(/61\.1%/)
+    expect(tips.textContent).toMatch(/45\.5%/)
+    expect(tips.textContent).toMatch(/204,000/)
+    // Canned, data-free lines are gone. The spec-decomposition tip described
+    // behavior that was removed from the product (promote no longer creates
+    // task rows), and the saa tip was unconditional filler.
+    expect(screen.queryByText(/Use "saa" to spawn agents/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Specs that decompose into multiple tasks/)).not.toBeInTheDocument()
+    // Bare praise with no number is gone too.
+    expect(screen.queryByText('Your cache hit rate is excellent. ostk is reusing most of your context efficiently.')).not.toBeInTheDocument()
+    expect(screen.queryByText(/audit trail/)).not.toBeInTheDocument()
+  })
+
+  it('ai summary does not credit subscription tokens as cache savings', async () => {
+    // conversation_cache_tokens is 0, subscription tokens are large: the
+    // summary must NOT claim ostk "saved" those subscription tokens through
+    // caching, because they were simply covered by the flat-rate plan.
+    mockedApiGet.mockImplementation(routedApiGet(
+      mockCostData,
+      { ...mockSavingsData, conversation_cache_tokens: 0, subscription_input_tokens: 22321293 },
+    ) as never)
+    renderCostTracking()
+    await waitFor(() => {
+      expect(screen.getByTestId('ostk-savings-card')).toBeInTheDocument()
+    })
+    expect(screen.queryByText(/ostk saved 22,321,293 tokens/)).not.toBeInTheDocument()
   })
 
   // Suggestions section: low cache rate warning
