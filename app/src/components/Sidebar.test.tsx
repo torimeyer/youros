@@ -1862,3 +1862,40 @@ describe('bring hidden nav items back from the sidebar (→2886)', () => {
     expect(screen.getByTestId('restore-ostk')).toBeInTheDocument()
   })
 })
+
+describe('Take the tour starts the walkthrough from the sidebar (→2971)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+    _resetSidebarBus()
+    useRunningAgentsStore.setState({ count: 0, agents: [], connected: false, lastUpdatedAt: null })
+    useAppStore.setState({ osName: 'yourOS', features: DEFAULT_FEATURES, showTour: false })
+    mockedApiGet.mockImplementation((url: string) => {
+      if (url.startsWith('/agents')) return Promise.resolve({ agents: [] })
+      if (url === '/tasks/counts') return Promise.resolve({ open: 0 })
+      if (url === '/specs/counts') return Promise.resolve({ unfinished: 0, total: 0 })
+      return Promise.resolve({ authenticated: false, unread_count: 0 })
+    })
+  })
+
+  it('renders a Take the tour entry in the bottom cluster next to What\'s New', () => {
+    renderSidebar()
+    const cluster = screen.getByTestId('whats-new-button').parentElement!
+    expect(within(cluster).getByTestId('take-the-tour-button')).toBeInTheDocument()
+    expect(screen.getByText('Take the tour')).toBeInTheDocument()
+  })
+
+  it('clicking Take the tour turns the tour on in the store', () => {
+    renderSidebar()
+    expect(useAppStore.getState().showTour).toBe(false)
+    fireEvent.click(screen.getByTestId('take-the-tour-button'))
+    expect(useAppStore.getState().showTour).toBe(true)
+  })
+
+  it('Take the tour is a plain action, not a navigation link', () => {
+    renderSidebar()
+    const button = screen.getByTestId('take-the-tour-button')
+    expect(button.tagName).toBe('BUTTON')
+    expect(button.closest('a')).toBeNull()
+  })
+})

@@ -389,6 +389,7 @@ export function Sidebar() {
   const setIsSidebarResizing = useAppStore((s) => s.setIsSidebarResizing)
   const darkMode = useAppStore((s) => s.darkMode)
   const toggleDarkMode = useAppStore((s) => s.toggleDarkMode)
+  const setShowTour = useAppStore((s) => s.setShowTour)
   const [mobileOpen, setMobileOpen] = useState(false)
   // Restore row for hidden nav items (→2886). Starts collapsed.
   const [hiddenItemsOpen, setHiddenItemsOpen] = useState(false)
@@ -926,6 +927,22 @@ export function Sidebar() {
 
       <div className="px-3 pt-3 mt-1 border-t border-slate-800/60 flex flex-col gap-0.5">
         <WhatsNew />
+        {/* Take the tour (→2971): plain action next to What's New. It does
+            not navigate, it just opens the walkthrough overlay that Layout
+            renders globally via showTour. */}
+        <button
+          type="button"
+          data-testid="take-the-tour-button"
+          title="Take the tour"
+          onClick={() => {
+            setMobileOpen(false)
+            setShowTour(true)
+          }}
+          className={utilLinkClass(false)}
+        >
+          <Icon name="tour" className="text-lg" />
+          <span className="text-xs font-medium">Take the tour</span>
+        </button>
         {TEAM_MODE_VISIBLE && instanceMode === 'team' && enterpriseUser?.role === 'admin' && (
           <AdminSection
             linkClass={linkClass}
