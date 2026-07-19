@@ -207,6 +207,12 @@ export default defineConfig({
     // means the hook dispatcher is null, so the game crashes on its first
     // hook with "Cannot read properties of null (reading 'useState')".
     // Pinning these (plus resolve.dedupe below) keeps one React per session.
+    //
+    // →2958: pinning only holds WITHIN one server run. A tab that stays
+    // open across a dev-server restart can still mix chunk stamps from two
+    // optimizer runs (seen 2026-07-19: react v=c7ea90ff + react-dom
+    // v=0233d0f5 in one stack) and crash the same way. The ErrorBoundary
+    // now recognizes that class and reloads the page once on its own.
     include: [
       'react',
       'react-dom',
