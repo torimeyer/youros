@@ -5,8 +5,10 @@ in-memory state map, the existing resolver in routers.agents cannot find the
 transcript because step 3c only checks paths it already knows about.
 
 This service walks ~/.claude/projects/ looking for a directory whose slug
-encodes the agent name via the worktree path convention:
-    /…/.claude/worktrees/agent-<name>  →  -…--claude-worktrees-agent-<name>
+encodes the agent name via the workspace path convention (the workspace
+root defaults to .claude/worktrees and is configurable via
+YOUROS_WORKTREES_DIR; see services.spawn_isolation.worktrees_root):
+    <worktrees_root>/agent-<name>  →  -…-agent-<name>
 
 It returns the largest .jsonl inside the first matching directory.
 
@@ -34,7 +36,9 @@ import time
 from pathlib import Path
 from typing import Optional
 
-__all__ = ["resolve_transcript", "clear_cache"]
+from services.spawn_isolation import worktrees_root
+
+__all__ = ["resolve_transcript", "expected_project_dir_fragment", "clear_cache"]
 
 _PROJECTS_DIR = Path.home() / ".claude" / "projects"
 
@@ -43,11 +47,26 @@ _cache: dict[str, tuple[float, Optional[Path]]] = {}
 _CACHE_TTL = 60.0  # seconds — matches _CANDIDATES_TTL_SECONDS in routers.agents
 
 
+def expected_project_dir_fragment(agent_name: str) -> str:
+    """Slug fragment the coding runtime produces for this agent's workspace.
+
+    The workspace lives at ``worktrees_root()/agent-<name>``; the runtime
+    turns that absolute path into a project directory name by replacing
+    every ``/`` and ``.`` with ``-``. The fragment always ends with
+    ``agent-<name>``, so any directory matching it also matches the loose
+    fallback needle in ``_resolve_uncached`` -- resolution behavior with
+    the default root is unchanged.
+    """
+    root_slug = str(worktrees_root()).replace("/", "-").replace(".", "-")
+    return f"{root_slug}-agent-{agent_name}"
+
+
 def resolve_transcript(agent_name: str) -> Optional[Path]:
     """Find a transcript JSONL for *agent_name* by scanning ~/.claude/projects/.
 
     Looks for any project directory whose name contains ``agent-<agent_name>``
-    (the Claude Code slug for a worktree at ``…/.claude/worktrees/agent-<name>``).
+    (the runtime's slug for a workspace at ``<worktrees_root()>/agent-<name>``,
+    wherever YOUROS_WORKTREES_DIR points the root).
     Returns the largest ``.jsonl`` file inside the first matching directory, or
     ``None`` if nothing matches.
 
@@ -71,9 +90,14 @@ def _resolve_uncached(agent_name: str) -> Optional[Path]:
     if not _PROJECTS_DIR.exists():
         return None
 
-    # Claude Code encodes the worktree path as the project dir name by replacing
-    # every "/" with "-" and stripping the leading "-".  A worktree named
-    # agent-<name> always produces a dir name that *contains* "agent-<name>".
+    # The runtime encodes the workspace path as the project dir name by
+    # replacing path separators with "-".  Primary needle: the exact slug of
+    # the CONFIGURED workspace dir (tracks YOUROS_WORKTREES_DIR).  Fallback
+    # needle: the bare "agent-<name>" fragment, which survives the slug
+    # transformation under every root, so workspaces created before a root
+    # move still resolve.  The primary needle always ends with the fallback
+    # needle, so with the default root the match set is unchanged.
+    primary_needle = expected_project_dir_fragment(agent_name)
     slug_needle = f"agent-{agent_name}"
 
     best: Optional[Path] = None
@@ -87,7 +111,7 @@ def _resolve_uncached(agent_name: str) -> Optional[Path]:
     for proj_dir in candidates:
         if not proj_dir.is_dir():
             continue
-        if slug_needle not in proj_dir.name:
+        if primary_needle not in proj_dir.name and slug_needle not in proj_dir.name:
             continue
         # Matching project dir found — return the largest non-empty .jsonl inside.
         try:

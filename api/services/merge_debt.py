@@ -1,7 +1,8 @@
 """Merge-debt scanner (→1555).
 
-Counts `.claude/worktrees/agent-*` directories that (a) have commits ahead of
-main and (b) belong to a completed agent.  Result is cached by the background
+Counts agent workspace directories (``<worktrees_root()>/agent-*``; default
+``.claude/worktrees/agent-*``, override via ``YOUROS_WORKTREES_DIR``) that
+(a) have commits ahead of main and (b) belong to a completed agent.  Result is cached by the background
 tick and surfaced on GET /api/agents as ``merge_debt_count``.
 """
 
@@ -11,9 +12,7 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
-from config import PROJECT_ROOT
-
-WORKTREES_DIR = PROJECT_ROOT / ".claude" / "worktrees"
+from services.spawn_isolation import worktrees_root
 
 _COMPLETED_STATUSES = {"completed", "completed_timeout"}
 
@@ -43,14 +42,16 @@ def scan_merge_debt(
         agent_statuses: mapping of agent_name -> status string.  When omitted
             the function imports ``agent_metadata`` from ``routers.agents``
             at call time (production path).
-        worktrees_dir: override the default ``WORKTREES_DIR`` (for tests).
+        worktrees_dir: override the configured workspace root (for tests).
+            When omitted the root resolves through
+            ``services.spawn_isolation.worktrees_root()`` at call time.
 
     Returns dict with:
         ``count``  — total worktrees with >=1 commit ahead
         ``items``  — list of {agent_name, commits_ahead, worktree_path} dicts
     """
     if worktrees_dir is None:
-        worktrees_dir = WORKTREES_DIR
+        worktrees_dir = worktrees_root()
 
     if agent_statuses is None:
         try:

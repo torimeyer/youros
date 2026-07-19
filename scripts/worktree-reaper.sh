@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # worktree-reaper.sh
 #
-# Scan .claude/worktrees/agent-* and classify each as:
+# Scan the agent workspace root (default .claude/worktrees, override via
+# YOUROS_WORKTREES_DIR; a relative value resolves against the primary
+# checkout) for agent-* worktrees and classify each as:
 #   absorbed : branch has no unique diff against main (safe to remove)
 #   unique   : branch has changes not yet on main (park, do not delete)
 #   error    : diff/status could not be determined
@@ -75,8 +77,11 @@ usage() {
   cat <<EOF
 Usage: scripts/worktree-reaper.sh [--apply] [--base <branch>] [-h|--help]
 
-Scans .claude/worktrees/agent-* and classifies each agent worktree as
+Scans the agent workspace root for agent-* worktrees and classifies each as
 absorbed (diff against <branch> is empty) or unique (has changes not on <branch>).
+The root defaults to .claude/worktrees and can be moved with the
+YOUROS_WORKTREES_DIR env var (relative values resolve against the primary
+checkout), matching services/spawn_isolation.py:worktrees_root().
 
 Without --apply: dry-run. Prints a table and exits 0.
 With --apply:    removes absorbed worktrees and their agent-* branches.
@@ -141,7 +146,15 @@ fi
 
 cd "$PRIMARY"
 
-WORKTREE_BASE="$PRIMARY/.claude/worktrees"
+# →2963: the agent workspace root is configurable. Default: .claude/worktrees
+# relative to the primary checkout (unchanged historical layout). An absolute
+# YOUROS_WORKTREES_DIR is used as-is; a relative value resolves against the
+# primary checkout. Mirrors services/spawn_isolation.py:worktrees_root().
+_WORKTREES_DIR="${YOUROS_WORKTREES_DIR:-.claude/worktrees}"
+case "$_WORKTREES_DIR" in
+  /*) WORKTREE_BASE="$_WORKTREES_DIR" ;;
+  *)  WORKTREE_BASE="$PRIMARY/$_WORKTREES_DIR" ;;
+esac
 
 # ------------------------------------------------------------------
 # Live-agent guards (→2608)

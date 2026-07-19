@@ -24,9 +24,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 import threading
 import time
+from pathlib import Path
 from typing import Iterable, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -751,6 +753,51 @@ async def create_worktree(
     return True, ""
 
 
+# ---------------------------------------------------------------------------
+# Workspace root resolution (→2963)
+# ---------------------------------------------------------------------------
+
+# Environment variable that overrides where agent workspaces live.
+WORKTREES_DIR_ENV_VAR = "YOUROS_WORKTREES_DIR"
+
+# Historical default, relative to the project root. The coding runtime that
+# creates and switches these workspaces expects this exact layout, so the
+# default must stay put; only the override is new.
+DEFAULT_WORKTREES_SUBDIR = ".claude/worktrees"
+
+
+def worktrees_root(project_root=None) -> Path:
+    """Return the canonical agent workspace root (→2963).
+
+    Default: ``<project_root>/.claude/worktrees`` -- byte-for-byte the
+    historical hard-wired location. Set ``YOUROS_WORKTREES_DIR`` to move it:
+    an absolute value is used as-is, a relative value resolves against the
+    project root. The environment is read at call time, never cached, so
+    tests and runtime reconfiguration always see the current value.
+
+    Every backend consumer of the workspace folder must resolve through
+    this function instead of hard-wiring the path.
+    """
+    if project_root is None:
+        from config import PROJECT_ROOT as _project_root
+        project_root = _project_root
+    root = Path(project_root)
+    raw = os.environ.get(WORKTREES_DIR_ENV_VAR, "").strip()
+    if raw:
+        override = Path(raw).expanduser()
+        return override if override.is_absolute() else root / override
+    return root / DEFAULT_WORKTREES_SUBDIR
+
+
+def worktree_path_for(agent_name: str, project_root=None) -> Path:
+    """Canonical workspace path for an agent: ``<root>/agent-<short id>``.
+
+    Mirrors the spawn path's construction (short_worktree_id caps the id so
+    the socket path stays bindable) under the configured root.
+    """
+    return worktrees_root(project_root) / f"agent-{short_worktree_id(agent_name)}"
+
+
 # macOS sun_path (Unix-domain socket address) is 104 bytes, so the kernel
 # rejects bind() when the sock path is >= 104 chars. The ostk MCP server
 # binds <cwd>/.ostk/ostk.sock, so when cwd is a deeply nested worktree path
@@ -761,17 +808,25 @@ SOCK_SUFFIX_LEN = len("/.ostk/ostk.sock")
 SUN_PATH_MAX = 104
 SHORT_CWD_DIR = "/tmp"
 
-# Fixed prefix the worktree path adds around the agent name:
-#   <project_root>/.claude/worktrees/agent-<id>/.ostk/ostk.sock
-# We must keep the total under SUN_PATH_MAX (104).  PROJECT_ROOT can vary,
-# but realistic checkouts (~50 chars) plus ".claude/worktrees/agent-" (24)
-# plus "/.ostk/ostk.sock" (16) leaves ~14 chars for the id before macOS
-# rejects bind().  short_cwd_for_worktree() falls back to a /tmp symlink for
-# the cwd, but the MCP server in the spawned subagent does not always honor
+# Prefix the workspace path adds around the agent name (default root):
+#   <worktrees_root()>/agent-<id>/.ostk/ostk.sock
+# We must keep the total under SUN_PATH_MAX (104).  With the default root,
+# realistic checkouts (~50 chars) plus ".claude/worktrees/agent-" (24) plus
+# "/.ostk/ostk.sock" (16) leaves ~14 chars for the id before macOS rejects
+# bind().  short_cwd_for_worktree() falls back to a /tmp symlink for the
+# cwd, but the MCP server in the spawned subagent does not always honor
 # OSTK_SOCKET or OSTK_ROOT and still tries to bind at the real path.  Capping
 # the worktree id at spawn time keeps the path short structurally so the
 # bind always succeeds.  30 chars gives a comfortable margin even on long
 # project roots.
+#
+# The cap is deliberately a DETERMINISTIC constant, not derived from the
+# resolved root: worktree ids must be identical across machines and across
+# YOUROS_WORKTREES_DIR settings because scripts/worktree-reaper.sh
+# re-derives them with the same fixed cap for its active-agent protection.
+# When a CONFIGURED root is long enough to overflow sun_path anyway,
+# short_cwd_for_worktree() measures the resolved path's ACTUAL length and
+# handles the overflow with the /tmp symlink fallback.
 WORKTREE_ID_MAX_LEN = 30
 
 
@@ -779,7 +834,7 @@ def short_worktree_id(name: str, max_len: int = WORKTREE_ID_MAX_LEN) -> str:
     """Return a worktree-dir-safe identifier derived from an agent name.
 
     Long agent names blow past macOS sun_path (104) when combined with the
-    nested ``<project_root>/.claude/worktrees/agent-<name>/.ostk/ostk.sock``
+    nested ``<worktrees_root()>/agent-<name>/.ostk/ostk.sock``
     structure, which forces the ostk MCP server to fall back to degraded mode
     and silently drops bash/read/fs_ops from the subagent's tool surface.
 
@@ -802,7 +857,8 @@ def short_cwd_for_worktree(wt_path) -> str:
     """Return a cwd that keeps <cwd>/.ostk/ostk.sock under macOS SUN_PATH_MAX.
 
     For short worktree paths (most cases) this is just str(wt_path).
-    For long worktree paths (long agent names + nested .claude/worktrees/)
+    For long worktree paths (long agent names, or a long configured
+    workspace root -- the check measures the resolved path's actual length)
     this is a /tmp symlink that resolves to the worktree, so the kernel
     sees a short cwd and binds a sock path that fits sun_path.
     """
