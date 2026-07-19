@@ -6361,7 +6361,7 @@ async def _provision_worktree_isolation(
     _worktree_path: Optional[str] = None
     _worktree_branch: Optional[str] = None
     # Cap the worktree id so the resulting
-    #   <project_root>/.claude/worktrees/agent-<id>/.ostk/ostk.sock
+    #   <worktrees_root()>/agent-<id>/.ostk/ostk.sock
     # path stays under macOS sun_path (104).  Long agent names
     # (Claude Code derives names from the spawn description, so a
     # verbose description can produce 40+ char names) otherwise
@@ -6369,10 +6369,16 @@ async def _provision_worktree_isolation(
     # subagent silently registers only the static tool surface
     # (no bash/read/fs_ops).  See feedback memory entry
     # subagent_mcp_must_have_realtime_backup for full context.
-    from services.spawn_isolation import short_worktree_id as _short_wt_id
+    from services.spawn_isolation import (
+        short_worktree_id as _short_wt_id,
+        worktree_path_for as _worktree_path_for,
+    )
     _wt_id = _short_wt_id(name)
     _wt_branch = f"worktree-agent-{_wt_id}"
-    _wt_path = PROJECT_ROOT / ".claude" / "worktrees" / f"agent-{_wt_id}"
+    # Resolve through the configurable workspace root (→2963) instead of
+    # hard-wiring .claude/worktrees. Default resolution is byte-for-byte
+    # identical; YOUROS_WORKTREES_DIR moves it. (→2964)
+    _wt_path = _worktree_path_for(name, PROJECT_ROOT)
     try:
         from services.spawn_isolation import (
             create_worktree as _create_worktree,
@@ -6643,8 +6649,6 @@ def _compose_spawn_meta(
         if body.user_authored is not None
         else bool(body.originating_session_id and body.originating_user_message_id)
     )
-    if body.notify:
-        spawn_meta["notify"] = body.notify
     return spawn_meta
 
 
@@ -9475,26 +9479,6 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
             )
         except Exception:
             pass
-
-        # iMessage completion text-back for agents started via text (→1875).
-        # Only fires when the spawn included a notify target; in-app spawns never have one.
-        # Summary is already persisted in agent_metadata above (line ~7984) so we read it
-        # from there — the function-parameter `body` is shadowed by a local var above.
-        _notify = agent_metadata.get(name, {}).get("notify")
-        if _notify and _notify.get("kind") == "imessage" and _notify.get("chat_id") is not None:
-            try:
-                from services.imessage import reply_to_chat_sync
-                from services.text_bridge import text_bridge as _text_bridge
-                _agent_summary = agent_metadata.get(name, {}).get("summary") or f"Agent '{name}' finished."
-                _msg = f"{name}: {_agent_summary}"
-                # Pre-register before sending so the self-chat loop guard is armed.
-                # Without this, the received echo of the completion text would be picked
-                # up by the poller and re-dispatched as a new command (→2489).
-                if _text_bridge._imessage_poller is not None:
-                    _text_bridge._imessage_poller.mark_sent(_msg)
-                await asyncio.to_thread(reply_to_chat_sync, _notify["chat_id"], _msg)
-            except Exception as _notify_exc:
-                logger.warning("mark_agent_complete: iMessage notify failed: %s", _notify_exc)
 
     # Drop the stdin writer on completion so future /nudge calls don't try
     # to write to a dead pipe.

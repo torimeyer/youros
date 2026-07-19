@@ -290,11 +290,6 @@ class AgentSpawn(BaseModel):
     # `ostk run` so no process is actually spawned. Safe for integration
     # tests and smoke checks.
     dry_run: bool = False
-    # Optional back-channel for completion notifications. The feature that
-    # produced this (starting agents from a phone text) was removed in →2967;
-    # the field stays because routers/agents.py still reads it on completion.
-    # Format: {"kind": "imessage", "chat_id": <int>}.
-    notify: Optional[dict] = None
 
 
 class AgentNudge(BaseModel):
