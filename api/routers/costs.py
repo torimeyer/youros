@@ -1027,6 +1027,11 @@ def _compute_savings_for_period(period: Optional[str]) -> dict:
     conv_cache_creation = 0
     conv_total_input = 0
     squash_events_in_window: list[dict] = []
+    # →2961: agent runs count toward savings. Agent completions append
+    # agent_run events (services.token_metrics.record_agent_run) carrying
+    # each run's real token total; sum them over the same window.
+    agent_run_tokens = 0
+    agent_run_count = 0
 
     all_metrics_events = _read_metrics_events_cached()
     for ev in all_metrics_events:
@@ -1041,9 +1046,20 @@ def _compute_savings_for_period(period: Optional[str]) -> dict:
             conv_total_input += int(ev.get("input_tokens", 0) or 0)
         elif ev.get("event") == "squash":
             squash_events_in_window.append(ev)
+        elif ev.get("event") == "agent_run":
+            try:
+                agent_run_tokens += int(ev.get("tokens_used", 0) or 0)
+            except (TypeError, ValueError):
+                pass
+            agent_run_count += 1
 
     # For windowed periods return available:false when there are no events
-    if cutoff is not None and conv_total_input == 0 and not squash_events_in_window:
+    if (
+        cutoff is not None
+        and conv_total_input == 0
+        and not squash_events_in_window
+        and agent_run_count == 0
+    ):
         return {"available": False}
 
     # ------------------------------------------------------------------
@@ -1083,6 +1099,18 @@ def _compute_savings_for_period(period: Optional[str]) -> dict:
     else:
         windowed_compression = None  # period=all: use the ostk binary session figure
 
+    # →2961 fold-in: squash_tokens_saved was read by the explain endpoints
+    # and the savings card but never set anywhere, so it silently added
+    # zero forever. The real value lives on the squash events themselves:
+    # the →2960 recorder stamps each event with the kernel's token-savings
+    # delta (field: tokens_saved). Sum it over the requested window.
+    squash_tokens_saved = 0
+    for e in squash_events_in_window:
+        try:
+            squash_tokens_saved += int(e.get("tokens_saved", 0) or 0)
+        except (TypeError, ValueError):
+            pass
+
     # ------------------------------------------------------------------
     # 3. Get ostk binary data (always needed for savings_usd + fallback)
     # ------------------------------------------------------------------
@@ -1108,7 +1136,11 @@ def _compute_savings_for_period(period: Optional[str]) -> dict:
         cost_without = 0.0
         cost_with = 0.0
         # If ostk binary missing and no windowed data, return unavailable
-        if conv_total_input == 0 and not squash_events_in_window:
+        if (
+            conv_total_input == 0
+            and not squash_events_in_window
+            and agent_run_count == 0
+        ):
             return {"available": False}
 
     # ------------------------------------------------------------------
@@ -1125,6 +1157,9 @@ def _compute_savings_for_period(period: Optional[str]) -> dict:
         "conversation_cache_read_tokens": conv_cache_read,
         "conversation_cache_creation_tokens": conv_cache_creation,
         "conversation_cache_tokens": conv_cache_read,
+        "squash_tokens_saved": squash_tokens_saved,
+        "agent_run_tokens": agent_run_tokens,
+        "agent_run_count": agent_run_count,
         "period": period or "all",
     }
 
@@ -1183,6 +1218,8 @@ def _compute_savings_for_period(period: Optional[str]) -> dict:
             "compression_pct": compression_pct,
             "conversation_cache_pct": conversation_cache_pct,
             "conversation_cache_tokens": conv_cache_read,
+            "squash_tokens_saved": squash_tokens_saved,
+            "agent_run_tokens": agent_run_tokens,
             "subscription_savings_usd": result.get("subscription_savings_usd", 0),
             "subscription_input_tokens": result.get("subscription_input_tokens", 0),
             "subscription_output_tokens": result.get("subscription_output_tokens", 0),

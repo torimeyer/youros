@@ -9412,6 +9412,26 @@ async def mark_agent_complete(name: str, body: Optional[AgentComplete] = None):
     _emit_audit_event("agent.completed", {"name": name})
     trace_event("agent_completed", agent_name=name)
 
+    # →2961: agent runs count toward the savings page. Chat sessions
+    # record per-turn via safe_record_chat_turn; board agents recorded
+    # nothing at completion, so the savings window only ever counted
+    # chat. Record the run's REAL token total (the board row's
+    # tokens_used counter) into the same metrics bookkeeping, tagged
+    # source="agent". Rows with source="chat" are inline chat tabs whose
+    # turns are already recorded per-turn — skip them so nothing is
+    # counted twice. Best-effort: a metrics outage never blocks /complete.
+    try:
+        _sv_meta = agent_metadata.get(name) or existing_meta or {}
+        if _sv_meta.get("source") != "chat":
+            from services.token_metrics import safe_record_agent_run
+            safe_record_agent_run(
+                agent_name=name,
+                model=_sv_meta.get("model", ""),
+                tokens_used=_sv_meta.get("tokens_used", 0) or 0,
+            )
+    except Exception:
+        pass
+
     # Write a transcript marker so the status check finds it even on
     # legacy rows. IMPORTANT: only write the stub if no real transcript
     # source exists. Otherwise the stub would mask the real JSONL that

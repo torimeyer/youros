@@ -244,6 +244,66 @@ def safe_record_chat_turn(**kwargs) -> None:
         pass
 
 
+def record_agent_run(
+    *,
+    agent_name: str,
+    model: str,
+    tokens_used: int,
+    source: str = "agent",
+) -> None:
+    """Append one agent-run event to ``<project>/.ostk/metrics.jsonl``.
+
+    Called at agent completion time with the run's REAL recorded token
+    total (the agent board row's ``tokens_used`` counter). Chat turns are
+    recorded per-turn by ``record_chat_turn``; agent runs previously
+    recorded nothing, so the savings window only ever counted chat
+    (→2961). The ``source`` tag lets readers tell agent runs apart from
+    chat turns.
+
+    Skips runs with no recorded tokens: writing a zero would fabricate
+    savings-page availability for a run that did no measured work.
+    Best effort: any IO failure is swallowed so a metrics outage can
+    never break agent completion.
+    """
+    try:
+        tokens = int(tokens_used or 0)
+    except (TypeError, ValueError):
+        return
+    if tokens <= 0:
+        return
+    _ensure_parent()
+    event = {
+        "event": "agent_run",
+        "agent": agent_name,
+        "model": model,
+        "tokens_used": tokens,
+        "source": source,
+        "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    line = json.dumps(event, separators=(",", ":")) + "\n"
+    try:
+        with open(_METRICS_PATH, "a", encoding="utf-8") as f:
+            f.write(line)
+    except OSError:
+        pass
+
+
+def safe_record_agent_run(**kwargs) -> None:
+    """Wrapper that never raises. Use from the agent completion path."""
+    try:
+        record_agent_run(**kwargs)
+    except Exception:
+        pass
+    # Agent completions are a second natural heartbeat for the →2960
+    # compression feed: a day of agent-only work still advances the
+    # kernel squash counters, and without this the recorder would never
+    # fire on days with zero chat turns.
+    try:
+        maybe_record_compression()
+    except Exception:
+        pass
+
+
 def _run_ostk_metrics_json() -> Optional[dict]:
     """Shell out to ``ostk os metrics --json`` and return the raw payload.
 
