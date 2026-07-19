@@ -5880,6 +5880,8 @@ async def spawn_agent(body: AgentSpawn, request: Request = None, response: Respo
         _ostk_result = None
         _ostk_dry_run = getattr(body, "dry_run", False)
         _ostk_agentfile_path = None
+        _ostk_wt_path: Optional[str] = None
+        _ostk_wt_branch: Optional[str] = None
         try:
             from services.agentfile_parser import (
                 _find_any_agentfile as _ostk_find_agentfile,
@@ -5906,12 +5908,109 @@ async def spawn_agent(body: AgentSpawn, request: Request = None, response: Respo
                         ),
                     )
             else:
-                _ostk_result = await ostk.run_agentfile(
-                    str(_ostk_agentfile_path),
-                    env_passthrough=["ANTHROPIC_API_KEY", "YOUROS_AGENT_NAME"],
-                    dry_run=_ostk_dry_run,
+                # →2944 (rows →1885/→1886/→1887): the ostk-run default path keeps
+                # the same safety rails as the bespoke path. Resolve isolation the
+                # same way (agentfile ISOLATION directive first, then the verb
+                # heuristic), enforce the same locks contract, fork the same
+                # worktree, and run ostk from the short worktree cwd with the
+                # same env the bespoke subprocess would get.
+                from services.spawn_isolation import (
+                    acquire_spawn_locks as _ostk_acquire_locks,
+                    decide_isolation as _ostk_decide_isolation,
+                    release_spawn_locks as _ostk_release_locks,
+                    validate_locks_for_spawn as _ostk_validate_locks,
                 )
-                _ostk_ran = True
+                if not body.isolation:
+                    # Honour the agentfile's ISOLATION directive before verb
+                    # detection, mirroring the template pre-resolution in
+                    # _legacy_bespoke_spawn: "nono" is an explicit opt-out;
+                    # "none" (no directive) with no caller locks defaults to
+                    # the main checkout so lock-less template spawns keep
+                    # working exactly as they do on the bespoke path.
+                    try:
+                        from services.agentfile_parser import (
+                            get_agent_config_by_template as _ostk_get_cfg,
+                        )
+                        _ostk_cfg = _ostk_get_cfg(_ostk_stem)
+                        if _ostk_cfg is not None and _ostk_cfg.isolation == "nono":
+                            body.isolation = _ostk_cfg.isolation
+                        elif (
+                            _ostk_cfg is not None
+                            and _ostk_cfg.isolation == "none"
+                            and not body.locks
+                        ):
+                            body.isolation = "none"
+                    except Exception:
+                        pass
+                if body.follow_on and not body.isolation:
+                    body.isolation = "none"
+                body.isolation = _ostk_decide_isolation(
+                    description=body.description,
+                    prompt=body.prompt,
+                    explicit=body.isolation,
+                    agent_name=body.name,
+                )
+                _ostk_locks_ok, _ostk_locks_err = _ostk_validate_locks(
+                    isolation=body.isolation or "none",
+                    locks=body.locks,
+                )
+                if not _ostk_locks_ok:
+                    raise HTTPException(status_code=400, detail=_ostk_locks_err)
+                if not _ostk_dry_run:
+                    _ostk_lock_ok, _ostk_lock_keys, _ostk_contenders = _ostk_acquire_locks(
+                        spawn_id=body.name,
+                        locks=body.locks,
+                    )
+                    if not _ostk_lock_ok:
+                        raise HTTPException(
+                            status_code=409,
+                            detail={
+                                "error": "lock_conflict",
+                                "message": (
+                                    "Another spawn is already holding one of the paths "
+                                    "this spawn asked to edit. Wait for it to finish or "
+                                    "retry with a different path."
+                                ),
+                                "conflicts": [
+                                    {
+                                        "requested": requested,
+                                        "held_by_spawn": holder_id,
+                                        "held_path": holder_raw,
+                                    }
+                                    for (requested, holder_id, holder_raw) in _ostk_contenders
+                                ],
+                            },
+                        )
+                _ostk_cwd: Optional[str] = None
+                # YOUROS_AGENT_NAME routes hook-fired heartbeats to this row.
+                # It was already listed in env_passthrough here but nothing
+                # ever set it, so the passthrough forwarded nothing.
+                _ostk_env: dict = {"YOUROS_AGENT_NAME": body.name}
+                try:
+                    if body.isolation == "worktree" and not _ostk_dry_run:
+                        (
+                            _ostk_cwd,
+                            _ostk_wt_path,
+                            _ostk_wt_branch,
+                            _ostk_wt_env,
+                        ) = await _provision_worktree_isolation(body.name)
+                        _ostk_env.update(_ostk_wt_env)
+                    _ostk_result = await ostk.run_agentfile(
+                        str(_ostk_agentfile_path),
+                        env_passthrough=sorted(
+                            {"ANTHROPIC_API_KEY", *_ostk_env.keys()}
+                        ),
+                        dry_run=_ostk_dry_run,
+                        cwd=_ostk_cwd,
+                        env=_ostk_env,
+                    )
+                    _ostk_ran = True
+                except HTTPException:
+                    # Worktree provisioning failed. The bespoke path would
+                    # fail the same way, so a fallback would not help;
+                    # release the locks this branch acquired and surface it.
+                    _ostk_release_locks(spawn_id=body.name)
+                    raise
         except HTTPException:
             raise
         except Exception as _ostk_exc:
@@ -5922,6 +6021,13 @@ async def spawn_agent(body: AgentSpawn, request: Request = None, response: Respo
                 )
                 _ostk_run_fallback_count["count"] += 1
             else:
+                try:
+                    from services.spawn_isolation import (
+                        release_spawn_locks as _ostk_release_locks_err,
+                    )
+                    _ostk_release_locks_err(spawn_id=body.name)
+                except Exception:
+                    pass
                 raise HTTPException(
                     status_code=500,
                     detail=f"ostk run failed: {_ostk_exc}",
@@ -5932,10 +6038,44 @@ async def spawn_agent(body: AgentSpawn, request: Request = None, response: Respo
                 body.name, _ostk_agentfile_path, _ostk_dry_run,
                 _ostk_result.get("exit_code"), _env_use_ostk_run,
             )
+            if not _ostk_dry_run:
+                # →2944 (row →1886): record the same spawn metadata the
+                # bespoke path writes so the scaffold-commit watcher,
+                # /recover (max_recoveries), worktree unlock on terminal
+                # status, and needle release all see ostk-run agents.
+                _ostk_model = MODEL_MAP.get(body.model, body.model)
+                spawn_meta = _compose_spawn_meta(
+                    body,
+                    model=_ostk_model,
+                    pid=(_ostk_result or {}).get("pid"),
+                    worktree_path=_ostk_wt_path,
+                    worktree_branch=_ostk_wt_branch,
+                )
+                agent_metadata[body.name] = spawn_meta
+                await _save_agent_state_async()
+                _set_agent_status(body.name, "running")
+                _ostk_spawn_nid = spawn_meta.get("needle_id")
+                if _ostk_spawn_nid:
+                    _fire_set_task_in_progress(_ostk_spawn_nid)
+                try:
+                    await ostk._run(
+                        "os", "audit", "--event", "agent.spawned",
+                        "--data", json.dumps(
+                            {
+                                "name": body.name,
+                                "model": _ostk_model,
+                                "budget": str(body.budget),
+                            }
+                        ),
+                    )
+                except Exception:
+                    pass
             return {
                 "result": f"Agent '{body.name}' spawned via ostk run",
                 "name": body.name,
                 "status": "dry_run" if _ostk_dry_run else "running",
+                "isolation": body.isolation,
+                "worktree_path": _ostk_wt_path,
                 "ostk_run": _ostk_result,
                 "brief_warning": _brief_warning.message if _brief_warning else None,
             }
@@ -6006,6 +6146,313 @@ async def spawn_agent(body: AgentSpawn, request: Request = None, response: Respo
         "transcript": result.transcript_path,
         "brief_warning": result.detail.get("brief_warning"),
     }
+
+
+async def _provision_worktree_isolation(
+    name: str,
+) -> "tuple[str, Optional[str], Optional[str], dict]":
+    """Fork a git worktree for an agent spawn and compute its env rails (→2944).
+
+    Extracted verbatim from the bespoke spawn path so the ostk-run default
+    path gets the exact same isolation: the short-cwd trick,
+    OSTK_PROJECT_ROOT/OSTK_ROOT, CLAUDE_PROJECT_DIR, YOUROS_AGENT_NAME,
+    OSTK_SOCKET, the .claude/.mcp.json sync, and the socket/needles
+    symlinks. Returns ``(spawn_cwd, worktree_path, worktree_branch,
+    env_overrides)``; raises HTTPException(500) when the fork fails,
+    exactly like the bespoke path always has.
+    """
+    from config import PROJECT_ROOT
+
+    env_overrides: dict = {}
+    _spawn_cwd = str(PROJECT_ROOT)
+    _worktree_path: Optional[str] = None
+    _worktree_branch: Optional[str] = None
+    # Cap the worktree id so the resulting
+    #   <project_root>/.claude/worktrees/agent-<id>/.ostk/ostk.sock
+    # path stays under macOS sun_path (104).  Long agent names
+    # (Claude Code derives names from the spawn description, so a
+    # verbose description can produce 40+ char names) otherwise
+    # overflow, the ostk MCP server's bind() fails, and the
+    # subagent silently registers only the static tool surface
+    # (no bash/read/fs_ops).  See feedback memory entry
+    # subagent_mcp_must_have_realtime_backup for full context.
+    from services.spawn_isolation import short_worktree_id as _short_wt_id
+    _wt_id = _short_wt_id(name)
+    _wt_branch = f"worktree-agent-{_wt_id}"
+    _wt_path = PROJECT_ROOT / ".claude" / "worktrees" / f"agent-{_wt_id}"
+    try:
+        from services.spawn_isolation import (
+            create_worktree as _create_worktree,
+            short_cwd_for_worktree as _short_cwd_for_worktree,
+            sync_claude_dir_to_worktree as _sync,
+        )
+        _wt_ok, _wt_err = await _create_worktree(
+            project_root=PROJECT_ROOT,
+            agent_name=name,
+            branch=_wt_branch,
+            wt_path=_wt_path,
+        )
+        if _wt_ok:
+            # Cap cwd so <cwd>/.ostk/ostk.sock fits macOS sun_path (104).
+            # Long agent names + nested .claude/worktrees/agent-<name>/
+            # otherwise blow past the limit, the ostk daemon's bind()
+            # fails, and the MCP server falls back to degraded mode
+            # without bash/read/fs_ops — which silently pushes the
+            # subagent onto native tools and reintroduces the cwd-leak.
+            _spawn_cwd = _short_cwd_for_worktree(_wt_path)
+            # Also set OSTK_PROJECT_ROOT and OSTK_ROOT to the short path
+            # so the daemon uses it to compute the socket path instead of
+            # walking up from getcwd() (macOS resolves symlinks in cwd via
+            # getcwd(), defeating the short-cwd approach for socket binding).
+            # The short path is a /tmp symlink that resolves to the real
+            # worktree, so all file I/O still reaches the correct checkout.
+            # CLAUDE_PROJECT_DIR must stay as the real path so Claude Code
+            # hooks and the worktree guard resolve to the correct checkout.
+            env_overrides["OSTK_PROJECT_ROOT"] = _spawn_cwd
+            env_overrides["OSTK_ROOT"] = _spawn_cwd
+            # CLAUDE_PROJECT_DIR is inherited from the parent env
+            # (the spawn env starts as a copy of os.environ), which points
+            # to the parent repo. Without this override, hooks and
+            # Claude Code itself resolve file paths against the parent
+            # checkout, causing all edits to land there instead of the
+            # worktree. This is the cwd-leak root cause (→932, →916).
+            env_overrides["CLAUDE_PROJECT_DIR"] = str(_wt_path)
+            # heartbeat-agent.sh reads YOUROS_AGENT_NAME to route its
+            # hook-fired heartbeats to the correct registered row.
+            # Without this the hook derives a session_id-based name
+            # that never matches the custom-named agent row, leaving
+            # last_heartbeat_at null for the entire run.
+            env_overrides["YOUROS_AGENT_NAME"] = name
+            _worktree_path = str(_wt_path)
+            _worktree_branch = _wt_branch
+            # L2.3 (→902): sync .claude/ into the new worktree so hook
+            # edits do not leak across sessions.
+            await _sync(PROJECT_ROOT / ".claude", _wt_path / ".claude")
+            # Copy .mcp.json so subagents get the ostk MCP server (→952).
+            _mcp_src = PROJECT_ROOT / ".mcp.json"
+            if _mcp_src.exists() and _wt_path.is_dir():
+                import shutil as _shutil
+                _shutil.copy2(_mcp_src, _wt_path / ".mcp.json")
+            # Anchor the ostk MCP root to this worktree. Without .ostk/
+            # here the server traverses up to .claude/worktrees/.ostk/
+            # (the shared parent state) and roots all bash calls to
+            # .claude/worktrees/, where git writes land on parent main
+            # instead of the worktree branch. (→932)
+            (_wt_path / ".ostk").mkdir(parents=True, exist_ok=True)
+            # Symlink the main daemon socket into the worktree's .ostk/
+            # so ostk kernel serve bridges to the running daemon instead
+            # of spawning a new one. Without this symlink the worktree
+            # kernel starts in standalone mode, fails to initialize, and
+            # only registers static tools (context/search/nudge) while
+            # fs/shell/bash stay missing — leaving the subagent with no
+            # way to write files when the hook blocks native fallbacks.
+            _main_sock = PROJECT_ROOT / ".ostk" / "ostk.sock"
+            _wt_sock = _wt_path / ".ostk" / "ostk.sock"
+            # Point OSTK_SOCKET directly at the main daemon socket so the
+            # subagent's ostk CLI connects there without any path computation.
+            # agent_loop.rs resolve_socket_path() checks OSTK_SOCKET first,
+            # bypassing the <cwd>/.ostk/ostk.sock fallback that would exceed
+            # macOS sun_path (104) for long worktree names. This is the
+            # primary mitigation for the degraded-MCP mode bug (→1177).
+            env_overrides["OSTK_SOCKET"] = str(_main_sock)
+            logger.info(
+                "spawn.ostk_socket_env.set name=%s socket=%s",
+                name, _main_sock,
+            )
+            if not _wt_sock.exists():  # always symlink, even if daemon not yet running
+                try:
+                    os.symlink(str(_main_sock), str(_wt_sock))
+                    logger.info(
+                        "spawn.ostk_sock_symlink.created name=%s target=%s",
+                        name, _main_sock,
+                    )
+                except Exception as _sym_exc:
+                    logger.warning(
+                        "spawn.ostk_sock_symlink.failed name=%s err=%s",
+                        name, _sym_exc,
+                    )
+            # Symlink needles/ to the main repo's shared needle store
+            # so `ostk work add` from the worktree writes to the same
+            # issues.jsonl the backend reads. Without this symlink, when
+            # the daemon is not running, ostk falls back to direct file
+            # I/O and fails with "issues.lock: No such file or directory"
+            # because .ostk/needles/ does not exist in the worktree.
+            # Needles filed from the worktree then never appear in the UI.
+            # (→1143)
+            _main_needles = PROJECT_ROOT / ".ostk" / "needles"
+            _wt_needles = _wt_path / ".ostk" / "needles"
+            if _main_needles.exists() and not _wt_needles.exists():
+                try:
+                    os.symlink(str(_main_needles), str(_wt_needles))
+                    logger.info(
+                        "spawn.ostk_needles_symlink.created name=%s target=%s",
+                        name, _main_needles,
+                    )
+                except Exception as _sym_exc:
+                    logger.warning(
+                        "spawn.ostk_needles_symlink.failed name=%s err=%s",
+                        name, _sym_exc,
+                    )
+        else:
+            logger.warning(
+                "spawn.worktree.fork_failed name=%s err=%s",
+                name, _wt_err,
+            )
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "error": "worktree_creation_failed",
+                    "message": (
+                        "Could not create a git worktree for this agent. "
+                        f"Reason: {_wt_err or 'unknown'}. "
+                        "Fix the underlying git error and retry."
+                    ),
+                },
+            )
+    except HTTPException:
+        raise
+    except Exception as _wt_exc:
+        logger.warning(
+            "spawn.worktree.fork_exception name=%s err=%s",
+            name, _wt_exc,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "worktree_creation_exception",
+                "message": (
+                    "An unexpected error prevented worktree creation for this agent. "
+                    f"Error: {_wt_exc}. "
+                    "Fix the underlying error and retry."
+                ),
+            },
+        )
+    return _spawn_cwd, _worktree_path, _worktree_branch, env_overrides
+
+
+def _compose_spawn_meta(
+    body: "AgentSpawn",
+    *,
+    model: str,
+    pid: "Optional[int]" = None,
+    transcript_path: "Optional[str]" = None,
+    worktree_path: "Optional[str]" = None,
+    worktree_branch: "Optional[str]" = None,
+) -> dict:
+    """Build the agent_metadata row for a fresh spawn (→2944, shared).
+
+    Extracted from the bespoke spawn path so the ostk-run default path
+    records the exact same metadata: the scaffold-commit watcher reads
+    ``worktree_path``, /recover reads prompt/model/budget/recovery_count,
+    and the terminal-status cleanup reads isolation + needle ids.
+    """
+    now_spawn = datetime.now(timezone.utc).isoformat()
+    spawn_meta: dict = {
+        "status": "running",
+        "spawned_at": now_spawn,
+        "last_heartbeat_at": now_spawn,
+        "budget": str(body.budget),
+        "model": model,
+        "tokens_used": 0,
+    }
+    if pid is not None:
+        spawn_meta["pid"] = pid
+    if body.token_limit is not None:
+        spawn_meta["token_limit"] = body.token_limit
+    # Record the resolved template name so completion hooks (e.g. the
+    # Roadmap output capture) can detect which marketplace template
+    # produced the final answer. Stored raw; downstream comparisons
+    # lowercase and strip before matching.
+    if body.template:
+        spawn_meta["template"] = body.template
+        # Resolve the template's ``produces_doc`` flag at spawn time and
+        # stamp it into metadata so the /complete hook does not need to
+        # re-look up the template (which may have been edited between
+        # spawn and complete).
+        try:
+            from services.agent_templates_store import agent_templates_store
+            tpl = agent_templates_store.get_by_name_or_alias(body.template)
+            if tpl and tpl.get("produces_doc"):
+                spawn_meta["template_produces_doc"] = True
+        except Exception:
+            pass
+    # Persist the caller-supplied human-readable task and description
+    # so the Agents page can show a friendly title instead of the
+    # opaque internal name.
+    if body.task:
+        spawn_meta["task"] = body.task
+    if body.description:
+        spawn_meta["description"] = body.description
+    # Originating task linkage: persist the task_id into metadata so
+    # that the task list endpoint can cheaply compute "is a live
+    # agent working on this task?".
+    if body.task_id:
+        spawn_meta["task_id"] = body.task_id
+    if body.needle_id:
+        spawn_meta["needle_id"] = body.needle_id
+    else:
+        _inferred_nid = _infer_needle_id(
+            body.name or "",
+            body.task or "",
+            body.description or "",
+            body.prompt or "",
+        )
+        if _inferred_nid:
+            spawn_meta["needle_id"] = _inferred_nid
+    # Auto-claim: store all →NNN tokens so in_progress is shown for
+    # every referenced needle, not just the first one (→1204).
+    _all_nids = _extract_all_needle_ids(
+        body.task or "",
+        body.description or "",
+        body.prompt or "",
+    )
+    if _all_nids:
+        spawn_meta["needle_ids"] = _all_nids
+    # Worktree isolation: record the fork location so /cleanup and
+    # the pre-merge gate can find the branch later. Keys are only
+    # set when the fork actually succeeded.
+    if body.isolation == "worktree" and worktree_path:
+        spawn_meta["worktree_path"] = worktree_path
+        spawn_meta["worktree_branch"] = worktree_branch
+        spawn_meta["isolation"] = "worktree"
+    else:
+        spawn_meta["isolation"] = body.isolation or "none"
+    # Always stamp a real source so the audit-log "source=audit"
+    # placeholder never wins on the list endpoint.
+    spawn_meta["source"] = body.source or "api"
+    # Preserve recovery_count across re-spawns so the cap is tracked.
+    existing_meta = agent_metadata.get(body.name) or {}
+    if existing_meta.get("recovery_count"):
+        spawn_meta["recovery_count"] = existing_meta["recovery_count"]
+    # Workflow linkage: carry forward from caller or existing metadata.
+    workflow_run_id = body.workflow_run_id or existing_meta.get("workflow_run_id")
+    if workflow_run_id:
+        spawn_meta["workflow_run_id"] = workflow_run_id
+    # Record the transcript path so a subsequent /register call can
+    # preserve it instead of falling back to auto-discovery. The
+    # ostk-run path passes None (ostk owns the transcript there).
+    if transcript_path:
+        spawn_meta["transcript_path"] = transcript_path
+    # Store the original prompt (capped at 4000 chars) and locks so
+    # ghost-retry and /recover can re-spawn with the same task.
+    if body.prompt:
+        spawn_meta["prompt"] = body.prompt[:4000]
+    if body.locks:
+        spawn_meta["locks"] = list(body.locks)
+    # Spawn provenance: persist so GET /agents exposes them and the
+    # cancel-all guard can read user_authored.
+    if body.originating_session_id:
+        spawn_meta["originating_session_id"] = body.originating_session_id
+    if body.originating_user_message_id:
+        spawn_meta["originating_user_message_id"] = body.originating_user_message_id
+    spawn_meta["user_authored"] = (
+        bool(body.user_authored)
+        if body.user_authored is not None
+        else bool(body.originating_session_id and body.originating_user_message_id)
+    )
+    if body.notify:
+        spawn_meta["notify"] = body.notify
+    return spawn_meta
 
 
 async def _legacy_bespoke_spawn(body: AgentSpawn, request: Request, response: Response, _brief_warning):
@@ -6490,166 +6937,16 @@ async def _legacy_bespoke_spawn(body: AgentSpawn, request: Request, response: Re
         _worktree_path: Optional[str] = None
         _worktree_branch: Optional[str] = None
         if body.isolation == "worktree":
-            # Cap the worktree id so the resulting
-            #   <project_root>/.claude/worktrees/agent-<id>/.ostk/ostk.sock
-            # path stays under macOS sun_path (104).  Long agent names
-            # (Claude Code derives names from the spawn description, so a
-            # verbose description can produce 40+ char names) otherwise
-            # overflow, the ostk MCP server's bind() fails, and the
-            # subagent silently registers only the static tool surface
-            # (no bash/read/fs_ops).  See feedback memory entry
-            # subagent_mcp_must_have_realtime_backup for full context.
-            from services.spawn_isolation import short_worktree_id as _short_wt_id
-            _wt_id = _short_wt_id(body.name)
-            _wt_branch = f"worktree-agent-{_wt_id}"
-            _wt_path = PROJECT_ROOT / ".claude" / "worktrees" / f"agent-{_wt_id}"
-            try:
-                from services.spawn_isolation import (
-                    create_worktree as _create_worktree,
-                    short_cwd_for_worktree as _short_cwd_for_worktree,
-                    sync_claude_dir_to_worktree as _sync,
-                )
-                _wt_ok, _wt_err = await _create_worktree(
-                    project_root=PROJECT_ROOT,
-                    agent_name=body.name,
-                    branch=_wt_branch,
-                    wt_path=_wt_path,
-                )
-                if _wt_ok:
-                    # Cap cwd so <cwd>/.ostk/ostk.sock fits macOS sun_path (104).
-                    # Long agent names + nested .claude/worktrees/agent-<name>/
-                    # otherwise blow past the limit, the ostk daemon's bind()
-                    # fails, and the MCP server falls back to degraded mode
-                    # without bash/read/fs_ops — which silently pushes the
-                    # subagent onto native tools and reintroduces the cwd-leak.
-                    _spawn_cwd = _short_cwd_for_worktree(_wt_path)
-                    # Also set OSTK_PROJECT_ROOT and OSTK_ROOT to the short path
-                    # so the daemon uses it to compute the socket path instead of
-                    # walking up from getcwd() (macOS resolves symlinks in cwd via
-                    # getcwd(), defeating the short-cwd approach for socket binding).
-                    # The short path is a /tmp symlink that resolves to the real
-                    # worktree, so all file I/O still reaches the correct checkout.
-                    # CLAUDE_PROJECT_DIR must stay as the real path so Claude Code
-                    # hooks and the worktree guard resolve to the correct checkout.
-                    _spawn_env["OSTK_PROJECT_ROOT"] = _spawn_cwd
-                    _spawn_env["OSTK_ROOT"] = _spawn_cwd
-                    # CLAUDE_PROJECT_DIR is inherited from the parent env
-                    # (line 4127: _spawn_env = {**os.environ}), which points
-                    # to the parent repo. Without this override, hooks and
-                    # Claude Code itself resolve file paths against the parent
-                    # checkout, causing all edits to land there instead of the
-                    # worktree. This is the cwd-leak root cause (→932, →916).
-                    _spawn_env["CLAUDE_PROJECT_DIR"] = str(_wt_path)
-                    # heartbeat-agent.sh reads YOUROS_AGENT_NAME to route its
-                    # hook-fired heartbeats to the correct registered row.
-                    # Without this the hook derives a session_id-based name
-                    # that never matches the custom-named agent row, leaving
-                    # last_heartbeat_at null for the entire run.
-                    _spawn_env["YOUROS_AGENT_NAME"] = body.name
-                    _worktree_path = str(_wt_path)
-                    _worktree_branch = _wt_branch
-                    # L2.3 (→902): sync .claude/ into the new worktree so hook
-                    # edits do not leak across sessions.
-                    await _sync(PROJECT_ROOT / ".claude", _wt_path / ".claude")
-                    # Copy .mcp.json so subagents get the ostk MCP server (→952).
-                    _mcp_src = PROJECT_ROOT / ".mcp.json"
-                    if _mcp_src.exists() and _wt_path.is_dir():
-                        import shutil as _shutil
-                        _shutil.copy2(_mcp_src, _wt_path / ".mcp.json")
-                    # Anchor the ostk MCP root to this worktree. Without .ostk/
-                    # here the server traverses up to .claude/worktrees/.ostk/
-                    # (the shared parent state) and roots all bash calls to
-                    # .claude/worktrees/, where git writes land on parent main
-                    # instead of the worktree branch. (→932)
-                    (_wt_path / ".ostk").mkdir(parents=True, exist_ok=True)
-                    # Symlink the main daemon socket into the worktree's .ostk/
-                    # so ostk kernel serve bridges to the running daemon instead
-                    # of spawning a new one. Without this symlink the worktree
-                    # kernel starts in standalone mode, fails to initialize, and
-                    # only registers static tools (context/search/nudge) while
-                    # fs/shell/bash stay missing — leaving the subagent with no
-                    # way to write files when the hook blocks native fallbacks.
-                    _main_sock = PROJECT_ROOT / ".ostk" / "ostk.sock"
-                    _wt_sock = _wt_path / ".ostk" / "ostk.sock"
-                    # Point OSTK_SOCKET directly at the main daemon socket so the
-                    # subagent's ostk CLI connects there without any path computation.
-                    # agent_loop.rs resolve_socket_path() checks OSTK_SOCKET first,
-                    # bypassing the <cwd>/.ostk/ostk.sock fallback that would exceed
-                    # macOS sun_path (104) for long worktree names. This is the
-                    # primary mitigation for the degraded-MCP mode bug (→1177).
-                    _spawn_env["OSTK_SOCKET"] = str(_main_sock)
-                    logger.info(
-                        "spawn.ostk_socket_env.set name=%s socket=%s",
-                        body.name, _main_sock,
-                    )
-                    if not _wt_sock.exists():  # always symlink, even if daemon not yet running
-                        try:
-                            os.symlink(str(_main_sock), str(_wt_sock))
-                            logger.info(
-                                "spawn.ostk_sock_symlink.created name=%s target=%s",
-                                body.name, _main_sock,
-                            )
-                        except Exception as _sym_exc:
-                            logger.warning(
-                                "spawn.ostk_sock_symlink.failed name=%s err=%s",
-                                body.name, _sym_exc,
-                            )
-                    # Symlink needles/ to the main repo's shared needle store
-                    # so `ostk work add` from the worktree writes to the same
-                    # issues.jsonl the backend reads. Without this symlink, when
-                    # the daemon is not running, ostk falls back to direct file
-                    # I/O and fails with "issues.lock: No such file or directory"
-                    # because .ostk/needles/ does not exist in the worktree.
-                    # Needles filed from the worktree then never appear in the UI.
-                    # (→1143)
-                    _main_needles = PROJECT_ROOT / ".ostk" / "needles"
-                    _wt_needles = _wt_path / ".ostk" / "needles"
-                    if _main_needles.exists() and not _wt_needles.exists():
-                        try:
-                            os.symlink(str(_main_needles), str(_wt_needles))
-                            logger.info(
-                                "spawn.ostk_needles_symlink.created name=%s target=%s",
-                                body.name, _main_needles,
-                            )
-                        except Exception as _sym_exc:
-                            logger.warning(
-                                "spawn.ostk_needles_symlink.failed name=%s err=%s",
-                                body.name, _sym_exc,
-                            )
-                else:
-                    logger.warning(
-                        "spawn.worktree.fork_failed name=%s err=%s",
-                        body.name, _wt_err,
-                    )
-                    raise HTTPException(
-                        status_code=500,
-                        detail={
-                            "error": "worktree_creation_failed",
-                            "message": (
-                                "Could not create a git worktree for this agent. "
-                                f"Reason: {_wt_err or 'unknown'}. "
-                                "Fix the underlying git error and retry."
-                            ),
-                        },
-                    )
-            except HTTPException:
-                raise
-            except Exception as _wt_exc:
-                logger.warning(
-                    "spawn.worktree.fork_exception name=%s err=%s",
-                    body.name, _wt_exc,
-                )
-                raise HTTPException(
-                    status_code=500,
-                    detail={
-                        "error": "worktree_creation_exception",
-                        "message": (
-                            "An unexpected error prevented worktree creation for this agent. "
-                            f"Error: {_wt_exc}. "
-                            "Fix the underlying error and retry."
-                        ),
-                    },
-                )
+            # →2944 (rows →1885/→1887): the worktree fork, short-cwd, and env
+            # injection live in _provision_worktree_isolation so the ostk-run
+            # default spawn path shares these exact rails.
+            (
+                _spawn_cwd,
+                _worktree_path,
+                _worktree_branch,
+                _wt_env_overrides,
+            ) = await _provision_worktree_isolation(body.name)
+            _spawn_env.update(_wt_env_overrides)
         # →1225: Remap absolute main-checkout paths in prompt to worktree paths.
         # Briefs from the parent session may include absolute paths that point
         # to the main checkout. Replacing them ensures fs_ops writes land in
@@ -7189,127 +7486,17 @@ async def _legacy_bespoke_spawn(body: AgentSpawn, request: Request, response: Re
             chat_ack_bot.start(body.name)
         except Exception as _ack_exc:
             logger.warning("failed to start ack bot for %s: %s", body.name, _ack_exc)
-        now_spawn = datetime.now(timezone.utc).isoformat()
-        spawn_meta: dict = {
-            "status": "running",
-            "spawned_at": now_spawn,
-            "last_heartbeat_at": now_spawn,
-            "budget": str(body.budget),
-            "model": model,
-            "pid": proc.pid,
-            "tokens_used": 0,
-        }
-        if body.token_limit is not None:
-            spawn_meta["token_limit"] = body.token_limit
-        # Record the resolved template name so completion hooks (e.g. the
-        # Roadmap output capture) can detect which marketplace template
-        # produced the final answer. Stored raw; downstream comparisons
-        # lowercase and strip before matching.
-        if body.template:
-            spawn_meta["template"] = body.template
-            # Resolve the template's ``produces_doc`` flag at spawn time and
-            # stamp it into metadata so the /complete hook does not need to
-            # re-look up the template (which may have been edited between
-            # spawn and complete). Only templates that opt in produce a .md
-            # artifact and auto-tasks for a solo agent run. Fleets and
-            # workflows keep their existing signals (fleet_id, workflow
-            # rollup path) and do not depend on this flag.
-            try:
-                from services.agent_templates_store import agent_templates_store
-                tpl = agent_templates_store.get_by_name_or_alias(body.template)
-                if tpl and tpl.get("produces_doc"):
-                    spawn_meta["template_produces_doc"] = True
-            except Exception:
-                pass
-        # Persist the caller-supplied human-readable task and description
-        # so the Agents page can show a friendly title instead of the
-        # opaque internal name (e.g. "build-568"). The UI's agentTitleParts
-        # helper promotes ``task`` (or ``description``) to the primary
-        # row label when present. Without this block the spawn path drops
-        # both fields and the row falls back to the raw name.
-        if body.task:
-            spawn_meta["task"] = body.task
-        if body.description:
-            spawn_meta["description"] = body.description
-        # Originating task linkage: persist the task_id into metadata so
-        # that the task list endpoint can cheaply compute "is a live
-        # agent working on this task?" without re-joining against any
-        # external audit log. Empty string check so explicit "" from
-        # callers never lands as a bogus key in the agents-by-task map.
-        if body.task_id:
-            spawn_meta["task_id"] = body.task_id
-        if body.needle_id:
-            spawn_meta["needle_id"] = body.needle_id
-        else:
-            _inferred_nid = _infer_needle_id(
-                body.name or "",
-                body.task or "",
-                body.description or "",
-                body.prompt or "",
-            )
-            if _inferred_nid:
-                spawn_meta["needle_id"] = _inferred_nid
-        # Auto-claim: store all →NNN tokens so in_progress is shown for
-        # every referenced needle, not just the first one (→1204).
-        _all_nids = _extract_all_needle_ids(
-            body.task or "",
-            body.description or "",
-            body.prompt or "",
+        # →2944 (row →1886): metadata composition is shared with the ostk-run
+        # default path via _compose_spawn_meta so both spawn flavors write
+        # the same row (scaffold-commit watcher, /recover, cleanup).
+        spawn_meta: dict = _compose_spawn_meta(
+            body,
+            model=model,
+            pid=proc.pid,
+            transcript_path=str(transcript_path),
+            worktree_path=_worktree_path,
+            worktree_branch=_worktree_branch,
         )
-        if _all_nids:
-            spawn_meta["needle_ids"] = _all_nids
-        # Worktree isolation: record the fork location so /cleanup and
-        # the pre-merge gate can find the branch later. Keys are only
-        # set when the fork actually succeeded (body.isolation is flipped
-        # back to "none" on failure above).
-        if body.isolation == "worktree" and _worktree_path:
-            spawn_meta["worktree_path"] = _worktree_path
-            spawn_meta["worktree_branch"] = _worktree_branch
-            spawn_meta["isolation"] = "worktree"
-        else:
-            spawn_meta["isolation"] = body.isolation or "none"
-        # Always stamp a real source. When the caller does not specify one,
-        # default to "api" so the list endpoint never falls back to the
-        # audit-log's "source=audit" placeholder (which is filtered out of
-        # the Recent tab by is_user_spawned_agent). Previously this block
-        # only set the key when body.source was truthy, leaving the row
-        # with no source at all and letting the audit-log merge win.
-        spawn_meta["source"] = body.source or "api"
-        # Preserve recovery_count across re-spawns so the cap is tracked
-        existing_meta = agent_metadata.get(body.name) or {}
-        if existing_meta.get("recovery_count"):
-            spawn_meta["recovery_count"] = existing_meta["recovery_count"]
-        # Workflow linkage: carry forward from caller or existing metadata.
-        workflow_run_id = body.workflow_run_id or existing_meta.get("workflow_run_id")
-        if workflow_run_id:
-            spawn_meta["workflow_run_id"] = workflow_run_id
-        # Record the transcript path so that a subsequent /register call
-        # (step 0 of the agent's mailbox boot) can preserve this path
-        # instead of falling back to auto-discovery. Without this the
-        # register fallback picks up the most-recently-written task output
-        # file in the parent session -- which may be a Monitor's .output
-        # file, not the agent's own transcript.
-        spawn_meta["transcript_path"] = str(transcript_path)
-        # Store the original prompt (capped at 4000 chars) and locks so
-        # ghost-retry can re-spawn on Haiku with the same task without
-        # needing a separate register call to have populated them.
-        if body.prompt:
-            spawn_meta["prompt"] = body.prompt[:4000]
-        if body.locks:
-            spawn_meta["locks"] = list(body.locks)
-        # Spawn provenance: persist the three fields so GET /agents
-        # exposes them and the cancel-all guard can read user_authored.
-        if body.originating_session_id:
-            spawn_meta["originating_session_id"] = body.originating_session_id
-        if body.originating_user_message_id:
-            spawn_meta["originating_user_message_id"] = body.originating_user_message_id
-        spawn_meta["user_authored"] = (
-            bool(body.user_authored)
-            if body.user_authored is not None
-            else bool(body.originating_session_id and body.originating_user_message_id)
-        )
-        if body.notify:
-            spawn_meta["notify"] = body.notify
         agent_metadata[body.name] = spawn_meta
         await _save_agent_state_async()
         _set_agent_status(body.name, "running")
