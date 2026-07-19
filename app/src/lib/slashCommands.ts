@@ -38,7 +38,7 @@ export interface CommandContext {
 }
 
 /**
- * Instantiates the 10-command v1 manifest with live trigger callbacks.
+ * Instantiates the 12-command manifest with live trigger callbacks.
  * Call this inside a useMemo in ChatPanel.
  */
 export function createSlashCommands(ctx: CommandContext): SlashCommand[] {
@@ -74,6 +74,22 @@ export function createSlashCommands(ctx: CommandContext): SlashCommand[] {
       category: 'workflow',
       keywords: ['setup', 'claude.md', 'initialize', 'project'],
       trigger: () => ctx.runSkill('init'),
+    },
+    {
+      id: '/build',
+      label: 'Build',
+      description: 'Start an agent that builds the thing you describe',
+      category: 'workflow',
+      keywords: ['make', 'create', 'feature', 'agent'],
+      trigger: () => ctx.runSkill('build'),
+    },
+    {
+      id: '/diagnose',
+      label: 'Diagnose',
+      description: 'Find the root cause of a problem, fix it, and add tests',
+      category: 'workflow',
+      keywords: ['debug', 'fix', 'bug', 'problem'],
+      trigger: () => ctx.runSkill('diagnose'),
     },
     {
       id: '/help',

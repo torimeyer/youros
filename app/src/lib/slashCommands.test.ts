@@ -19,9 +19,9 @@ function makeCtx(overrides: Partial<CommandContext> = {}): CommandContext {
 }
 
 describe('createSlashCommands', () => {
-  it('returns 10 commands', () => {
+  it('returns 12 commands', () => {
     const cmds = createSlashCommands(makeCtx())
-    expect(cmds).toHaveLength(10)
+    expect(cmds).toHaveLength(12)
   })
 
   it('each command has a / prefix id', () => {
@@ -105,6 +105,24 @@ describe('createSlashCommands', () => {
     expect(ctx.runSkill).toHaveBeenCalledWith('init')
   })
 
+  it('includes /build and /diagnose (spec S007 chat skills)', () => {
+    const ids = createSlashCommands(makeCtx()).map(c => c.id)
+    expect(ids).toContain('/build')
+    expect(ids).toContain('/diagnose')
+  })
+
+  it('/build trigger calls runSkill("build")', async () => {
+    const ctx = makeCtx()
+    await createSlashCommands(ctx).find(c => c.id === '/build')!.trigger()
+    expect(ctx.runSkill).toHaveBeenCalledWith('build')
+  })
+
+  it('/diagnose trigger calls runSkill("diagnose")', async () => {
+    const ctx = makeCtx()
+    await createSlashCommands(ctx).find(c => c.id === '/diagnose')!.trigger()
+    expect(ctx.runSkill).toHaveBeenCalledWith('diagnose')
+  })
+
   it('/help trigger adds a system message listing all commands', () => {
     const ctx = makeCtx()
     createSlashCommands(ctx).find(c => c.id === '/help')!.trigger()
@@ -120,7 +138,7 @@ describe('filterCommands', () => {
   const cmds = createSlashCommands(ctx)
 
   it('empty query returns all commands', () => {
-    expect(filterCommands(cmds, '')).toHaveLength(10)
+    expect(filterCommands(cmds, '')).toHaveLength(12)
   })
 
   it('"han" matches only /handoff', () => {
