@@ -10,6 +10,25 @@ export interface ReleaseGroup {
 }
 
 const releaseNotes: ReleaseGroup[] = [
+  // v5.18.0
+  {
+    date: '2026-07-20',
+    label: 'July 20, 2026 (evening)',
+    entries: [
+      {
+        title: 'Two agents no longer swap status text',
+        description: 'When two agents start in the same second, the board keeps each one on its own row instead of mixing their task text, and an agent hidden by that mix-up shows under its own name again.',
+      },
+      {
+        title: 'The app loads faster',
+        description: 'Each page loads the first time you open it instead of all of them up front, and the long task and agent lists draw only the rows on screen.',
+      },
+      {
+        title: 'Clearer message when a Gemini spawn has no agent file',
+        description: 'Spawning an agent with no agent file on the Gemini runtime now says exactly what is missing and how to fix it, instead of a confusing error.',
+      },
+    ],
+  },
   // v5.17.0
   {
     date: '2026-07-20',
