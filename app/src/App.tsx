@@ -1,41 +1,8 @@
-import { useEffect } from 'react'
+import { useEffect, lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useNotificationStore } from './stores/notifications'
 import { Layout } from './components/Layout'
-import OnboardingWizard from './components/OnboardingWizard'
 import { ErrorBoundary } from './components/ErrorBoundary'
-import Dashboard from './pages/Dashboard'
-import Timeline from './pages/Timeline'
-import Agents from './pages/Agents'
-import Settings from './pages/Settings'
-import SettingsRules from './pages/SettingsRules'
-import Transcripts from './pages/Transcripts'
-import Activity from './pages/Activity'
-import CostTracking from './pages/CostTracking'
-import Backlog from './pages/Backlog'
-import Tasks from './pages/Tasks'
-import Specs from './pages/Specs'
-import ExecutiveSummary from './pages/ExecutiveSummary'
-import PortfolioPage from './pages/PortfolioPage'
-import SpecImport from './pages/SpecImport'
-import SpecFaq from './pages/SpecFaq'
-import DocsRedirect from './pages/DocsRedirect'
-import Calendar from './pages/Calendar'
-import Gmail from './pages/Gmail'
-import IMessage from './pages/IMessage'
-import Slack from './pages/Slack'
-import GitHub from './pages/GitHub'
-import Jira from './pages/Jira'
-import Confluence from './pages/Confluence'
-import Upgrade from './pages/Upgrade'
-import Releases from './pages/Releases'
-
-import Workflows from './pages/Workflows'
-import WorkflowBuilder from './pages/WorkflowBuilder'
-import Drive from './pages/Drive'
-import Files from './pages/Files'
-import OstkFiles from './pages/OstkFiles'
-import Sessions from './pages/Sessions'
 import { useAppStore } from './stores/app'
 import { useRunningAgentsFeed } from './hooks/useRunningAgentsFeed'
 import { useSessionsFeed } from './hooks/useSessionsFeed'
@@ -43,23 +10,55 @@ import { useDashboardFeed } from './hooks/useDashboardFeed'
 import { useNotificationsFeed } from './hooks/useNotificationsFeed'
 import { useCalendarFeed } from './hooks/useCalendarFeed'
 import { useTaskFinishedSound } from './hooks/useTaskFinishedSound'
-import ShareView from './pages/ShareView'
-import AdminLayout from './components/AdminLayout'
-import AdminOverview from './pages/admin/Overview'
-import AdminMembers from './pages/admin/Members'
-import AdminPolicies from './pages/admin/Policies'
-import AdminAuditTrail from './pages/admin/AuditTrail'
-import AdminSecurity from './pages/admin/Security'
-import InviteAccept from './pages/InviteAccept'
-import PrivacyPolicy from './pages/PrivacyPolicy'
-import AboutYourOS from './pages/AboutYourOS'
-import AgentfileEditor from './pages/AgentfileEditor'
-import MySetup from './pages/MySetup'
 
-import MyGems from './pages/MyGems'
-import BreakRoom from './pages/BreakRoom'
-import Library from './pages/Library'
-import Projects from './pages/Projects'
+const OnboardingWizard = lazy(() => import('./components/OnboardingWizard'))
+const Dashboard = lazy(() => import('./pages/Dashboard'))
+const Timeline = lazy(() => import('./pages/Timeline'))
+const Agents = lazy(() => import('./pages/Agents'))
+const Settings = lazy(() => import('./pages/Settings'))
+const SettingsRules = lazy(() => import('./pages/SettingsRules'))
+const Transcripts = lazy(() => import('./pages/Transcripts'))
+const Activity = lazy(() => import('./pages/Activity'))
+const CostTracking = lazy(() => import('./pages/CostTracking'))
+const Backlog = lazy(() => import('./pages/Backlog'))
+const Tasks = lazy(() => import('./pages/Tasks'))
+const Specs = lazy(() => import('./pages/Specs'))
+const ExecutiveSummary = lazy(() => import('./pages/ExecutiveSummary'))
+const PortfolioPage = lazy(() => import('./pages/PortfolioPage'))
+const SpecImport = lazy(() => import('./pages/SpecImport'))
+const SpecFaq = lazy(() => import('./pages/SpecFaq'))
+const DocsRedirect = lazy(() => import('./pages/DocsRedirect'))
+const Calendar = lazy(() => import('./pages/Calendar'))
+const Gmail = lazy(() => import('./pages/Gmail'))
+const IMessage = lazy(() => import('./pages/IMessage'))
+const Slack = lazy(() => import('./pages/Slack'))
+const GitHub = lazy(() => import('./pages/GitHub'))
+const Jira = lazy(() => import('./pages/Jira'))
+const Confluence = lazy(() => import('./pages/Confluence'))
+const Upgrade = lazy(() => import('./pages/Upgrade'))
+const Releases = lazy(() => import('./pages/Releases'))
+const Workflows = lazy(() => import('./pages/Workflows'))
+const WorkflowBuilder = lazy(() => import('./pages/WorkflowBuilder'))
+const Drive = lazy(() => import('./pages/Drive'))
+const Files = lazy(() => import('./pages/Files'))
+const OstkFiles = lazy(() => import('./pages/OstkFiles'))
+const Sessions = lazy(() => import('./pages/Sessions'))
+const ShareView = lazy(() => import('./pages/ShareView'))
+const AdminLayout = lazy(() => import('./components/AdminLayout'))
+const AdminOverview = lazy(() => import('./pages/admin/Overview'))
+const AdminMembers = lazy(() => import('./pages/admin/Members'))
+const AdminPolicies = lazy(() => import('./pages/admin/Policies'))
+const AdminAuditTrail = lazy(() => import('./pages/admin/AuditTrail'))
+const AdminSecurity = lazy(() => import('./pages/admin/Security'))
+const InviteAccept = lazy(() => import('./pages/InviteAccept'))
+const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'))
+const AboutYourOS = lazy(() => import('./pages/AboutYourOS'))
+const AgentfileEditor = lazy(() => import('./pages/AgentfileEditor'))
+const MySetup = lazy(() => import('./pages/MySetup'))
+const MyGems = lazy(() => import('./pages/MyGems'))
+const BreakRoom = lazy(() => import('./pages/BreakRoom'))
+const Library = lazy(() => import('./pages/Library'))
+const Projects = lazy(() => import('./pages/Projects'))
 
 export default function App() {
   useRunningAgentsFeed()
@@ -157,13 +156,28 @@ export default function App() {
     // route-level boundary, so without this a throw = white screen).
     return (
       <ErrorBoundary>
-        <OnboardingWizard />
+        <Suspense fallback={null}>
+          <OnboardingWizard />
+        </Suspense>
       </ErrorBoundary>
     )
   }
 
   return (
     <BrowserRouter>
+      <Suspense fallback={
+        <div
+          style={{
+            position: 'fixed', inset: 0,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: '#0b0d10', color: '#9ca3af',
+            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+            fontSize: 14,
+          }}
+        >
+          Loading...
+        </div>
+      }>
       <Routes>
         <Route path="share/:token" element={<ShareView />} />
         <Route path="invite/:token" element={<InviteAccept />} />
@@ -228,6 +242,7 @@ export default function App() {
 
         </Route>
       </Routes>
+      </Suspense>
     </BrowserRouter>
   )
 }

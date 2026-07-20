@@ -29,6 +29,7 @@ import { parseRoadmapJson, type RoadmapQuarter } from "../lib/parseRoadmapJson";
 import { formatTokenBudget } from "../lib/budgetDisplay";
 import { RecentAgentActions } from "../components/RecentAgentActions";
 import { isChatAgent, useChatFilter, ChatFilterChip } from "../components/AgentsFilter";
+import { VirtualList } from "../components/VirtualList";
 
 
 // Re-export so tests can still import these from './Agents'
@@ -4888,13 +4889,11 @@ export default function Agents() {
                   />
                 </div>
               ) : (
-                <div className="flex flex-col gap-2 mb-8">
-                  {afterChatFilter.map((agent) => {
+                <VirtualList className="mb-8" items={afterChatFilter} estimateSize={() => 56} overscan={5} renderItem={(agent) => {
                     const isRecentExpanded = expandedAgent === agent.name;
                     const isInactive = inactiveStatuses.includes(agent.status);
                     return (
                       <div
-                        key={agent.name}
                         className={`bg-white/40 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-xl px-5 py-3${showInactive && isInactive ? " opacity-50" : ""}`}
                       >
                         <div className="flex items-center justify-between gap-3">
@@ -5144,8 +5143,7 @@ export default function Agents() {
                         )}
                       </div>
                     );
-                  })}
-                </div>
+                }} />
               )}
             </>
           );

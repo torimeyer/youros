@@ -66,22 +66,22 @@ describe('App routing', () => {
     window.history.pushState({}, '', '/')
   })
 
-  it('renders the /files route', () => {
+  it('renders the /files route', async () => {
     window.history.pushState({}, '', '/files')
     render(<App />)
-    expect(screen.getByTestId('page-files')).toBeInTheDocument()
+    expect(await screen.findByTestId('page-files')).toBeInTheDocument()
   })
 
-  it('renders the /drive route', () => {
+  it('renders the /drive route', async () => {
     window.history.pushState({}, '', '/drive')
     render(<App />)
-    expect(screen.getByTestId('page-drive')).toBeInTheDocument()
+    expect(await screen.findByTestId('page-drive')).toBeInTheDocument()
   })
 
-  it('Footer is visible on an authenticated route', () => {
+  it('Footer is visible on an authenticated route', async () => {
     window.history.pushState({}, '', '/')
     render(<App />)
-    expect(screen.getByTestId('footer')).toBeInTheDocument()
+    expect(await screen.findByTestId('footer')).toBeInTheDocument()
   })
 
   it('Footer is not visible on /share/:token (pre-auth, outside Layout)', () => {

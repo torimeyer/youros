@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from "react";
+import { useWindowVirtualizer } from "@tanstack/react-virtual";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import {
   DndContext,
@@ -1507,6 +1508,37 @@ export default function Tasks() {
         }, []),
   [sortBy, filteredTasks, waveAssignments, isLegacyView, selectedStatus]);
 
+  // Flat task list for the non-wave virtual list. In wave mode this is empty
+  // because the wave groups rendering handles its own grouping and sorting.
+  const flatTasks = useMemo(
+    () => (sortBy === "wave" ? [] : taskGroups.flatMap((g) => g.tasks)),
+    [sortBy, taskGroups]
+  );
+
+  // Scroll margin: distance from window top to the task list container.
+  // Measured when the container mounts. Stable between renders because the
+  // header/filter bar height does not change after initial paint.
+  const [taskListScrollMargin, setTaskListScrollMargin] = useState(0);
+  const taskListRefCallback = useCallback((el: HTMLDivElement | null) => {
+    setTaskListScrollMargin(el?.offsetTop ?? 0);
+  }, []);
+
+  // Window-level virtualizer for the flat (non-wave) task list.
+  // Renders only the rows in the viewport; DnD still works because
+  // SortableContext receives all item IDs and DragOverlay handles the
+  // drag visual independent of DOM presence.
+  const taskVirtualizer = useWindowVirtualizer({
+    count: flatTasks.length,
+    estimateSize: () => 72,
+    overscan: 10,
+    scrollMargin: taskListScrollMargin,
+  });
+
+  // Only activate the virtualizer when there is a single flat group (the
+  // "all tasks" view). Wave mode and priority-grouped views keep the normal
+  // flex-col rendering so that per-group DnD ordering is unaffected.
+  const useTaskVirtualizer = sortBy !== "wave" && taskGroups.length === 1 && flatTasks.length > 0 && typeof ResizeObserver !== 'undefined';
+
   // Unfiltered counts used by the FilterDrawer status badge pills so the
   // user can see how many tasks live in each status bucket before choosing
   // one. These deliberately ignore priority/label/thread filters.
@@ -2050,7 +2082,11 @@ export default function Tasks() {
               onDragStart={handleDragStart}
               onDragEnd={handleDragEnd}
             >
-            <div className="flex flex-col gap-2">
+            <div
+              className={useTaskVirtualizer ? undefined : "flex flex-col gap-2"}
+              ref={useTaskVirtualizer ? taskListRefCallback : undefined}
+              style={useTaskVirtualizer ? { height: taskVirtualizer.getTotalSize(), position: 'relative' } : undefined}
+            >
               {fetchError && (
                 <div className="flex items-center justify-between gap-3 rounded-lg bg-red-950 border border-red-800 px-4 py-3 text-sm text-red-700 dark:text-red-300" data-testid="tasks-fetch-error">
                   <span>{fetchError}</span>
@@ -2090,8 +2126,24 @@ export default function Tasks() {
                     items={groupTasks.map((t) => t.id)}
                     strategy={verticalListSortingStrategy}
                   >
-                    {groupTasks.map((task) => (
-              <SortableTaskWrapper key={task.id} taskId={task.id}>
+                    {(useTaskVirtualizer
+                      ? taskVirtualizer.getVirtualItems().map(vItem => ({ task: flatTasks[vItem.index], vItem }))
+                      : groupTasks.map(task => ({ task, vItem: null as ReturnType<typeof taskVirtualizer.getVirtualItems>[0] | null }))
+                    ).map(({ task, vItem }) => (
+                      <div
+                        key={task.id}
+                        data-index={vItem?.index}
+                        ref={vItem ? taskVirtualizer.measureElement : undefined}
+                        style={vItem ? {
+                          position: 'absolute' as const,
+                          top: 0,
+                          left: 0,
+                          width: '100%',
+                          transform: `translateY(${vItem.start - taskListScrollMargin}px)`,
+                          paddingBottom: '8px',
+                        } : undefined}
+                      >
+              <SortableTaskWrapper taskId={task.id}>
                 {(dragHandleProps) => (
                 <div>
                   <div
@@ -3039,6 +3091,7 @@ export default function Tasks() {
                 </div>
                 )}
               </SortableTaskWrapper>
+                      </div>
                     ))}
                   </SortableContext>
                   </Fragment>
