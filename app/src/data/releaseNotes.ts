@@ -10,6 +10,61 @@ export interface ReleaseGroup {
 }
 
 const releaseNotes: ReleaseGroup[] = [
+  // v5.17.0
+  {
+    date: '2026-07-20',
+    label: 'July 20, 2026',
+    entries: [
+      {
+        title: 'Quiet agents are trusted until real evidence says otherwise',
+        description: 'The board no longer marks a quiet agent finished just for going silent, an agent whose row was wrongly closed gets its own name back, one that finishes while still marked running keeps its final summary, and agents that only register still show a real transcript size.',
+      },
+      {
+        title: 'Texting yourOS from your phone is fully removed',
+        description: 'Both the screens and the machinery behind them are gone, front to back.',
+      },
+      {
+        title: 'The Settings page is decluttered',
+        description: 'The features, shortcuts, tour, and texting sections are gone and what remains sits in a tight two-column layout. The desktop notifications switch now explains in plain words why it cannot turn on instead of silently flipping back off.',
+      },
+      {
+        title: 'Agent runs count toward your savings',
+        description: 'Agent runs now add to the savings page, which used to count only chat. Daily compression savings come from real recorded events, the savings card says why it is empty, its tips show real numbers, and the today window follows your local calendar day.',
+      },
+      {
+        title: 'Light mode looks right again',
+        description: 'Button icons and labels stay visible in light mode after one misnamed color setting had been repainting 137 places near-white, and the Add tools list now matches the rest of the app.',
+      },
+      {
+        title: 'Type /build and /diagnose right in chat',
+        description: 'Both commands work from the chat box, and chat skills behave the same no matter which AI runtime you have selected.',
+      },
+      {
+        title: 'Agent spawning follows your saved setting',
+        description: 'The runtime comes from your saved choice instead of a hidden switch, agents spawned through the default path keep their safety rails, and the workspace folder is one configurable setting every spawn honors.',
+      },
+      {
+        title: 'Specs and tasks tell the truth',
+        description: 'Promoting a spec no longer copies its checkboxes into the task list, the task count always means the Tasks page, a spec marked done shows plainly when its own checkboxes disagree, and the Specs page lists only real specs while reporting strays.',
+      },
+      {
+        title: 'Start agents for every open task at once',
+        description: 'The tasks menu can launch agents for all open tasks in one go, and the redundant row checkboxes are gone.',
+      },
+      {
+        title: 'Hand-offs carry receipts',
+        description: 'Agent hand-offs now include receipts and point at the original documents, and a task code save point can be corrected when the board stamps the wrong one.',
+      },
+      {
+        title: 'The app does less busywork',
+        description: 'The chat panel, task list, and agent cards stop redoing work on every screen refresh, background feeds pause while the tab is hidden, and the backend stops re-reading files it already has while its startup cleanup no longer delays boot.',
+      },
+      {
+        title: 'Under the hood',
+        description: 'The backend overlapping event pipes merged into one shared stream, the crash screen recovers on its own after a dev server restart, three unreachable pages and an unused access guard are deleted, 37 new tests cover pages and error paths that had none, Solitaire double-click auto-move, drag and drop, and window-fill sizing are locked in by tests, and the Linear and Jira import endpoints left with their only caller.',
+      },
+    ],
+  },
   // v5.16.0
   {
     date: '2026-07-18',
