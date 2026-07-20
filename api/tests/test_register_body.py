@@ -471,3 +471,185 @@ async def test_hook_preregister_plus_subagent_register_keeps_subagent_visible(
         f"Visible names sample: {sorted(n for n in names if n)[:10]} "
         f"aliases: {dict(getattr(agents_router, 'agent_aliases', {}) or {})}"
     )
+
+
+# ---------------------------------------------------------------------------
+# ->2986: same-second spawns cross each other's status text
+#
+# Root cause: when two hook rows share the same spawned_at (the common case
+# when two agents start in the same shell second) AND both agents' token sets
+# overlap enough with BOTH hook rows (shared words like "fix", "tests"),
+# _find_recent_hook_preregister returned whichever row came first in dict
+# iteration order for BOTH agents. Each agent then merged into the wrong hook
+# row and showed the other's task description.  Heartbeats updated different
+# dicts so they didn't literally mirror, but the visible task description was
+# swapped, producing the "same status text" symptom.
+#
+# Fix: _hook_preregister_score returns a numeric score (exact name > substring
+# > slug > token overlap count). When spawned_at values are equal the row with
+# the HIGHER score wins, ensuring each agent merges into its own hook row.
+#
+# Secondary fix: the re-register path no longer preserves hook_preregister on
+# an incoming call that is not itself a hook preregister. Without this, an
+# agent whose self-name matches its hook slug would keep hook_preregister=True
+# on its live row, making it look like an unclaimed target to later scans.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_same_second_spawns_merge_into_correct_hook_rows(
+    client, monkeypatch,
+):
+    """Two hook rows with identical spawned_at each match BOTH agents via
+    token overlap (shared words "fix" and "tests"), but hook-A matches
+    agent-A more strongly (4 tokens vs 2) and hook-B matches agent-B more
+    strongly (4 tokens vs 2). After both self-registers, each agent must have
+    merged into its OWN hook row, not the other's.
+
+    Before the fix: dict insertion order decided the winner for same-timestamp
+    ties, so if hook-B was inserted first both agents would merge into hook-B.
+    After the fix: similarity score breaks the tie correctly.
+    """
+    from routers import agents as agents_router
+    monkeypatch.setattr(agents_router, "_save_agent_state", lambda: None)
+
+    hook_a = "fix-broken-tests-perf-2982"
+    hook_b = "fix-broken-tests-coverage-2983"
+    agent_a = "saa-2982-fix-perf"
+    agent_b = "saa-2983-fix-coverage"
+
+    for n in (hook_a, hook_b, agent_a, agent_b):
+        agents_router.agent_metadata.pop(n, None)
+        agents_router.agent_aliases.pop(n, None)
+
+    # Same spawned_at for both hooks (the shell-second collision scenario).
+    spawned_at = (datetime.now(timezone.utc) - timedelta(seconds=5)).isoformat()
+
+    # Insert hook-B FIRST so it would win under the old iteration-order logic.
+    agents_router.agent_metadata[hook_b] = {
+        "spawned_at": spawned_at,
+        "last_heartbeat_at": spawned_at,
+        "source": "claude-code",
+        "status": "running",
+        "description": "fix broken tests coverage 2983",
+        "prompt": "fix the broken tests and coverage gap for task 2983",
+        "budget": "5",
+        "hook_preregister": True,
+    }
+    agents_router.agent_metadata[hook_a] = {
+        "spawned_at": spawned_at,
+        "last_heartbeat_at": spawned_at,
+        "source": "claude-code",
+        "status": "running",
+        "description": "fix broken tests perf 2982",
+        "prompt": "fix the broken tests and performance regression for task 2982",
+        "budget": "5",
+        "hook_preregister": True,
+    }
+
+    # Agent A: strongly matches hook-A (tokens: fix, broken, tests, perf, 2982)
+    # and weakly matches hook-B (tokens: fix, broken, tests shared = 3, but
+    # hook-A shares fix+broken+tests+perf+2982 = 5 tokens).
+    resp_a = await client.post(
+        "/api/agents/register",
+        json={
+            "name": agent_a,
+            "source": "claude-code",
+            "status": "running",
+            "description": "fix broken tests perf regression for 2982",
+            "prompt": "fix the perf regression and broken tests in task 2982",
+        },
+    )
+    assert resp_a.status_code == 200, resp_a.text
+    body_a = resp_a.json()
+    assert body_a.get("merged_into") == hook_a, (
+        f"agent-A must merge into its own hook row {hook_a!r}; "
+        f"got merged_into={body_a.get('merged_into')!r}"
+    )
+
+    # Agent B: strongly matches hook-B (tokens: fix, broken, tests, coverage, 2983).
+    resp_b = await client.post(
+        "/api/agents/register",
+        json={
+            "name": agent_b,
+            "source": "claude-code",
+            "status": "running",
+            "description": "fix broken tests coverage gap for 2983",
+            "prompt": "fix the coverage gap and broken tests in task 2983",
+        },
+    )
+    assert resp_b.status_code == 200, resp_b.text
+    body_b = resp_b.json()
+    assert body_b.get("merged_into") == hook_b, (
+        f"agent-B must merge into its own hook row {hook_b!r}; "
+        f"got merged_into={body_b.get('merged_into')!r}"
+    )
+
+    # Heartbeat each agent and confirm steps stay separate.
+    agents_router.agent_metadata[agent_a]["current_step"] = None
+    agents_router.agent_metadata[agent_b]["current_step"] = None
+
+    agents_router.agent_metadata[agent_a]["current_step"] = "step-from-agent-a"
+    agents_router.agent_metadata[agent_b]["current_step"] = "step-from-agent-b"
+
+    assert agents_router.agent_metadata[agent_a]["current_step"] == "step-from-agent-a", (
+        "agent-A current_step must be independent of agent-B"
+    )
+    assert agents_router.agent_metadata[agent_b]["current_step"] == "step-from-agent-b", (
+        "agent-B current_step must be independent of agent-A"
+    )
+    # Rows must point at DIFFERENT dict objects.
+    assert (
+        agents_router.agent_metadata[agent_a]
+        is not agents_router.agent_metadata[agent_b]
+    ), "agent-A and agent-B must not share the same metadata dict"
+
+
+@pytest.mark.asyncio
+async def test_self_register_over_hook_slug_clears_hook_preregister_flag(
+    client, monkeypatch,
+):
+    """When an agent self-registers under the SAME name as its hook-preregister
+    row (so the merge guard is skipped and the re-register path runs), the
+    hook_preregister flag must be CLEARED on the resulting row. Without this
+    fix, the flag was preserved via the old 'elif existing.get(hook_preregister)'
+    clause, making the live row look like an unclaimed hook target for any
+    subsequent _find_recent_hook_preregister scan. Fixes ->2986.
+    """
+    from routers import agents as agents_router
+    monkeypatch.setattr(agents_router, "_save_agent_state", lambda: None)
+
+    name = "fix-perf-2982-self-register-test"
+    agents_router.agent_metadata.pop(name, None)
+    agents_router.agent_aliases.pop(name, None)
+
+    spawned_at = (datetime.now(timezone.utc) - timedelta(seconds=3)).isoformat()
+    # Hook preregisters under the exact same name the agent will use.
+    agents_router.agent_metadata[name] = {
+        "spawned_at": spawned_at,
+        "last_heartbeat_at": spawned_at,
+        "source": "claude-code",
+        "status": "running",
+        "description": "fix perf regression 2982",
+        "hook_preregister": True,
+    }
+
+    # Agent self-registers under the same name. This hits the re-register
+    # path (body.name IS in agent_metadata), so no merge happens.
+    resp = await client.post(
+        "/api/agents/register",
+        json={
+            "name": name,
+            "source": "claude-code",
+            "status": "running",
+            "description": "fix perf regression 2982",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+
+    row = agents_router.agent_metadata.get(name, {})
+    assert not row.get("hook_preregister"), (
+        "hook_preregister flag must be cleared after a subagent "
+        "self-registers over its own hook row; a True value makes the "
+        "live row a spurious merge target for concurrent agents"
+    )

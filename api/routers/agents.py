@@ -307,6 +307,71 @@ def _hook_preregister_tokens(text) -> set:
     }
 
 
+def _hook_preregister_score(
+    hook_name: str,
+    hook_meta: dict,
+    body_name: str,
+    body_description: str,
+    body_prompt: str,
+) -> int:
+    """Numeric similarity score between a hook-preregister row and a
+    self-register body. Higher is a stronger match; 0 means no match.
+
+    Score levels (non-overlapping ranges):
+      100  exact name equality
+       50  one name is a substring of the other
+       10  hook slug appears in combined body text
+       2+  shared content-token count (only when count >= 2)
+        0  no match
+
+    Used by ``_find_recent_hook_preregister`` as a tiebreaker when two
+    hook rows have the same ``spawned_at`` timestamp (the common case
+    when two agents start in the same shell second). The highest-scoring
+    row wins so each agent merges into its OWN hook row rather than
+    whichever row happens to come first in dict iteration order.
+    Fixes →2986.
+    """
+    if not isinstance(hook_meta, dict):
+        return 0
+    hook_name = hook_name or ""
+    body_name = body_name or ""
+    hook_description = str(hook_meta.get("description") or "")
+    hook_prompt = str(hook_meta.get("prompt") or "")
+    body_description = body_description or ""
+    body_prompt = body_prompt or ""
+
+    if hook_name and body_name:
+        if hook_name == body_name:
+            return 100
+        h_lower = hook_name.lower()
+        b_lower = body_name.lower()
+        if h_lower in b_lower or b_lower in h_lower:
+            return 50
+
+    h_slug = hook_name.lower().replace("_", "-") if hook_name else ""
+    if h_slug and len(h_slug) >= 6:
+        combined_body = (body_description + " " + body_prompt).lower()
+        combined_body_dashed = combined_body.replace(" ", "-")
+        if h_slug in combined_body_dashed:
+            return 10
+
+    hook_tokens = (
+        _hook_preregister_tokens(hook_name)
+        | _hook_preregister_tokens(hook_description)
+        | _hook_preregister_tokens(hook_prompt)
+    )
+    body_tokens = (
+        _hook_preregister_tokens(body_name)
+        | _hook_preregister_tokens(body_description)
+        | _hook_preregister_tokens(body_prompt)
+    )
+    overlap = len(hook_tokens & body_tokens)
+    if overlap >= 2:
+        return overlap
+
+    return 0
+
+
 def _hook_preregister_matches_register(
     hook_name: str,
     hook_meta: dict,
@@ -327,72 +392,14 @@ def _hook_preregister_matches_register(
     got absorbed into an unrelated "fix-testagents-ordering-pollution"
     hook row.
 
-    A match is any one of:
-
-    * exact name equality (``hook_name == body_name``)
-    * one name is a substring of the other (catches "-v2" / "-retry"
-      suffix divergence the hook cannot predict)
-    * two or more content tokens shared between either pair of
-      (hook name, hook description, hook prompt) and
-      (body name, body description, body prompt)
-    * the hook's slug-of-description name appears inside the body's
-      description or prompt (the common case: hook names the row
-      "fix-foo-bar-baz", the subagent's prompt mentions "fix foo")
-
+    See ``_hook_preregister_score`` for the full match criteria.
     Stopwords and single-character tokens are dropped before the
     token overlap count so "the", "and", "a" do not create spurious
     matches.
     """
-    if not isinstance(hook_meta, dict):
-        return False
-    hook_name = hook_name or ""
-    body_name = body_name or ""
-    hook_description = str(hook_meta.get("description") or "")
-    hook_prompt = str(hook_meta.get("prompt") or "")
-    body_description = body_description or ""
-    body_prompt = body_prompt or ""
-
-    # 1. Exact or substring name match.
-    if hook_name and body_name:
-        if hook_name == body_name:
-            return True
-        h_lower = hook_name.lower()
-        b_lower = body_name.lower()
-        if h_lower in b_lower or b_lower in h_lower:
-            return True
-
-    # 2. Hook's slug-of-description name appears inside body text.
-    # Hook names are slugged descriptions, so finding that slug in the
-    # subagent's own description or prompt is a strong signal.
-    h_slug = hook_name.lower().replace("_", "-") if hook_name else ""
-    if h_slug and len(h_slug) >= 6:
-        combined_body = (body_description + " " + body_prompt).lower()
-        # Replace spaces with dashes so "fix foo bar" matches slug
-        # "fix-foo-bar" and vice versa.
-        combined_body_dashed = combined_body.replace(" ", "-")
-        if h_slug in combined_body_dashed:
-            return True
-
-    # 3. Token overlap. Build the content-token sets for each side
-    # across name + description + prompt, then require at least 2
-    # shared tokens. Two is enough to weed out coincidental single
-    # word overlaps ("test" or "fix") while staying permissive for
-    # hand-written subagents whose internal name diverges from the
-    # Task description slug.
-    hook_tokens = (
-        _hook_preregister_tokens(hook_name)
-        | _hook_preregister_tokens(hook_description)
-        | _hook_preregister_tokens(hook_prompt)
-    )
-    body_tokens = (
-        _hook_preregister_tokens(body_name)
-        | _hook_preregister_tokens(body_description)
-        | _hook_preregister_tokens(body_prompt)
-    )
-    if len(hook_tokens & body_tokens) >= 2:
-        return True
-
-    return False
+    return _hook_preregister_score(
+        hook_name, hook_meta, body_name, body_description, body_prompt
+    ) > 0
 
 
 def _find_recent_hook_preregister(
@@ -433,6 +440,7 @@ def _find_recent_hook_preregister(
     best_name = None
     best_meta = None
     best_spawned = None
+    best_score = 0
     for name, meta in agent_metadata.items():
         if not isinstance(meta, dict):
             continue
@@ -458,14 +466,25 @@ def _find_recent_hook_preregister(
         # newest in-window hook row regardless of whether it has
         # anything to do with the incoming self-register, producing the
         # "merged into unrelated row" bug.
-        if not _hook_preregister_matches_register(
+        score = _hook_preregister_score(
             name, meta, body_name, body_description, body_prompt,
-        ):
+        )
+        if score == 0:
             continue
-        if best_spawned is None or spawned > best_spawned:
+        # Prefer newer rows. When spawned_at values are identical (the
+        # common case when two agents start in the same shell second),
+        # break the tie with the similarity score so each agent merges
+        # into its OWN hook row rather than whichever row iteration
+        # order happens to surface first. Fixes →2986.
+        if (
+            best_spawned is None
+            or spawned > best_spawned
+            or (spawned == best_spawned and score > best_score)
+        ):
             best_name = name
             best_meta = meta
             best_spawned = spawned
+            best_score = score
     if best_name is None:
         return None
     return best_name, best_meta
@@ -8254,9 +8273,13 @@ async def register_agent(body: AgentSpawn, request: Request = None):
         # Persist so _find_recent_hook_preregister can find this row
         # when the subagent self-registers a few seconds later.
         record["hook_preregister"] = True
-    elif existing.get("hook_preregister"):
-        # Preserve the flag on idempotent re-registers from the hook.
-        record["hook_preregister"] = True
+    # Do NOT preserve hook_preregister when the incoming call is a
+    # subagent's own self-register. Clearing the flag here ensures the
+    # row is no longer a merge candidate for concurrent agents. Without
+    # this guard an agent that re-registers under the same name as its
+    # hook slug inadvertently keeps hook_preregister=True on its live
+    # row, making it look like an unclaimed hook row to any later
+    # _find_recent_hook_preregister scan. Fixes →2986.
     if body.task:
         record["task"] = body.task
     if body.description:
