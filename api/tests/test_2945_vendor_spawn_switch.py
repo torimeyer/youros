@@ -185,10 +185,17 @@ async def test_gemini_setting_spawn_endpoint_refuses_in_plain_language(monkeypat
             }
         )
 
-    assert resp.status_code == 501, resp.text
+    # →2988: Gemini + no agentfile now returns 400 (missing agentfile, not a
+    # missing capability) rather than 501 "not yet supported". Gemini does
+    # support agents via agentfiles; the right message names what is missing.
+    assert resp.status_code == 400, resp.text
     detail = str(resp.json().get("detail", ""))
-    assert "not yet supported" in detail
-    assert "Gemini" in detail
+    assert "agentfile" in detail.lower(), (
+        f"error must mention 'agentfile' so the user knows what to create; got: {detail!r}"
+    )
+    assert "Gemini" in detail, (
+        f"error must name the runtime so the user knows which setting to change; got: {detail!r}"
+    )
     assert exec_calls == [], "the claude spawn path ran despite the gemini setting"
     assert "t2945-gemini-block" not in agents_mod.agent_metadata
 

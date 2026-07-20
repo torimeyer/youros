@@ -6127,6 +6127,31 @@ async def spawn_agent(body: AgentSpawn, request: Request = None, response: Respo
             _ostk_agentfile_path = _ostk_find_agentfile(_ostk_stem)
             if _ostk_agentfile_path is None:
                 if _ostk_fallback_ok:
+                    # Under a non-Claude runtime the bespoke Claude-subprocess path
+                    # is unavailable, so falling through would produce a misleading
+                    # "not yet supported on Gemini" 501.  The real problem is the
+                    # missing agentfile, not a missing runtime capability — refuse
+                    # now with a 400 that names what is missing and how to fix it.
+                    _fb_runtime = os.environ.get("YOUROS_RUNTIME", "").strip().lower()
+                    if not _fb_runtime:
+                        try:
+                            from services.settings_store import settings_store as _ss_fb
+                            _fb_runtime = str(
+                                _ss_fb.get("default_provider", "claude") or "claude"
+                            ).strip().lower()
+                        except Exception:
+                            _fb_runtime = "claude"
+                    if _fb_runtime not in ("", "claude"):
+                        raise HTTPException(
+                            status_code=400,
+                            detail=(
+                                f"No agentfile found for '{_ostk_stem}' on the "
+                                f"{_fb_runtime.capitalize()} runtime. "
+                                f"The {_fb_runtime.capitalize()} runtime uses agentfiles "
+                                f"to spawn agents. Check that agents/{_ostk_stem}.agent "
+                                f"exists, or switch to the Claude runtime in Settings."
+                            ),
+                        )
                     logger.warning(
                         "OSTK_RUN_FALLBACK name=%s reason=no_agentfile stem=%s",
                         body.name, _ostk_stem,

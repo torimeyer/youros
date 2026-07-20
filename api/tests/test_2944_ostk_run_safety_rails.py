@@ -19,6 +19,7 @@ All ostk/git side effects are mocked; no real agent processes spawn.
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -571,7 +572,12 @@ async def test_verification_three_agent_types_keep_rails(monkeypatch):
     assert m2.get("worktree_path"), "edit agent must record its worktree for the watcher"
     assert run_mock.await_args.kwargs.get("cwd") == "/tmp/wt-2944"
 
-    # Type 3: no agentfile → loud fallback to the bespoke path, rails intact there.
+    # Type 3: no agentfile behavior is runtime-dependent.
+    # Claude runtime: falls back to the bespoke subprocess path (rails intact).
+    # Non-Claude runtimes (e.g. Gemini): refuse with a clear 400 that names the
+    # missing agentfile — falling through to the bespoke Claude path would
+    # silently run a different runtime than the user chose (→2988).
+    _active_runtime = os.environ.get("YOUROS_RUNTIME", "claude").strip().lower() or "claude"
     _install_bespoke_doubles(monkeypatch)
     with patch(
         "services.agentfile_parser._find_any_agentfile",
@@ -586,9 +592,23 @@ async def test_verification_three_agent_types_keep_rails(monkeypatch):
                 "source": "test",
             }
         )
-    assert r3.status_code == 200, r3.text
-    d3 = r3.json()
-    assert "ostk_run" not in d3, "fallback spawns must not claim the ostk-run path"
-    assert "pid" in d3, "bespoke fallback returns the subprocess pid"
-    m3 = agents_mod.agent_metadata.get("t2944-fallback")
-    assert m3 is not None, "bespoke fallback keeps its metadata rail"
+    if _active_runtime == "claude":
+        assert r3.status_code == 200, r3.text
+        d3 = r3.json()
+        assert "ostk_run" not in d3, "fallback spawns must not claim the ostk-run path"
+        assert "pid" in d3, "bespoke fallback returns the subprocess pid"
+        m3 = agents_mod.agent_metadata.get("t2944-fallback")
+        assert m3 is not None, "bespoke fallback keeps its metadata rail"
+    else:
+        # Non-Claude runtime: must refuse with a 400 that names the missing
+        # agentfile so the user knows what to create or which setting to change.
+        assert r3.status_code == 400, (
+            f"non-Claude runtime with no agentfile must return 400, got {r3.status_code}: {r3.text}"
+        )
+        detail = r3.json().get("detail", "")
+        assert "agentfile" in detail.lower(), (
+            f"error must mention 'agentfile' so the user knows what is missing; got: {detail!r}"
+        )
+        assert _active_runtime in detail.lower(), (
+            f"error must name the runtime so the user knows which setting to change; got: {detail!r}"
+        )
