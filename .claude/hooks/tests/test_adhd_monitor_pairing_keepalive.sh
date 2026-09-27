@@ -38,9 +38,10 @@ run_check() {
   local tmp_home="$1" sentinel="$2" age="$3"
   (
     export HOME="$tmp_home"
-    # Stub out log_rule_fire and deny so we can inspect exit codes cleanly.
+    # Stub out log_rule_fire, deny and advise so we can inspect exit codes cleanly.
     log_rule_fire() { :; }
     deny() { exit 2; }
+    advise() { echo "ADVISE: $1" >&2; return 0; }
     rule_param() { echo "${2:-}"; }  # always return default
     # Source only the check function.
     # shellcheck source=/dev/null
@@ -132,14 +133,48 @@ else
   assert_true "  auto-armed: keepalive pid file created" 0
 fi
 
-# ── Test 6: ADHD mode active, no sentinel path at all → block ───────────────
-# Degenerate input (no path to arm). Real usage always supplies a path via
-# pre-agent-guard.sh. Keep as block.
+# ── Test 6: ADHD mode active, no sentinel path at all → advise + allow ──────
+# Degenerate input (no path to arm). pre-agent-guard.sh passes an empty path
+# when its JSON parse fails. Policy (41b7a73a): torios informs, never blocks,
+# so the rule advises and allows. It must NOT fall through to arming an
+# empty path.
 T6="$TMPDIR_BASE/t6"
 mkdir -p "$T6/.youros"
 touch "$T6/.youros/.adhd_mode"
-result=$(run_check "$T6" "" -1)
-assert_exit "adhd mode + no sentinel path → block (degenerate input)" 2 "$result"
+T6_ERR="$TMPDIR_BASE/t6.stderr"
+T6_LOG="$TMPDIR_BASE/t6.firelog"
+: > "$T6_LOG"
+(
+  export HOME="$T6"
+  cd "$T6" || exit 99
+  log_rule_fire() { echo "$*" >> "$T6_LOG"; }
+  deny() { exit 2; }
+  advise() { echo "ADVISE: $1" >&2; return 0; }
+  rule_param() { echo "${2:-}"; }
+  # shellcheck source=/dev/null
+  . "$RULES_DIR/adhd_monitor_pairing.sh"
+  _adhd_monitor_pairing_check "Agent" "" -1
+) 2>"$T6_ERR"
+result=$?
+assert_exit "adhd mode + no sentinel path → advise + allow, no arm" 0 "$result"
+if grep -q "^ADVISE: .*no sentinel path" "$T6_ERR"; then
+  assert_true "  advice text printed" 1
+else
+  assert_true "  advice text printed (stderr: $(cat "$T6_ERR"))" 0
+fi
+# Nothing besides .youros/.adhd_mode may exist under T6 (no sentinel, no
+# .keepalive.pid written relative to cwd for an empty path).
+extra=$(find "$T6" -mindepth 1 ! -path "$T6/.youros" ! -path "$T6/.youros/.adhd_mode" | head -5)
+if [ -z "$extra" ]; then
+  assert_true "  no sentinel or keepalive created for empty path" 1
+else
+  assert_true "  no sentinel or keepalive created for empty path (found: $extra)" 0
+fi
+if grep -q "auto-armed\|arm skipped" "$T6_LOG"; then
+  assert_true "  arm path not entered (log: $(tr '\n' '|' < "$T6_LOG"))" 0
+else
+  assert_true "  arm path not entered" 1
+fi
 
 # ── Test 7: ADHD on + sentinel path given but file missing → auto-arm + allow
 # This is the real-world first-spawn-of-session case: pre-agent-guard.sh
