@@ -15,10 +15,12 @@ _humanfile_render_check() {
     return 0
   fi
 
-  echo ""
-  echo "ACTIVE HUMANFILE RULES (read every turn):"
-  echo ""
-  cat "$hf_path"
+  # Skip comments, blank lines, SIGN and heredoc blocks (e.g. AVAILABLE <<MODELS):
+  # they are for ostk, not the model, and re-enter context on every prompt.
+  awk '/^#/ || /^[[:space:]]*$/ || /^SIGN / {next}
+       /<</ {split($0, a, "<<"); endtag=a[2]; next}
+       endtag != "" {if ($0 == endtag) endtag=""; next}
+       {print}' "$hf_path"
 
   log_rule_fire "humanfile_render" "UserPromptSubmit" "allow" "rendered $hf_path"
   return 0

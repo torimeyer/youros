@@ -111,13 +111,12 @@ log_rule_fire() {
 
 # ---- STANDING RULES (always emitted, infra) ----
 cat <<'EOF'
-STANDING RULES (non-negotiable this turn):
-1. ostk tools first. Bash/Read/Edit/Grep only if ostk MCP is offline. If ostk tools are deferred, reload via ToolSearch before falling through.
-2. If the user says saa/diagnose/fix, spawn a subagent via Agent. No inline work, even for small items.
-3. If ostk MCP drops, tell the user immediately. Reload via ToolSearch, do not silently fall back.
-4. If iterating over N things is slow, ask why there are N first. Reduce N before optimizing the loop.
-5. Commit verified wins incrementally. Five or more uncommitted files is a slow-down signal.
-6. Use mcp__ostk__spawn (+ interact) for any bash command expected to take >10s (tests, builds, full pytest, vitest). mcp__ostk__bash is for fast commands only. The harness cancels pending tools when a user message arrives — slow bash gets killed mid-run. See docs/draft/_review/2026-05-21-tool-cancellation-pattern.md.
+STANDING RULES:
+1. ostk tools first. Native tools only if ostk is offline, and say so.
+2. saa/diagnose/fix = spawn a subagent. No inline work.
+3. Anything over 10s runs via mcp__ostk__spawn + interact, never bash.
+4. Slow loop over N things? Ask why N first.
+5. Save verified wins as you go. 5+ unsaved files = slow down.
 EOF
 
 # ---- RECEIPTS CHECK (gated on standing_rules_blocks.receipts_check) ----
@@ -127,10 +126,7 @@ EOF
 # ---- ZERO-BYTE TRANSCRIPT CHECK (gated, compressed) ----
 if [ "${_YOUROS_RULE_standing_rules_blocks_zero_byte_transcript_check:-false}" = "true" ]; then
     cat <<'EOF'
-
-ZERO-BYTE TRANSCRIPT CLAIM CHECK (run before sending any reply):
-Trigger: reply names a cause for a 0-byte transcript or cites memory to explain a silent/0-byte subagent failure.
-Required in the same reply: (1) auth loggedIn value from a command run THIS turn; (2) completed_at + spawned_at for the agent from a live /api/agents call THIS turn; (3) if citing memory, a verbatim line from that file read THIS turn (path:line format). Quota cap valid only on Max subscription, NOT apiKeySource: ANTHROPIC_API_KEY. Any missing = regenerate. See feedback_zero_byte_transcript_diagnose_order.md.
+0-byte transcript cause claims need, this turn: auth loggedIn, spawned_at + completed_at from /api/agents, verbatim memory line if cited. Quota applies on Max only, never with ANTHROPIC_API_KEY.
 EOF
     log_rule_fire "standing_rules_blocks" "UserPromptSubmit" "allow" "zero_byte_transcript_check block emitted"
 fi
@@ -138,10 +134,7 @@ fi
 # ---- STALL/DEATH CHECK (gated, compressed) ----
 if [ "${_YOUROS_RULE_standing_rules_blocks_stall_death_check:-false}" = "true" ]; then
     cat <<'EOF'
-
-STALL/DEATH ASSERTION CHECK (run before sending any reply):
-Trigger: reply uses "stalled", "died", "dead", "dropped", "abandoned", "no progress", or "agent went quiet" alongside an agent name.
-Required: evidence from at least 3 of 5: ps -p <pid> (alive/dead), git log --all main..<branch> --oneline (any commit = not dead), git status of worktree (dirty = active), transcript tail via /api/agents/<name>/transcript (recent bytes = writing), /api/agents row from two reads. Flat bytes/step are hypotheses, not conclusions. Fewer than 3 = regenerate. See feedback_false_alarm_meta_pattern.md.
+Calling an agent stalled/dead needs 3 of 5 signals: pid, branch commits, worktree status, transcript bytes, two /api/agents reads.
 EOF
     log_rule_fire "standing_rules_blocks" "UserPromptSubmit" "allow" "stall_death_check block emitted"
 fi
@@ -153,23 +146,7 @@ rule_enabled humanfile_render && _humanfile_render_check
 # ---- ADHD DEPTH-PROBE RULE (gated on adhd_monitor_pairing.enabled) ----
 if rule_enabled adhd_monitor_pairing; then
     CADENCE=$(rule_param "adhd_monitor_pairing.depth_probe_cadence_seconds" "60")
-    echo ""
-    echo "[ADHD DEPTH-PROBE RULE] Every ${CADENCE:-60}s when a background agent is in flight, emit a status update with at least 2 of:"
-    echo "- pid alive + CPU/elapsed advance vs prior probe"
-    echo "- transcript_bytes delta vs prior probe"
-    echo "- worktree git status changes since prior probe"
-    echo "- /api/agents row delta (status, current_step)"
-    echo '"no change" Monitor ticks are not proof of life. If 2+ flatline for 70s, surface "agent stalled" and ask whether to cancel.'
-    echo ''
-    echo 'RELAY FAILURE: forwarding a bare Monitor tick as a depth probe is the exact mistake this rule prevents.'
-    echo 'Arm Monitor with a command that produces 2+ real signals each cycle. Minimal template (substitute PID, WORKTREE, AGENT_NAME):'
-    printf '%s\n' '  while true; do'
-    printf '%s\n' '    echo "=== probe $(date +%H:%M:%S) ==="'
-    printf '%s\n' '    ps -p PID -o pid,%cpu,etime= 2>/dev/null || echo "pid=PID dead"'
-    printf '%s\n' '    git -C WORKTREE log --oneline -2 2>/dev/null'
-    printf '%s\n' '    sleep CADENCE'
-    printf '%s\n' '  done'
-    printf '%s\n' '(Full template with all 4 signals: .claude/hooks/README-rule-hooks.md)'
+    echo "Every ${CADENCE:-60}s while an agent runs: status with 2+ real signals (pid/CPU, transcript bytes, worktree changes, /api/agents row). A bare Monitor tick is not proof of life."
 fi
 
 # ---- LIVE AGENT SNAPSHOT + RETRY QUEUE + DENY LOG (single python3) ----
