@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tests for _adhd_monitor_pairing_disarm (→1571).
 # Verifies sentinel + keepalive are cleaned up when Monitor fails with internal error,
-# and that the next Agent spawn is subsequently blocked.
+# and that the next Agent spawn re-arms the watchdog and is allowed (→1563).
 set -uo pipefail
 
 RULES_DIR="$(cd "$(dirname "$0")/.." && pwd)/lib/rules"
@@ -30,7 +30,15 @@ run_disarm() {
 }
 
 TMPDIR_BASE=$(mktemp -d)
-trap 'rm -rf "$TMPDIR_BASE"' EXIT
+NEW_KA5_PID=""
+# Kill a keepalive loop and its sleeping child.
+kill_keepalive() {
+  local p="${1:-}"
+  [ -n "$p" ] || return 0
+  pkill -P "$p" 2>/dev/null || true
+  kill "$p" 2>/dev/null || true
+}
+trap 'kill_keepalive "$NEW_KA5_PID"; rm -rf "$TMPDIR_BASE"' EXIT
 
 # ── Test 1: disarm removes sentinel ──────────────────────────────────────────
 T1_SENTINEL="$TMPDIR_BASE/t1/.youros/.adhd-monitor-armed-test"
@@ -75,7 +83,8 @@ exit_code=$?
 set -e
 assert_eq "disarm with no sentinel exits 0" "0" "$exit_code"
 
-# ── Test 5: after disarm, _check blocks Agent spawn (ADHD mode active) ───────
+# ── Test 5: after disarm, _check re-arms and allows Agent (ADHD mode active) ─
+# Since →1563 the check auto-arms (sentinel + keepalive) instead of denying.
 T5="$TMPDIR_BASE/t5"
 T5_SENTINEL="$T5/.youros/.adhd-monitor-armed-test"
 mkdir -p "$T5/.youros"
@@ -91,13 +100,38 @@ result=$(
     export HOME="$T5"
     log_rule_fire() { :; }
     deny() { exit 2; }
+    advise() { :; }
     rule_param() { echo "${2:-}"; }
     . "$RULES_DIR/adhd_monitor_pairing.sh"
     _adhd_monitor_pairing_check "Agent" "$T5_SENTINEL" "-1"
-  )
+  ) >/dev/null 2>&1
   echo $?
 )
-assert_eq "after disarm, _check blocks Agent" "2" "$result"
+assert_eq "after disarm, _check re-arms and allows Agent" "0" "$result"
+
+[ -f "$T5_SENTINEL" ] && actual="exists" || actual="gone"
+assert_eq "re-arm recreates sentinel" "exists" "$actual"
+
+if [ -f "${T5_SENTINEL}.keepalive.pid" ]; then
+  NEW_KA5_PID=$(cat "${T5_SENTINEL}.keepalive.pid" 2>/dev/null || true)
+  actual="exists"
+else
+  actual="gone"
+fi
+assert_eq "re-arm writes keepalive pid file" "exists" "$actual"
+
+if [ -n "$NEW_KA5_PID" ] && kill -0 "$NEW_KA5_PID" 2>/dev/null; then
+  actual="alive"
+else
+  actual="dead"
+fi
+assert_eq "re-armed keepalive is alive" "alive" "$actual"
+
+[ -n "$NEW_KA5_PID" ] && [ "$NEW_KA5_PID" != "$KA5_PID" ] && actual="new" || actual="same-or-empty"
+assert_eq "re-armed keepalive is a new process" "new" "$actual"
+
+kill_keepalive "$NEW_KA5_PID"
+NEW_KA5_PID=""
 
 echo ""
 echo "Results: $pass passed, $fail failed"
