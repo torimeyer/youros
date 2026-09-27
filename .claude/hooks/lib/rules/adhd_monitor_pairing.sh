@@ -126,6 +126,7 @@ _adhd_monitor_pairing_check() {
     local reason="ADHD mode is active but no sentinel path was supplied to the check. Cannot auto-arm watchdog."
     log_rule_fire "adhd_monitor_pairing" "$tool" "block" "no sentinel path for auto-arm"
     advise "$reason"
+    return 0
   fi
 
   _adhd_monitor_pairing_arm "$tool" "$sentinel"
