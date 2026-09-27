@@ -105,7 +105,16 @@ if [ -f "${SENTINEL4}.keepalive.pid" ]; then
   NEW_PID=$(cat "${SENTINEL4}.keepalive.pid")
   if [ "$NEW_PID" != "99999999" ] && kill -0 "$NEW_PID" 2>/dev/null; then
     assert_true "  auto-armed: new live keepalive replaced dead one (pid=$NEW_PID)" 1
+    SLEEP_CHILD4=$(pgrep -P "$NEW_PID" 2>/dev/null || true)
     kill "$NEW_PID" 2>/dev/null || true
+    sleep 0.2
+    if [ -n "$SLEEP_CHILD4" ]; then
+      if kill -0 "$SLEEP_CHILD4" 2>/dev/null; then
+        assert_true "  keepalive sleep child not orphaned (pid=$SLEEP_CHILD4)" 0
+      else
+        assert_true "  keepalive sleep child not orphaned" 1
+      fi
+    fi
   else
     assert_true "  auto-armed: new live keepalive replaced dead one (pid=$NEW_PID)" 0
   fi
@@ -125,7 +134,16 @@ if [ -f "${SENTINEL5}.keepalive.pid" ]; then
   NEW_PID=$(cat "${SENTINEL5}.keepalive.pid")
   if kill -0 "$NEW_PID" 2>/dev/null; then
     assert_true "  auto-armed: keepalive spawned for previously bare sentinel (pid=$NEW_PID)" 1
+    SLEEP_CHILD5=$(pgrep -P "$NEW_PID" 2>/dev/null || true)
     kill "$NEW_PID" 2>/dev/null || true
+    sleep 0.2
+    if [ -n "$SLEEP_CHILD5" ]; then
+      if kill -0 "$SLEEP_CHILD5" 2>/dev/null; then
+        assert_true "  keepalive sleep child not orphaned (pid=$SLEEP_CHILD5)" 0
+      else
+        assert_true "  keepalive sleep child not orphaned" 1
+      fi
+    fi
   else
     assert_true "  auto-armed: keepalive spawned for previously bare sentinel" 0
   fi
@@ -190,7 +208,16 @@ if [ -f "$SENTINEL7" ] && [ -f "${SENTINEL7}.keepalive.pid" ]; then
   NEW_PID=$(cat "${SENTINEL7}.keepalive.pid")
   if kill -0 "$NEW_PID" 2>/dev/null; then
     assert_true "  auto-armed: sentinel + keepalive created from scratch (pid=$NEW_PID)" 1
+    SLEEP_CHILD7=$(pgrep -P "$NEW_PID" 2>/dev/null || true)
     kill "$NEW_PID" 2>/dev/null || true
+    sleep 0.2
+    if [ -n "$SLEEP_CHILD7" ]; then
+      if kill -0 "$SLEEP_CHILD7" 2>/dev/null; then
+        assert_true "  keepalive sleep child not orphaned (pid=$SLEEP_CHILD7)" 0
+      else
+        assert_true "  keepalive sleep child not orphaned" 1
+      fi
+    fi
   else
     assert_true "  auto-armed: sentinel + keepalive created from scratch" 0
   fi

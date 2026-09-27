@@ -39,9 +39,12 @@ _adhd_monitor_pairing_arm() {
   # Detach FDs so callers (and tests) don't wait for the 8-hour keepalive
   # to release inherited stdin/stdout/stderr before their own subshell exits.
   (
+    SLEEP_PID=""
+    trap 'kill "$SLEEP_PID" 2>/dev/null; exit 0' TERM
     i=0
     while [ "$i" -lt "$max_iters" ]; do
-      sleep "$refresh"
+      sleep "$refresh" & SLEEP_PID=$!
+      wait "$SLEEP_PID"
       [ -f "$sentinel" ] || exit 0
       touch "$sentinel" 2>/dev/null || exit 0
       i=$(( i + 1 ))
