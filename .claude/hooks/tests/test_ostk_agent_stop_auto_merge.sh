@@ -6,6 +6,10 @@
 # fires in the CHILD session when the agent actually exits. The hook uses
 # git plumbing (git-common-dir + git branch --show-current) to find the
 # main repo and branch — no side-channel name files required.
+#
+# →2466 made auto-merge opt-in (AGENT_AUTO_MERGE_ENABLED=1) and added a
+# dirty-worktree guard. Merge-path tests set the env var explicitly; tests 5
+# and 6 cover the SKIP-OPT-IN and ATTN-DIRTY-SKIP guards (→3039).
 set -uo pipefail
 
 HOOK="$(cd "$(dirname "$0")/.." && pwd)/ostk-agent-stop.sh"
@@ -22,15 +26,18 @@ chmod +x "$BIN/curl"
 
 FAIL=0
 
-# run_hook_in_worktree WORKTREE_DIR AGENT_NAME → prints hook stderr
+# run_hook_in_worktree WORKTREE_DIR AGENT_NAME [AUTO_MERGE] → prints hook stderr
+# AUTO_MERGE=1 sets AGENT_AUTO_MERGE_ENABLED=1; anything else leaves it unset.
 run_hook_in_worktree() {
-    local wt_dir="$1" name="$2"
+    local wt_dir="$1" name="$2" auto="${3:-}"
+    local envset="-u AGENT_AUTO_MERGE_ENABLED"
+    [ "$auto" = "1" ] && envset="AGENT_AUTO_MERGE_ENABLED=1"
     local homed="$WORK/home-$name"
     mkdir -p "$homed/.youros/subagents"
     printf '%s' "$name" > "$homed/.youros/subagents/last.name"
     local payload='{"session_id":"test-session-'"$name"'"}'
     # Run hook with CWD inside the worktree so git commands see worktree context.
-    PATH="$BIN:$PATH" HOME="$homed" \
+    env $envset PATH="$BIN:$PATH" HOME="$homed" \
         bash -c "cd '$wt_dir' && bash '$HOOK'" <<< "$payload" 2>&1 >/dev/null || true
 }
 
@@ -51,7 +58,7 @@ git -C "$WT_DIR" commit --allow-empty -m "agent work in worktree" -q
 WANT_TIP=$(git -C "$WT_DIR" rev-parse "$WT_BRANCH")
 MAIN_BEFORE=$(git -C "$REPO1" rev-parse main 2>/dev/null || git -C "$REPO1" rev-parse HEAD)
 
-STDERR1=$(run_hook_in_worktree "$WT_DIR" "test-bg-agent")
+STDERR1=$(run_hook_in_worktree "$WT_DIR" "test-bg-agent" 1)
 MAIN_AFTER=$(git -C "$REPO1" rev-parse main 2>/dev/null || git -C "$REPO1" rev-parse HEAD)
 
 if [ "$MAIN_AFTER" = "$WANT_TIP" ]; then
@@ -114,7 +121,7 @@ git -C "$WT_DIR3" commit --allow-empty -m "worktree commit" -q
 git -C "$REPO3" commit --allow-empty -m "main diverged commit" -q
 
 MAIN_BEFORE3=$(git -C "$REPO3" rev-parse main 2>/dev/null || git -C "$REPO3" rev-parse HEAD)
-STDERR3=$(run_hook_in_worktree "$WT_DIR3" "test-div-agent")
+STDERR3=$(run_hook_in_worktree "$WT_DIR3" "test-div-agent" 1)
 MAIN_AFTER3=$(git -C "$REPO3" rev-parse main 2>/dev/null || git -C "$REPO3" rev-parse HEAD)
 
 if [ "$MAIN_AFTER3" = "$MAIN_BEFORE3" ]; then
@@ -157,7 +164,7 @@ HOMED4="$WORK/home-bridge-no-name"
 mkdir -p "$HOMED4/.youros/subagents"
 # Intentionally do NOT write last.name
 
-STDERR4=$(PATH="$BIN:$PATH" HOME="$HOMED4" bash -c "cd '$WT_DIR4' && bash '$HOOK'" <<< '{}' 2>&1 >/dev/null || true)
+STDERR4=$(env AGENT_AUTO_MERGE_ENABLED=1 PATH="$BIN:$PATH" HOME="$HOMED4" bash -c "cd '$WT_DIR4' && bash '$HOOK'" <<< '{}' 2>&1 >/dev/null || true)
 MAIN_AFTER4=$(git -C "$REPO4" rev-parse main 2>/dev/null || git -C "$REPO4" rev-parse HEAD)
 
 if [ "$MAIN_AFTER4" = "$WANT_TIP4" ]; then
@@ -174,6 +181,82 @@ if grep -q "MERGED" "$HOMED4/.youros/logs/merge-debt.log" 2>/dev/null; then
 else
     echo "FAIL: merge-debt.log missing MERGED entry"
     cat "$HOMED4/.youros/logs/merge-debt.log" 2>/dev/null || echo "(log missing)"
+    FAIL=1
+fi
+
+# ── Test 5: no opt-in env var — main unchanged, SKIP-OPT-IN logged ───────
+echo "=== test 5: without AGENT_AUTO_MERGE_ENABLED, main unchanged and SKIP-OPT-IN logged ==="
+REPO5="$WORK/repo5"
+git init -q "$REPO5"
+git -C "$REPO5" config user.email "test@test.com"
+git -C "$REPO5" config user.name "Test"
+git -C "$REPO5" commit --allow-empty -m "init" -q
+
+WT_BRANCH5="worktree-agent-no-optin-$(date +%s)"
+WT_DIR5="$WORK/wt5"
+git -C "$REPO5" worktree add -q -b "$WT_BRANCH5" "$WT_DIR5"
+git -C "$WT_DIR5" commit --allow-empty -m "agent work, no opt-in" -q
+
+MAIN_BEFORE5=$(git -C "$REPO5" rev-parse main 2>/dev/null || git -C "$REPO5" rev-parse HEAD)
+STDERR5=$(run_hook_in_worktree "$WT_DIR5" "test-no-optin")
+MAIN_AFTER5=$(git -C "$REPO5" rev-parse main 2>/dev/null || git -C "$REPO5" rev-parse HEAD)
+
+if [ "$MAIN_AFTER5" = "$MAIN_BEFORE5" ]; then
+    echo "PASS: main unchanged without opt-in"
+    echo "  hook says: $STDERR5"
+else
+    echo "FAIL: main changed without opt-in. before=$MAIN_BEFORE5 after=$MAIN_AFTER5"
+    FAIL=1
+fi
+
+HOMED5="$WORK/home-test-no-optin"
+if grep -q "SKIP-OPT-IN" "$HOMED5/.youros/logs/merge-debt.log" 2>/dev/null; then
+    echo "PASS: merge-debt.log has SKIP-OPT-IN entry"
+else
+    echo "FAIL: merge-debt.log missing SKIP-OPT-IN entry"
+    cat "$HOMED5/.youros/logs/merge-debt.log" 2>/dev/null || echo "(log missing)"
+    FAIL=1
+fi
+
+# ── Test 6: opt-in set but worktree dirty — main unchanged, ATTN-DIRTY-SKIP ─
+echo "=== test 6: opt-in set but untracked file in worktree, main unchanged and ATTN-DIRTY-SKIP logged ==="
+REPO6="$WORK/repo6"
+git init -q "$REPO6"
+git -C "$REPO6" config user.email "test@test.com"
+git -C "$REPO6" config user.name "Test"
+git -C "$REPO6" commit --allow-empty -m "init" -q
+
+WT_BRANCH6="worktree-agent-dirty-$(date +%s)"
+WT_DIR6="$WORK/wt6"
+git -C "$REPO6" worktree add -q -b "$WT_BRANCH6" "$WT_DIR6"
+git -C "$WT_DIR6" commit --allow-empty -m "agent work, then an unsaved file" -q
+echo "uncommitted report" > "$WT_DIR6/report.txt"
+
+MAIN_BEFORE6=$(git -C "$REPO6" rev-parse main 2>/dev/null || git -C "$REPO6" rev-parse HEAD)
+STDERR6=$(run_hook_in_worktree "$WT_DIR6" "test-dirty" 1)
+MAIN_AFTER6=$(git -C "$REPO6" rev-parse main 2>/dev/null || git -C "$REPO6" rev-parse HEAD)
+
+if [ "$MAIN_AFTER6" = "$MAIN_BEFORE6" ]; then
+    echo "PASS: main unchanged for dirty worktree"
+    echo "  hook says: $STDERR6"
+else
+    echo "FAIL: main changed for dirty worktree. before=$MAIN_BEFORE6 after=$MAIN_AFTER6"
+    FAIL=1
+fi
+
+HOMED6="$WORK/home-test-dirty"
+if grep -q "ATTN-DIRTY-SKIP" "$HOMED6/.youros/logs/merge-debt.log" 2>/dev/null; then
+    echo "PASS: merge-debt.log has ATTN-DIRTY-SKIP entry"
+else
+    echo "FAIL: merge-debt.log missing ATTN-DIRTY-SKIP entry"
+    cat "$HOMED6/.youros/logs/merge-debt.log" 2>/dev/null || echo "(log missing)"
+    FAIL=1
+fi
+
+if [ -f "$WT_DIR6/report.txt" ]; then
+    echo "PASS: untracked file in worktree preserved"
+else
+    echo "FAIL: untracked file in worktree was lost"
     FAIL=1
 fi
 
