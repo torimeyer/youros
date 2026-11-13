@@ -12,7 +12,56 @@ interface TaskResult {
   title: string
 }
 
+interface RecallSearchHit {
+  id: string
+  scope: string
+  title: string
+  snippet?: string
+  path?: string | null
+  line?: number | null
+  source?: string
+}
+
 type AnyItem = Record<string, unknown>
+
+function normalizeRecallScope(rawScope: unknown): string {
+  const s = String(rawScope ?? '').trim().toLowerCase()
+  if (s === 'decisions' || s === 'decision') return 'decision'
+  if (s === 'transcripts' || s === 'transcript' || s === 'tool' || s === 'session') return 'transcript'
+  if (s === 'work' || s === 'needle' || s === 'needles' || s === 'task' || s === 'tasks' || s === 'history') {
+    return 'work'
+  }
+  if (s === 'files' || s === 'file') return 'file'
+  if (s === 'code') return 'code'
+  return s || 'recall'
+}
+
+function recallTargetRoute(scope: string): string {
+  const norm = normalizeRecallScope(scope)
+  if (norm === 'transcript') return '/transcripts'
+  if (norm === 'work') return '/tasks'
+  if (norm === 'decision') return '/ostk'
+  if (norm === 'code' || norm === 'file') return '/projects'
+  return '/transcripts'
+}
+
+function toRecallHit(item: AnyItem, idx: number): RecallSearchHit {
+  const scope = normalizeRecallScope(item.scope)
+  const path = typeof item.path === 'string' && item.path.trim() ? item.path.trim() : null
+  const line = typeof item.line === 'number' ? item.line : null
+  const id = String(item.id ?? path ?? item.title ?? `recall-${idx}`)
+  const title = String(item.title ?? path ?? id)
+  const snippet = typeof item.snippet === 'string' ? item.snippet : ''
+  return {
+    id,
+    scope,
+    title,
+    snippet,
+    path,
+    line,
+    source: typeof item.source === 'string' ? item.source : 'ostk_recall',
+  }
+}
 
 export interface UniversalSearchProps {
   open: boolean
@@ -101,6 +150,7 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
   const [docsLoading, setDocsLoading] = useState(false)
   const [tasksResults, setTasksResults] = useState<TaskResult[]>([])
   const [deepResults, setDeepResults] = useState<AnyItem[]>([])
+  const [ostkRecallResults, setOstkRecallResults] = useState<RecallSearchHit[]>([])
   const [recallResults, setRecallResults] = useState<AnyItem[]>([])
   const [agentsResults, setAgentsResults] = useState<AnyItem[]>([])
   const [specsResults, setSpecsResults] = useState<AnyItem[]>([])
@@ -181,6 +231,7 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
   const deepCount = q ? deepResults.length : 0
   const specsCount = q ? specsResults.length : 0
   const docsCount = q ? docsResults.length : 0
+  const ostkRecallCount = q ? ostkRecallResults.length : 0
   const recallCount = q ? recallResults.length : 0
 
   const actionsOffset = navCount
@@ -190,16 +241,18 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
   const deepOffset = tasksOffset + tasksCount
   const specsOffset = deepOffset + deepCount
   const docsOffset = specsOffset + specsCount
-  const recallOffset = docsOffset + docsCount
+  const ostkRecallOffset = docsOffset + docsCount
+  const recallOffset = ostkRecallOffset + ostkRecallCount
   const totalItems = recallOffset + recallCount
 
-  // Debounced parallel search across all 3 endpoints
+  // Debounced parallel search across all endpoints
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
 
     if (!q) {
       setTasksResults([])
       setDeepResults([])
+      setOstkRecallResults([])
       setRecallResults([])
       setAgentsResults([])
       setSpecsResults([])
@@ -224,7 +277,7 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
       const encoded = encodeURIComponent(q)
       const lower = q.toLowerCase()
       const [tr, dr, rr, ar, sr, fr] = await Promise.allSettled([
-        api.get<{ tasks: TaskResult[]; query: string }>(`/search?q=${encoded}`),
+        api.get<{ tasks: TaskResult[]; recall?: AnyItem[]; query: string }>(`/search?q=${encoded}`),
         api.get<unknown>(`/search/deep?q=${encoded}`),
         api.get<unknown>(`/search/recall?q=${encoded}`),
         api.get<unknown>(`/agents?user_spawned_only=true&summary=1`),
@@ -232,8 +285,22 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
         api.get<unknown>(`/docs/recent?limit=30`),
       ])
 
+      const mergedOstkRecall: RecallSearchHit[] = []
+      const seenRecallKeys = new Set<string>()
+      const pushRecallHit = (item: AnyItem, idx: number) => {
+        const hit = toRecallHit(item, idx)
+        const key = `${hit.scope}:${hit.id}:${hit.path ?? ''}:${hit.line ?? ''}`
+        if (!seenRecallKeys.has(key)) {
+          seenRecallKeys.add(key)
+          mergedOstkRecall.push(hit)
+        }
+      }
+
       if (tr.status === 'fulfilled') {
         setTasksResults(tr.value?.tasks ?? [])
+        if (Array.isArray(tr.value?.recall)) {
+          tr.value.recall.forEach((item, idx) => pushRecallHit(item, idx))
+        }
       } else {
         reportError('Tasks search failed', tr.reason)
         setTasksResults([])
@@ -249,11 +316,21 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
       setDeepLoading(false)
 
       if (rr.status === 'fulfilled') {
-        setRecallResults(flattenResponse(rr.value))
+        const rawItems = flattenResponse(rr.value)
+        const legacyTranscripts: AnyItem[] = []
+        rawItems.forEach((item, idx) => {
+          if (item.source === 'ostk_recall' || typeof item.scope === 'string') {
+            pushRecallHit(item, idx)
+          } else {
+            legacyTranscripts.push(item)
+          }
+        })
+        setRecallResults(legacyTranscripts)
       } else {
         reportError('Recall search failed', rr.reason)
         setRecallResults([])
       }
+      setOstkRecallResults(mergedOstkRecall)
       setRecallLoading(false)
 
       // Running agents: filter the bounded list client-side by name.
@@ -310,6 +387,7 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
       setSelectedIndex(0)
       setTasksResults([])
       setDeepResults([])
+      setOstkRecallResults([])
       setRecallResults([])
       setAgentsResults([])
       setSpecsResults([])
@@ -364,16 +442,20 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
       const specPath = spec?.path ? String(spec.path) : null
       navigate(specPath ? `/specs?focus=${encodeURIComponent(specPath)}` : '/specs')
       onClose()
-    } else if (selectedIndex < recallOffset) {
+    } else if (selectedIndex < ostkRecallOffset) {
       navigate('/projects')
+      onClose()
+    } else if (selectedIndex < recallOffset) {
+      const hit = ostkRecallResults[selectedIndex - ostkRecallOffset]
+      navigate(hit ? recallTargetRoute(hit.scope) : '/transcripts')
       onClose()
     } else if (selectedIndex < totalItems) {
       navigate('/transcripts')
       onClose()
     }
   }, [
-    selectedIndex, navCount, actionsOffset, templatesOffset, agentsOffset, tasksOffset, deepOffset, specsOffset, docsOffset, recallOffset, totalItems,
-    filteredNav, filteredActions, tasksResults, deepResults, specsResults, navigate, onClose,
+    selectedIndex, navCount, actionsOffset, templatesOffset, agentsOffset, tasksOffset, deepOffset, specsOffset, docsOffset, ostkRecallOffset, recallOffset, totalItems,
+    filteredNav, filteredActions, tasksResults, deepResults, specsResults, ostkRecallResults, navigate, onClose,
   ])
 
   const handleKeyDown = useCallback(
@@ -713,6 +795,63 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
                 : null
           )}
 
+          {/* Recall (ostk recall-search) */}
+          {q && !tasksLoading && ostkRecallResults.length > 0 && (
+            <div data-testid="section-recall">
+              {sectionHeader('Recall', 'text-emerald-600 dark:text-emerald-400')}
+              {ostkRecallResults.map((hit, i) => {
+                const idx = ostkRecallOffset + i
+                const sel = idx === selectedIndex
+                const pathLabel = hit.path
+                  ? hit.line !== null && hit.line !== undefined
+                    ? `${hit.path}:${hit.line}`
+                    : hit.path
+                  : null
+                return (
+                  <button
+                    key={`${hit.id}-${i}`}
+                    data-us-item
+                    onClick={() => {
+                      navigate(recallTargetRoute(hit.scope))
+                      onClose()
+                    }}
+                    onMouseEnter={() => setSelectedIndex(idx)}
+                    className={rowCls(idx)}
+                    data-testid={`recall-item-${i}`}
+                  >
+                    <Icon
+                      name="psychology"
+                      className={`text-lg shrink-0 ${sel ? 'text-emerald-600 dark:text-emerald-400' : 'text-emerald-500/60'}`}
+                    />
+                    <div className="flex-1 min-w-0 text-left">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="truncate font-medium">
+                          <Highlight text={hit.title} query={q} />
+                        </span>
+                        {pathLabel && (
+                          <span className="truncate font-mono text-[11px] text-slate-500">
+                            {pathLabel}
+                          </span>
+                        )}
+                      </div>
+                      {hit.snippet && (
+                        <div className="truncate text-xs text-slate-500 mt-0.5">
+                          <Highlight text={hit.snippet} query={q} />
+                        </div>
+                      )}
+                    </div>
+                    <span
+                      data-testid={`recall-scope-${hit.scope}`}
+                      className="shrink-0 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-mono font-semibold uppercase text-emerald-600 dark:text-emerald-400"
+                    >
+                      {hit.scope}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+
           {/* Transcripts */}
           {q && (
             recallLoading
@@ -758,6 +897,7 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
             !docsLoading &&
             tasksResults.length === 0 &&
             deepResults.length === 0 &&
+            ostkRecallResults.length === 0 &&
             recallResults.length === 0 &&
             agentsResults.length === 0 &&
             specsResults.length === 0 &&
