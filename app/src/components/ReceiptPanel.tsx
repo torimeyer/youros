@@ -274,7 +274,7 @@ export function ReceiptPanel({
               data-testid="receipt-merge-reap-btn"
               disabled={!activeReceipt.verified || busyAction !== null}
               onClick={handleMergeAndReap}
-              className="px-2.5 py-1 rounded-md font-medium bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              className="px-2.5 py-1 rounded-md font-medium bg-emerald-600 hover:bg-emerald-500 !text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               Merge and Reap Worktree
             </button>
@@ -296,7 +296,7 @@ export function ReceiptPanel({
               value={pinKey}
               onChange={(e) => setPinKey(e.target.value)}
               placeholder="Decision key"
-              className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-xs text-slate-800 dark:text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500"
+              className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-xs text-slate-800 dark:text-slate-200 placeholder-slate-500 focus:outline-none focus:border-[var(--color-accent)]"
             />
             <input
               type="text"
@@ -304,14 +304,14 @@ export function ReceiptPanel({
               value={pinValue}
               onChange={(e) => setPinValue(e.target.value)}
               placeholder="Decision value"
-              className="flex-1 min-w-[140px] bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-xs text-slate-800 dark:text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500"
+              className="flex-1 min-w-[140px] bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 text-xs text-slate-800 dark:text-slate-200 placeholder-slate-500 focus:outline-none focus:border-[var(--color-accent)]"
             />
             <button
               type="button"
               data-testid="pin-decision-submit-btn"
               disabled={busyAction !== null || !pinKey.trim() || !pinValue.trim()}
               onClick={handlePinDecision}
-              className="px-2.5 py-1 rounded-md font-medium bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              className="px-2.5 py-1 rounded-md font-medium accent-bg hover:opacity-90 !text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               Pin Decision
             </button>

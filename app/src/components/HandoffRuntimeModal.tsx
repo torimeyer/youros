@@ -191,7 +191,7 @@ export function HandoffRuntimeModal({
               value={targetRuntime}
               onChange={(e) => handleRuntimeChange(e.target.value as RuntimeKind)}
               disabled={submitting}
-              className="w-full rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+              className="w-full rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-[var(--color-accent)]"
             >
               <option value="claude">Claude</option>
               <option value="gemini">Gemini</option>
@@ -211,7 +211,7 @@ export function HandoffRuntimeModal({
               value={targetModel}
               onChange={(e) => setTargetModel(e.target.value)}
               disabled={submitting}
-              className="w-full rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+              className="w-full rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-[var(--color-accent)]"
             >
               {modelOptions.map((opt) => (
                 <option key={opt.value} value={opt.value}>
@@ -236,7 +236,7 @@ export function HandoffRuntimeModal({
               onChange={(e) => setTransitionNote(e.target.value)}
               disabled={submitting}
               placeholder="Explain why the handoff is happening (for example: rate limit or retry strategy)"
-              className="w-full rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-3 py-2 text-sm text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none"
+              className="w-full rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-3 py-2 text-sm text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:border-[var(--color-accent)] resize-none"
             />
           </div>
         </div>
@@ -266,7 +266,7 @@ export function HandoffRuntimeModal({
             data-testid="confirm-handoff-btn"
             onClick={handleConfirm}
             disabled={submitting}
-            className="px-4 py-2 text-sm font-medium rounded-lg bg-blue-600 hover:bg-blue-500 text-white transition-colors disabled:opacity-50"
+            className="px-4 py-2 text-sm font-medium rounded-lg accent-bg hover:opacity-90 !text-white transition-colors disabled:opacity-50"
           >
             {submitting ? 'Handing off...' : 'Confirm Handoff'}
           </button>

@@ -165,4 +165,27 @@ describe('ReceiptPanel', () => {
     })
     expect(screen.getByTestId('receipt-panel')).toBeInTheDocument()
   })
+
+  it('keeps solid action button labels white in light mode and uses accent-bg on Pin Decision (→3106)', () => {
+    document.documentElement.setAttribute('data-theme', 'light')
+    try {
+      render(
+        <ReceiptPanel
+          taskId="→42"
+          agentName="builder-42"
+          receipt={verifiedReceipt}
+        />
+      )
+
+      const mergeBtn = screen.getByTestId('receipt-merge-reap-btn')
+      const pinBtn = screen.getByTestId('pin-decision-submit-btn')
+
+      expect(mergeBtn.className).toContain('!text-white')
+      expect(pinBtn.className).toContain('!text-white')
+      expect(pinBtn.className).toContain('accent-bg')
+      expect(pinBtn.className).not.toContain('bg-blue-600')
+    } finally {
+      document.documentElement.removeAttribute('data-theme')
+    }
+  })
 })

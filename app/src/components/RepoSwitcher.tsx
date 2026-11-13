@@ -128,11 +128,11 @@ export default function RepoSwitcher({ compact = false, onNavigate }: RepoSwitch
         aria-label={`Active repository: ${activeLabel}`}
         title={effectivePath || activeLabel}
         onClick={handleToggle}
-        className={`flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/70 hover:bg-slate-800/80 hover:border-slate-700 text-slate-300 transition-colors cursor-pointer ${
+        className={`flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 hover:border-slate-400 text-slate-200 transition-colors cursor-pointer ${
           compact ? 'p-1.5 justify-center w-9 h-9' : 'w-full px-2.5 py-1.5 text-left'
         }`}
       >
-        <Icon name="folder" className="text-sm text-blue-400 shrink-0" />
+        <Icon name="folder" className="text-sm accent-text shrink-0" />
         {!compact && (
           <>
             <span className="text-xs font-mono font-medium truncate flex-1">{activeLabel}</span>
@@ -150,7 +150,7 @@ export default function RepoSwitcher({ compact = false, onNavigate }: RepoSwitch
         <div
           role="listbox"
           aria-label="Discovered git repositories"
-          className="absolute left-0 right-0 mt-1.5 min-w-[210px] rounded-xl border border-slate-700/80 bg-slate-900 shadow-2xl z-50 overflow-hidden"
+          className="absolute left-0 right-0 mt-1.5 min-w-[210px] rounded-xl border border-slate-700 bg-slate-800 shadow-2xl z-50 overflow-hidden"
         >
           <div className="max-h-60 overflow-y-auto py-1">
             {loading && repos.length === 0 ? (
@@ -174,14 +174,14 @@ export default function RepoSwitcher({ compact = false, onNavigate }: RepoSwitch
                     }}
                     className={`flex items-center gap-2 w-full px-3 py-2 text-left text-xs transition-colors cursor-pointer ${
                       isSelected
-                        ? 'bg-blue-500/15 text-blue-300'
-                        : 'text-slate-300 hover:bg-slate-800'
+                        ? 'accent-highlight'
+                        : 'text-slate-300 hover:text-white hover:bg-slate-700'
                     }`}
                   >
                     <Icon
                       name={isSelected ? 'check' : 'folder'}
                       className={`text-sm shrink-0 ${
-                        isSelected ? 'text-blue-400' : 'text-slate-500'
+                        isSelected ? 'accent-text' : 'text-slate-500'
                       }`}
                     />
                     <div className="min-w-0 flex-1">
@@ -198,11 +198,11 @@ export default function RepoSwitcher({ compact = false, onNavigate }: RepoSwitch
             )}
           </div>
 
-          <div className="border-t border-slate-800 p-1">
+          <div className="border-t border-slate-700 p-1">
             <button
               type="button"
               onClick={handleManageRepos}
-              className="flex items-center gap-2 w-full px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-slate-200 hover:bg-slate-800/70 transition-colors cursor-pointer"
+              className="flex items-center gap-2 w-full px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-white hover:bg-slate-700 transition-colors cursor-pointer"
             >
               <Icon name="settings" className="text-sm text-slate-500" />
               <span>Manage repos</span>
