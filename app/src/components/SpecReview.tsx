@@ -36,6 +36,54 @@ interface PrState {
   created_at: string
 }
 
+type CritiqueRuntime = 'gemini' | 'claude'
+
+type AuditMatchEntry = string | { path?: string; file?: string; detail?: string }
+
+interface RawCrossCritiqueResponse {
+  summary?: string
+  critique?: string
+  audit_clear?: boolean
+  matched_files?: AuditMatchEntry[]
+  audit_matches?: AuditMatchEntry[]
+  existing_files?: AuditMatchEntry[]
+  matches?: AuditMatchEntry[]
+  findings?: string[]
+}
+
+interface NormalizedCrossCritique {
+  summary: string
+  auditClear: boolean
+  matchedFiles: string[]
+  findings: string[]
+}
+
+function normalizeAuditEntry(entry: AuditMatchEntry): string {
+  if (typeof entry === 'string') return entry
+  if (entry && typeof entry === 'object') {
+    const file = entry.path || entry.file || ''
+    if (file && entry.detail) return `${file}: ${entry.detail}`
+    return file || entry.detail || ''
+  }
+  return ''
+}
+
+function normalizeCrossCritique(raw: RawCrossCritiqueResponse): NormalizedCrossCritique {
+  const rawList =
+    raw.matched_files ?? raw.audit_matches ?? raw.existing_files ?? raw.matches ?? []
+  const matchedFiles = Array.isArray(rawList)
+    ? rawList.map(normalizeAuditEntry).filter(Boolean)
+    : []
+  const auditClear =
+    typeof raw.audit_clear === 'boolean' ? raw.audit_clear : matchedFiles.length === 0
+  return {
+    summary: typeof raw.summary === 'string' ? raw.summary : typeof raw.critique === 'string' ? raw.critique : '',
+    auditClear,
+    matchedFiles,
+    findings: Array.isArray(raw.findings) ? raw.findings.filter((f): f is string => typeof f === 'string') : [],
+  }
+}
+
 export function SpecReview({ specPath }: { specPath: string }) {
   const [data, setData] = useState<ReviewData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -44,10 +92,19 @@ export function SpecReview({ specPath }: { specPath: string }) {
   const [actionBusy, setActionBusy] = useState(false)
   const [freshResult, setFreshResult] = useState<{ ok: boolean; summary: string } | null>(null)
   const [freshBusy, setFreshBusy] = useState(false)
+  const [critiqueRuntime, setCritiqueRuntime] = useState<CritiqueRuntime>('gemini')
+  const [critiqueBusy, setCritiqueBusy] = useState(false)
+  const [critiqueResult, setCritiqueResult] = useState<NormalizedCrossCritique | null>(null)
+  const [critiqueError, setCritiqueError] = useState<string | null>(null)
   const [prState, setPrState] = useState<PrState | null>(null)
   const [prLink, setPrLink] = useState('')
   const [savingPr, setSavingPr] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
+
+  useEffect(() => {
+    setCritiqueResult(null)
+    setCritiqueError(null)
+  }, [specPath])
 
   useEffect(() => {
     let cancelled = false
@@ -179,6 +236,29 @@ export function SpecReview({ specPath }: { specPath: string }) {
       setFreshResult({ ok: false, summary: 'Fresh review could not run.' })
     } finally {
       setFreshBusy(false)
+    }
+  }
+
+  const handleCrossCritique = async () => {
+    setCritiqueBusy(true)
+    setCritiqueError(null)
+    setCritiqueResult(null)
+    const reviewerModel = critiqueRuntime === 'gemini' ? 'gemini-3.1-pro' : 'claude-opus-5-5'
+    try {
+      const res = await api.post<RawCrossCritiqueResponse>(
+        `/specs/${specPath}/cross-critique`,
+        {
+          reviewer_runtime: critiqueRuntime,
+          reviewer_model: reviewerModel,
+        }
+      )
+      setCritiqueResult(normalizeCrossCritique(res ?? {}))
+    } catch (err) {
+      setCritiqueError(
+        err instanceof Error && err.message ? err.message : 'Cross-model critique could not run.'
+      )
+    } finally {
+      setCritiqueBusy(false)
     }
   }
 
@@ -319,6 +399,80 @@ export function SpecReview({ specPath }: { specPath: string }) {
           >
             {freshResult.summary}
           </p>
+        )}
+      </div>
+
+      <div data-testid="review-cross-critique" className="space-y-2 pt-2 border-t border-slate-700/50">
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            aria-label="Critique runtime"
+            data-testid="cross-critique-runtime-select"
+            value={critiqueRuntime}
+            onChange={(e) => setCritiqueRuntime(e.target.value as CritiqueRuntime)}
+            disabled={critiqueBusy}
+            className="text-xs bg-slate-800/70 border border-slate-700/60 rounded px-2 py-1 text-slate-300 focus:outline-none focus:border-slate-500"
+          >
+            <option value="gemini">Gemini 3.1 Pro</option>
+            <option value="claude">Claude Opus 5.5</option>
+          </select>
+          <button
+            type="button"
+            data-testid="cross-model-critique-btn"
+            disabled={critiqueBusy}
+            onClick={handleCrossCritique}
+            className="text-xs px-2.5 py-1 rounded-md bg-blue-500/15 text-blue-400 hover:bg-blue-500/25 transition-colors disabled:opacity-50"
+          >
+            {critiqueBusy ? 'Critiquing...' : 'Cross-Model Spec Critique'}
+          </button>
+        </div>
+
+        {critiqueError && (
+          <p data-testid="cross-critique-error" className="text-xs text-amber-400">
+            {critiqueError}
+          </p>
+        )}
+
+        {critiqueResult && (
+          <div className="space-y-2 rounded-md border border-slate-700/60 bg-slate-800/40 p-2.5 text-xs">
+            <div
+              data-testid="cross-critique-audit-status"
+              className={`font-medium ${
+                critiqueResult.auditClear ? 'text-emerald-400' : 'text-amber-400'
+              }`}
+            >
+              {critiqueResult.auditClear
+                ? 'Pre-design audit clear'
+                : 'Pre-design audit match found: mark existing files as Existing (reuse): instead of Create:'}
+            </div>
+
+            {critiqueResult.summary && (
+              <p data-testid="cross-critique-summary" className="text-slate-300">
+                {critiqueResult.summary}
+              </p>
+            )}
+
+            {critiqueResult.matchedFiles.length > 0 && (
+              <div data-testid="cross-critique-audit-matches" className="space-y-1">
+                <span className="text-slate-400 font-medium">Matched existing files:</span>
+                <ul className="list-disc list-inside space-y-0.5 text-amber-300 font-mono">
+                  {critiqueResult.matchedFiles.map((file, idx) => (
+                    <li key={idx}>{file}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {critiqueResult.findings.length > 0 && (
+              <div data-testid="cross-critique-findings" className="space-y-1">
+                <span className="text-slate-400 font-medium">Actionable findings:</span>
+                <ul className="list-disc list-inside space-y-0.5 text-slate-300">
+                  {critiqueResult.findings.map((finding, idx) => (
+                    <li key={idx}>{finding}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
         )}
       </div>
     </div>

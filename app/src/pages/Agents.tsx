@@ -30,6 +30,23 @@ import { formatTokenBudget } from "../lib/budgetDisplay";
 import { RecentAgentActions } from "../components/RecentAgentActions";
 import { isChatAgent, useChatFilter, ChatFilterChip } from "../components/AgentsFilter";
 import { VirtualList } from "../components/VirtualList";
+import ReceiptPanel, { type ReceiptData } from "../components/ReceiptPanel";
+import HandoffRuntimeModal from "../components/HandoffRuntimeModal";
+
+type AgentWithTaskMeta = AgentInfo & {
+  task_id?: string | null;
+  needle_id?: string | null;
+  receipt?: ReceiptData | null;
+};
+
+function resolveAgentTaskId(agent: AgentInfo): string | undefined {
+  const meta = agent as AgentWithTaskMeta;
+  return meta.task_id ?? meta.needle_id ?? undefined;
+}
+
+function resolveAgentReceipt(agent: AgentInfo): ReceiptData | null | undefined {
+  return (agent as AgentWithTaskMeta).receipt;
+}
 
 
 // Re-export so tests can still import these from './Agents'
@@ -71,6 +88,7 @@ export const TERMINAL_AGENT_STATUSES = [
   "completed_timeout",
   "cancelled",
   "failed",
+  "rate_limited",
   "terminated_stale",
   "stopped",
   "abandoned",
@@ -2038,6 +2056,8 @@ const statusLabel = (status: string) => {
       return "COMPLETE";
     case "failed":
       return "FAILED";
+    case "rate_limited":
+      return "RATE LIMITED";
     case "killed":
       return "KILLED";
     case "recovering":
@@ -2060,6 +2080,8 @@ const statusColor = (status: string) => {
       return "bg-blue-500/20 text-blue-600 dark:text-blue-400";
     case "failed":
       return "bg-red-500/20 text-red-600 dark:text-red-400";
+    case "rate_limited":
+      return "bg-amber-500/20 text-amber-600 dark:text-amber-400";
     case "killed":
       return "bg-orange-500/20 text-orange-600 dark:text-orange-400";
     case "recovering":
@@ -2548,6 +2570,11 @@ export default function Agents() {
   // never silent (feedback_chat_response_silent.md).
   const [nudgeErrors, setNudgeErrors] = useState<Record<string, string>>({});
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
+  const [handoffTarget, setHandoffTarget] = useState<{
+    agentName: string;
+    taskId?: string;
+    currentModel?: string;
+  } | null>(null);
   const [agentRoadmaps, setAgentRoadmaps] = useState<Record<string, RoadmapQuarter[]>>({});
   const [roadmapFilePath, setRoadmapFilePath] = useState<string>('');
   // Active Sessions cards start collapsed so the list is scannable at a
@@ -4394,15 +4421,34 @@ export default function Agents() {
                           );
                         })()}
                       </div>
-                      <button
-                        onClick={() => toggleActiveExpanded(agent.name)}
-                        className="text-slate-600 dark:text-slate-400 hover:text-white transition-colors flex items-center gap-1 text-sm shrink-0"
-                        title={isActiveExpanded ? "Collapse session" : "Expand session"}
-                        data-testid={`active-agent-toggle-${agent.name}`}
-                      >
-                        <Icon name={isActiveExpanded ? "expand_less" : "expand_more"} size={20} />
-                        {isActiveExpanded ? "Collapse" : "Expand"}
-                      </button>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {!isActiveExpanded && (
+                          <button
+                            type="button"
+                            data-testid={`handoff-agent-${agent.name}`}
+                            onClick={() =>
+                              setHandoffTarget({
+                                agentName: agent.name,
+                                taskId: resolveAgentTaskId(agent),
+                                currentModel: agent.model,
+                              })
+                            }
+                            className="text-xs px-2.5 py-1 rounded-md border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-blue-500 hover:text-blue-600 dark:hover:text-blue-400 transition-colors flex items-center gap-1"
+                          >
+                            <Icon name="swap_horiz" size={14} />
+                            Hand Off Runtime
+                          </button>
+                        )}
+                        <button
+                          onClick={() => toggleActiveExpanded(agent.name)}
+                          className="text-slate-600 dark:text-slate-400 hover:text-white transition-colors flex items-center gap-1 text-sm shrink-0"
+                          title={isActiveExpanded ? "Collapse session" : "Expand session"}
+                          data-testid={`active-agent-toggle-${agent.name}`}
+                        >
+                          <Icon name={isActiveExpanded ? "expand_less" : "expand_more"} size={20} />
+                          {isActiveExpanded ? "Collapse" : "Expand"}
+                        </button>
+                      </div>
                     </div>
 
                     {/* Everything below the title row only renders when the
@@ -4528,6 +4574,14 @@ export default function Agents() {
                               </div>
                             </div>
                           )}
+                          <ReceiptPanel
+                            agentName={agent.name}
+                            taskId={resolveAgentTaskId(agent)}
+                            receipt={resolveAgentReceipt(agent)}
+                            onActionComplete={() => {
+                              fetchAgents();
+                            }}
+                          />
                         </div>
 
                         <div className="flex items-center justify-between mt-4">
@@ -4544,15 +4598,32 @@ export default function Agents() {
                           ) : (
                             <span />
                           )}
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => handleKill(agent.name)}
-                            disabled={killingAgents[agent.name]}
-                            className="hover:border-red-500 hover:text-red-600 dark:hover:text-red-400"
-                          >
-                            {killingAgents[agent.name] ? "Cancelling..." : "Cancel"}
-                          </Button>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              data-testid={`handoff-agent-${agent.name}`}
+                              onClick={() =>
+                                setHandoffTarget({
+                                  agentName: agent.name,
+                                  taskId: resolveAgentTaskId(agent),
+                                  currentModel: agent.model,
+                                })
+                              }
+                              className="px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-blue-500 hover:text-blue-600 dark:hover:text-blue-400 transition-colors flex items-center gap-1"
+                            >
+                              <Icon name="swap_horiz" size={14} />
+                              Hand Off Runtime
+                            </button>
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => handleKill(agent.name)}
+                              disabled={killingAgents[agent.name]}
+                              className="hover:border-red-500 hover:text-red-600 dark:hover:text-red-400"
+                            >
+                              {killingAgents[agent.name] ? "Cancelling..." : "Cancel"}
+                            </Button>
+                          </div>
                         </div>
                       </>
                     )}
@@ -4815,7 +4886,7 @@ export default function Agents() {
           const hiddenCount = allRecent.length - allRecent.filter((a) => !inactiveStatuses.includes(a.status)).length;
           const hiddenE2eCount = afterCancelledFilter.filter(isE2eSmoke).length;
           const canRecover = (a: AgentInfo) =>
-            ["failed", "terminated_stale", "abandoned", "cancelled", "stopped"].includes(a.status)
+            ["failed", "rate_limited", "terminated_stale", "abandoned", "cancelled", "stopped"].includes(a.status)
             && (a.recovery_count ?? 0) < (a.max_recoveries ?? 3);
           return (
             <>
@@ -4946,6 +5017,21 @@ export default function Agents() {
                                 {recoveringAgents[agent.name] ? "Recovering..." : "Recover"}
                               </button>
                             )}
+                            <button
+                              type="button"
+                              data-testid={`handoff-agent-${agent.name}`}
+                              onClick={() =>
+                                setHandoffTarget({
+                                  agentName: agent.name,
+                                  taskId: resolveAgentTaskId(agent),
+                                  currentModel: agent.model,
+                                })
+                              }
+                              className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors flex items-center gap-1"
+                            >
+                              <Icon name="swap_horiz" size={14} />
+                              Hand Off Runtime
+                            </button>
                             {(agent.transcript_bytes ?? 0) > 0 && (
                               <button
                                 onClick={() => openTranscript(agent.name)}
@@ -4971,6 +5057,7 @@ export default function Agents() {
                               <Icon name="close" size={14} />
                             </button>
                             <button
+                              data-testid={`recent-agent-expand-${agent.name}`}
                               onClick={() => {
                                 if (!isRecentExpanded) {
                                   fetchMemory(agent.name);
@@ -5151,6 +5238,14 @@ export default function Agents() {
                                 </div>
                               </div>
                             )}
+                            <ReceiptPanel
+                              agentName={agent.name}
+                              taskId={resolveAgentTaskId(agent)}
+                              receipt={resolveAgentReceipt(agent)}
+                              onActionComplete={() => {
+                                fetchAgents();
+                              }}
+                            />
                           </div>
                         )}
                       </div>
@@ -5837,6 +5932,16 @@ export default function Agents() {
           </div>
         </div>
       )}
+      <HandoffRuntimeModal
+        isOpen={handoffTarget !== null}
+        onClose={() => setHandoffTarget(null)}
+        agentName={handoffTarget?.agentName}
+        taskId={handoffTarget?.taskId}
+        currentModel={handoffTarget?.currentModel}
+        onHandedOff={() => {
+          fetchAgents();
+        }}
+      />
       <ConfirmModal {...confirmProps} />
     </>
   );
