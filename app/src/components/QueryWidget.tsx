@@ -25,10 +25,16 @@ interface ConfluenceRow {
 }
 
 export function formatDueLabel(due: string, now: Date = new Date()): string {
-  const d = new Date(due)
-  const nowDay = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  const dueDay = new Date(d.getFullYear(), d.getMonth(), d.getDate())
-  const diffDays = Math.round((dueDay.getTime() - nowDay.getTime()) / (1000 * 60 * 60 * 24))
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(due.trim())
+  let dueUtc: number
+  if (dateOnly) {
+    dueUtc = Date.UTC(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]))
+  } else {
+    const d = new Date(due)
+    dueUtc = Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())
+  }
+  const nowUtc = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())
+  const diffDays = Math.round((dueUtc - nowUtc) / 86_400_000)
   if (diffDays === 0) return 'due today'
   if (diffDays === 1) return 'due tomorrow'
   if (diffDays > 1) return `due in ${diffDays} days`

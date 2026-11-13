@@ -194,4 +194,13 @@ describe('formatDueLabel', () => {
   it('returns "overdue 1 day" for yesterday', () => {
     expect(formatDueLabel('2026-07-09', now)).toBe('overdue 1 day')
   })
+
+  it('counts exact calendar days across DST fall-back transitions', () => {
+    const beforeFallBack = new Date('2026-10-31T12:00:00Z')
+    expect(formatDueLabel('2026-11-03', beforeFallBack)).toBe('due in 3 days')
+  })
+
+  it('handles full ISO timestamps as well as YYYY-MM-DD strings', () => {
+    expect(formatDueLabel('2026-07-11T15:00:00Z', now)).toBe('due tomorrow')
+  })
 })
