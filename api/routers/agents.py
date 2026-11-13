@@ -1442,6 +1442,86 @@ async def _save_agent_state_async() -> None:
         _save_inflight = False
 
 
+_reload_state_lock = _threading.Lock()
+
+
+def _meta_freshness_epoch(meta: dict) -> float:
+    """Return the latest ISO timestamp epoch found in an agent metadata dict."""
+    best = 0.0
+    for key in (
+        "last_heartbeat_at",
+        "completed_at",
+        "terminated_at",
+        "updated_at",
+        "pending_summary_at",
+        "spawned_at",
+    ):
+        raw = meta.get(key)
+        if not isinstance(raw, str) or not raw:
+            continue
+        try:
+            dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            ts = dt.timestamp()
+            if ts > best:
+                best = ts
+        except ValueError:
+            continue
+    return best
+
+
+def reload_agent_state_from_disk() -> int:
+    """Refresh in-memory agent_metadata from disk without clobbering live procs.
+
+    Used during blue-green backend cutover so registrations, heartbeats, and
+    handoffs written to the outgoing worker while the incoming worker booted
+    are merged cleanly at cutover. Returns the count of valid non-deleted
+    agent entries loaded from disk.
+    """
+    with _reload_state_lock:
+        with _save_state_write_lock:
+            disk_state = _load_agent_state()
+            deleted_names = _load_deleted_agents()
+
+        if not isinstance(disk_state, dict):
+            return 0
+
+        loaded = 0
+        for name, disk_meta in disk_state.items():
+            if not isinstance(name, str) or not name or name in deleted_names:
+                continue
+            if not isinstance(disk_meta, dict):
+                continue
+            loaded += 1
+
+            proc = active_agents.get(name)
+            proc_alive = proc is not None and getattr(proc, "returncode", None) is None
+            existing = agent_metadata.get(name)
+
+            if existing is None:
+                agent_metadata[name] = dict(disk_meta)
+                continue
+
+            disk_ts = _meta_freshness_epoch(disk_meta)
+            mem_ts = _meta_freshness_epoch(existing)
+            if disk_ts >= mem_ts:
+                merged = {**existing, **disk_meta}
+            else:
+                merged = {**disk_meta, **existing}
+
+            if proc_alive:
+                if "pid" in existing:
+                    merged["pid"] = existing["pid"]
+                if existing.get("status") not in _TERMINAL_STATUSES:
+                    merged["status"] = existing.get("status", "running")
+
+            agent_metadata[name] = merged
+
+        _cached_snapshot["computed_at"] = None
+        return loaded
+
+
 def _is_pid_alive(pid: int) -> bool:
     """Check if a process with the given PID is still running."""
     import os
