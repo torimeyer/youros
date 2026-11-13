@@ -10,6 +10,31 @@ const BASE = '/api'
 // or override the module entirely.
 export const REQUEST_TIMEOUT_MS = 30000
 
+// Default transient retry policy for idempotent GET requests in the browser
+// so brief backend restarts (502/503/504/connection reset) self-heal without
+// flashing empty states (→3109).
+export const DEFAULT_GET_RETRIES = 4
+export const DEFAULT_GET_RETRY_DELAY_MS = 350
+
+const TRANSIENT_HTTP_STATUSES = new Set([502, 503, 504])
+
+function isRunningUnderVitest(): boolean {
+  const proc = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process
+  return Boolean(proc?.env?.VITEST)
+}
+
+// Pure helper resolving the default retry count for an HTTP verb.
+// Returns DEFAULT_GET_RETRIES (4) for GET outside Vitest, and 0 for mutating
+// verbs or inside Vitest so unit tests that mock fetch errors or fake timers
+// stay deterministic unless they opt in explicitly.
+export function resolveDefaultRetries(
+  method: string,
+  isVitestEnv: boolean = isRunningUnderVitest(),
+): number {
+  if (isVitestEnv) return 0
+  return method.toUpperCase() === 'GET' ? DEFAULT_GET_RETRIES : 0
+}
+
 // Options for api.get (and other verbs). Pass retryOn502 > 0 to silently
 // retry on 502 responses and network errors (e.g. during backend warmup).
 // retryDelayMs controls the wait between attempts.
@@ -143,23 +168,30 @@ async function requestOnce<T>(method: string, path: string, body?: unknown, time
 }
 
 async function request<T>(method: string, path: string, body?: unknown, options: RequestOptions = {}): Promise<T> {
-  const { retryOn502 = 0, retryDelayMs = 500, timeoutMs = REQUEST_TIMEOUT_MS } = options
+  const maxRetries =
+    options.retryOn502 !== undefined ? options.retryOn502 : resolveDefaultRetries(method)
+  const baseDelay =
+    options.retryDelayMs !== undefined ? options.retryDelayMs : DEFAULT_GET_RETRY_DELAY_MS
+  const timeoutMs = options.timeoutMs ?? REQUEST_TIMEOUT_MS
   let lastErr: unknown
-  for (let attempt = 0; attempt <= retryOn502; attempt++) {
-    if (attempt > 0) await new Promise<void>((r) => setTimeout(r, retryDelayMs))
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (attempt > 0 && options.retryDelayMs !== 0) {
+      const delay = attempt === 1 ? baseDelay : Math.min(baseDelay * attempt, 1200)
+      await new Promise<void>((r) => setTimeout(r, delay))
+    }
     try {
       return await requestOnce<T>(method, path, body, timeoutMs)
     } catch (err) {
       lastErr = err
-      // Only retry transient failures: gateway 502s, raw network errors,
-      // and timeouts. A hung dev-proxy socket surfaces as a timeout and a
-      // fresh attempt gets a live connection (→2777). Intentional HTTP
-      // errors (401, 403, 404, etc.) should throw immediately.
+      // Only retry transient failures: gateway/restart 502/503/504, raw
+      // network errors, and timeouts. A hung dev-proxy socket surfaces as a
+      // timeout and a fresh attempt gets a live connection (→2777, →3109).
+      // Intentional HTTP errors (4xx, 500) throw immediately on attempt 1.
       const isRetryable =
-        (err instanceof ApiError && err.status === 502) ||
-        (err instanceof TypeError) ||
-        (err instanceof ApiTimeoutError)
-      if (!isRetryable || attempt >= retryOn502) throw err
+        (err instanceof ApiError && TRANSIENT_HTTP_STATUSES.has(err.status)) ||
+        err instanceof TypeError ||
+        err instanceof ApiTimeoutError
+      if (!isRetryable || attempt >= maxRetries) throw err
     }
   }
   throw lastErr

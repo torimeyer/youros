@@ -228,4 +228,115 @@ describe('useRunningAgentsFeed (consolidated event stream)', () => {
     expect(useRunningAgentsStore.getState().connected).toBe(false)
     unmount()
   })
+
+  it('retains stalled agents alongside running, spawned, and starting in setSnapshot (→3109)', async () => {
+    mockedGet.mockResolvedValue([
+      { name: 'runner', status: 'running' },
+      { name: 'stalled-worker', status: 'stalled' },
+      { name: 'spawning', status: 'spawned' },
+      { name: 'starting-up', status: 'starting' },
+      { name: 'finished', status: 'completed' },
+    ])
+    const { unmount } = renderHook(() => useRunningAgentsFeed())
+    const es = FakeEventSource.instances[0]
+
+    await act(async () => {
+      es.serverOpen()
+      await vi.advanceTimersByTimeAsync(0)
+    })
+
+    const state = useRunningAgentsStore.getState()
+    expect(state.count).toBe(4)
+    expect(state.agents).toEqual([
+      { name: 'runner', status: 'running' },
+      { name: 'stalled-worker', status: 'stalled' },
+      { name: 'spawning', status: 'spawned' },
+      { name: 'starting-up', status: 'starting' },
+    ])
+    unmount()
+  })
+
+  it('preserves the prior snapshot across SSE disconnect and transient 502/TypeError poll failures until recovery (→3109)', async () => {
+    mockedGet.mockResolvedValueOnce([
+      { name: 'runner', status: 'running' },
+      { name: 'stalled-worker', status: 'stalled' },
+    ])
+    const { unmount } = renderHook(() => useRunningAgentsFeed())
+    const es = FakeEventSource.instances[0]
+
+    await act(async () => {
+      es.serverOpen()
+      await vi.advanceTimersByTimeAsync(0)
+    })
+
+    expect(useRunningAgentsStore.getState().count).toBe(2)
+    expect(useRunningAgentsStore.getState().agents).toEqual([
+      { name: 'runner', status: 'running' },
+      { name: 'stalled-worker', status: 'stalled' },
+    ])
+
+    // Queue transient restart failures followed by a malformed empty object, then a real 200 recovery
+    mockedGet
+      .mockRejectedValueOnce(Object.assign(new Error('Bad Gateway'), { status: 502 }))
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce({} as unknown as never[])
+      .mockResolvedValueOnce([{ name: 'runner', status: 'stalled' }])
+      .mockResolvedValueOnce([{ name: 'runner', status: 'completed' }])
+
+    // 1. SSE disconnects during backend restart: existing snapshot stays painted
+    await act(async () => {
+      es.serverError()
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    expect(useRunningAgentsStore.getState().connected).toBe(false)
+    expect(useRunningAgentsStore.getState().count).toBe(2)
+    expect(useRunningAgentsStore.getState().agents).toEqual([
+      { name: 'runner', status: 'running' },
+      { name: 'stalled-worker', status: 'stalled' },
+    ])
+
+    // 2. Fallback poll starts after 3000ms + 2000ms tick -> 502 failure must NOT clear snapshot
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000)
+    })
+    expect(useRunningAgentsStore.getState().count).toBe(2)
+    expect(useRunningAgentsStore.getState().agents).toEqual([
+      { name: 'runner', status: 'running' },
+      { name: 'stalled-worker', status: 'stalled' },
+    ])
+
+    // 3. Next fallback poll tick (2000ms) -> TypeError failure must NOT clear snapshot
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000)
+    })
+    expect(useRunningAgentsStore.getState().count).toBe(2)
+    expect(useRunningAgentsStore.getState().agents).toEqual([
+      { name: 'runner', status: 'running' },
+      { name: 'stalled-worker', status: 'stalled' },
+    ])
+
+    // 4. Next fallback poll tick (2000ms) -> malformed {} response must NOT clear snapshot
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000)
+    })
+    expect(useRunningAgentsStore.getState().count).toBe(2)
+
+    // 5. Next fallback poll tick (2000ms) -> backend recovers with runner now stalled
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000)
+    })
+    expect(useRunningAgentsStore.getState().count).toBe(1)
+    expect(useRunningAgentsStore.getState().agents).toEqual([
+      { name: 'runner', status: 'stalled' },
+    ])
+
+    // 6. Next fallback poll tick (2000ms) -> real 200 OK with no active agents clears snapshot
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000)
+    })
+    expect(useRunningAgentsStore.getState().count).toBe(0)
+    expect(useRunningAgentsStore.getState().agents).toEqual([])
+
+    unmount()
+  })
 })

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRunningAgentsStore, type RunningAgent, type TerminatedAgent } from '../stores/runningAgents'
 import { api } from '../lib/api'
 
-const ACTIVE_STATUSES = new Set(['running', 'spawned', 'starting'])
+const ACTIVE_STATUSES = new Set(['running', 'spawned', 'starting', 'stalled'])
 const FALLBACK_DELAY_MS = 3000
 const FALLBACK_POLL_MS = 2000
 // A burst of agent events (spawn wave, sweep) collapses into one refetch.
@@ -31,18 +31,27 @@ export function useRunningAgentsFeed() {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const refetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const prevAgentsRef = useRef<RunningAgent[]>([])
+  const prevAgentsRef = useRef<RunningAgent[]>(useRunningAgentsStore.getState().agents)
+  const reqSeqRef = useRef(0)
+  const lastAppliedSeqRef = useRef(0)
+  const mountedRef = useRef(true)
 
   // The stream carries event notifications, not agent lists; the list
   // itself comes from the REST endpoint on every agent event.
   const refetchSnapshot = useCallback(async () => {
+    const seq = ++reqSeqRef.current
     try {
       const data = await api.get<{ agents?: RunningAgent[] } | RunningAgent[]>(
         '/agents?user_spawned_only=true',
       )
-      const list: RunningAgent[] = Array.isArray(data)
+      if (!mountedRef.current || seq < lastAppliedSeqRef.current) return
+      const list: RunningAgent[] | null = Array.isArray(data)
         ? data
-        : ((data as { agents?: RunningAgent[] }).agents ?? [])
+        : data && typeof data === 'object' && Array.isArray((data as { agents?: unknown }).agents)
+          ? (data as { agents: RunningAgent[] }).agents
+          : null
+      if (list === null) return
+      lastAppliedSeqRef.current = seq
       const running = list.filter((a) => ACTIVE_STATUSES.has(a.status))
       // Skip setSnapshot when the agent list is identical. list.filter()
       // always returns a new array reference, which would cause storeAgents
@@ -55,7 +64,9 @@ export function useRunningAgentsFeed() {
       prevAgentsRef.current = running
       setSnapshot(running.length, running)
     } catch {
-      // network error — the next event or poll tick retries
+      // Transient network or gateway error during backend restart: preserve
+      // prevAgentsRef and the store snapshot (stale-while-reconnecting) until
+      // a real 200 OK snapshot arrives (→3109).
     }
   }, [setSnapshot])
 
@@ -152,7 +163,9 @@ export function useRunningAgentsFeed() {
 
   // Cleanup on unmount
   useEffect(() => {
+    mountedRef.current = true
     return () => {
+      mountedRef.current = false
       if (pollRef.current !== null) clearInterval(pollRef.current)
       if (fallbackTimerRef.current !== null) clearTimeout(fallbackTimerRef.current)
       if (refetchTimerRef.current !== null) clearTimeout(refetchTimerRef.current)

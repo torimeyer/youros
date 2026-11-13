@@ -1,5 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { api, ApiError, ApiTimeoutError } from './api'
+import {
+  api,
+  ApiError,
+  ApiTimeoutError,
+  DEFAULT_GET_RETRIES,
+  DEFAULT_GET_RETRY_DELAY_MS,
+  resolveDefaultRetries,
+} from './api'
 import { fetchedSettingsValueIsStale, resetSettingsWriteBarrier } from './settingsWriteBarrier'
 
 describe('api client', () => {
@@ -317,6 +324,209 @@ describe('api client', () => {
 
       await expect(api.get('/missing', { retryOn502: 1, retryDelayMs: 0 })).rejects.toThrow('Not Found')
       expect(calls).toBe(1)
+    })
+
+    it('exports DEFAULT_GET_RETRIES = 4 and DEFAULT_GET_RETRY_DELAY_MS = 350 (→3109)', () => {
+      expect(DEFAULT_GET_RETRIES).toBe(4)
+      expect(DEFAULT_GET_RETRY_DELAY_MS).toBe(350)
+    })
+
+    it('resolveDefaultRetries returns 4 for GET outside Vitest, 0 for mutating verbs, and 0 inside Vitest (→3109)', () => {
+      expect(resolveDefaultRetries('GET', false)).toBe(4)
+      expect(resolveDefaultRetries('POST', false)).toBe(0)
+      expect(resolveDefaultRetries('PUT', false)).toBe(0)
+      expect(resolveDefaultRetries('PATCH', false)).toBe(0)
+      expect(resolveDefaultRetries('DELETE', false)).toBe(0)
+      expect(resolveDefaultRetries('GET', true)).toBe(0)
+      // Inside the Vitest runner, default detection returns 0 so unit tests stay deterministic
+      expect(resolveDefaultRetries('GET')).toBe(0)
+    })
+
+    it('applies default GET retries when VITEST is unset and respects explicit { retryOn502: 0 } opt-out (→3109)', async () => {
+      const prevVitest = process.env.VITEST
+      delete process.env.VITEST
+      try {
+        // 1. Default GET retries transient 502/503/TypeError and recovers
+        let getCalls = 0
+        global.fetch = vi.fn().mockImplementation(() => {
+          getCalls++
+          if (getCalls === 1) {
+            return Promise.resolve({
+              ok: false,
+              status: 502,
+              text: () => Promise.resolve('Bad Gateway'),
+            })
+          }
+          if (getCalls === 2) {
+            return Promise.resolve({
+              ok: false,
+              status: 503,
+              text: () => Promise.resolve('Service Unavailable'),
+            })
+          }
+          if (getCalls === 3) {
+            return Promise.reject(new TypeError('Failed to fetch'))
+          }
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve({ agents: ['alive'] }),
+          })
+        }) as unknown as typeof fetch
+
+        const recovered = await api.get('/agents', { retryDelayMs: 0 })
+        expect(recovered).toEqual({ agents: ['alive'] })
+        expect(getCalls).toBe(4)
+
+        // 2. Explicit { retryOn502: 0 } opts out of default retries even in browser mode
+        let optOutCalls = 0
+        global.fetch = vi.fn().mockImplementation(() => {
+          optOutCalls++
+          return Promise.resolve({
+            ok: false,
+            status: 502,
+            text: () => Promise.resolve('Bad Gateway'),
+          })
+        }) as unknown as typeof fetch
+
+        await expect(api.get('/agents', { retryOn502: 0, retryDelayMs: 0 })).rejects.toThrow('Bad Gateway')
+        expect(optOutCalls).toBe(1)
+
+        // 3. POST does not retry by default in browser mode
+        let postCalls = 0
+        global.fetch = vi.fn().mockImplementation(() => {
+          postCalls++
+          return Promise.resolve({
+            ok: false,
+            status: 503,
+            text: () => Promise.resolve('Service Unavailable'),
+          })
+        }) as unknown as typeof fetch
+
+        await expect(api.post('/tasks', { title: 'no-retry' }, { retryDelayMs: 0 })).rejects.toThrow('Service Unavailable')
+        expect(postCalls).toBe(1)
+      } finally {
+        if (prevVitest === undefined) {
+          delete process.env.VITEST
+        } else {
+          process.env.VITEST = prevVitest
+        }
+      }
+    })
+
+    it('retries transient 503 and 504 responses and recovers just like 502 (→3109)', async () => {
+      let calls503 = 0
+      global.fetch = vi.fn().mockImplementation(() => {
+        calls503++
+        if (calls503 <= 2) {
+          return Promise.resolve({
+            ok: false,
+            status: 503,
+            text: () => Promise.resolve('Service Unavailable'),
+          })
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ status: 'up-after-503' }),
+        })
+      }) as unknown as typeof fetch
+
+      const res503 = await api.get('/tasks', { retryOn502: 4, retryDelayMs: 0 })
+      expect(res503).toEqual({ status: 'up-after-503' })
+      expect(calls503).toBe(3)
+
+      let calls504 = 0
+      global.fetch = vi.fn().mockImplementation(() => {
+        calls504++
+        if (calls504 === 1) {
+          return Promise.resolve({
+            ok: false,
+            status: 504,
+            text: () => Promise.resolve('Gateway Timeout'),
+          })
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ status: 'up-after-504' }),
+        })
+      }) as unknown as typeof fetch
+
+      const res504 = await api.get('/tasks', { retryOn502: 4, retryDelayMs: 0 })
+      expect(res504).toEqual({ status: 'up-after-504' })
+      expect(calls504).toBe(2)
+    })
+
+    it('never retries 500 or 4xx (400, 401, 403, 404, 409, 422) even when retryOn502: 4 is passed (→3109)', async () => {
+      for (const status of [400, 401, 403, 404, 409, 422, 500]) {
+        let calls = 0
+        global.fetch = vi.fn().mockImplementation(() => {
+          calls++
+          return Promise.resolve({
+            ok: false,
+            status,
+            text: () => Promise.resolve(`HTTP ${status}`),
+          })
+        }) as unknown as typeof fetch
+
+        await expect(api.get('/non-retryable', { retryOn502: 4, retryDelayMs: 0 })).rejects.toThrow(`HTTP ${status}`)
+        expect(calls).toBe(1)
+      }
+    })
+
+    it('uses gentle progressive delay (350, 700, 1050, 1200ms) when retryDelayMs is not 0 (→3109)', async () => {
+      vi.useFakeTimers()
+      try {
+        let calls = 0
+        global.fetch = vi.fn().mockImplementation(() => {
+          calls++
+          if (calls <= 4) {
+            return Promise.resolve({
+              ok: false,
+              status: 503,
+              text: () => Promise.resolve('Restarting'),
+            })
+          }
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve({ ready: true }),
+          })
+        }) as unknown as typeof fetch
+
+        const pending = api.get('/agents', { retryOn502: 4 })
+        await vi.advanceTimersByTimeAsync(0)
+        expect(calls).toBe(1)
+
+        // Retry 1 waits 350ms
+        await vi.advanceTimersByTimeAsync(349)
+        expect(calls).toBe(1)
+        await vi.advanceTimersByTimeAsync(1)
+        expect(calls).toBe(2)
+
+        // Retry 2 waits 700ms
+        await vi.advanceTimersByTimeAsync(699)
+        expect(calls).toBe(2)
+        await vi.advanceTimersByTimeAsync(1)
+        expect(calls).toBe(3)
+
+        // Retry 3 waits 1050ms
+        await vi.advanceTimersByTimeAsync(1049)
+        expect(calls).toBe(3)
+        await vi.advanceTimersByTimeAsync(1)
+        expect(calls).toBe(4)
+
+        // Retry 4 caps at 1200ms (Math.min(350 * 4, 1200))
+        await vi.advanceTimersByTimeAsync(1199)
+        expect(calls).toBe(4)
+        await vi.advanceTimersByTimeAsync(1)
+        expect(calls).toBe(5)
+
+        await expect(pending).resolves.toEqual({ ready: true })
+      } finally {
+        vi.useRealTimers()
+      }
     })
   })
 
