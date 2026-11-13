@@ -61,27 +61,32 @@ function flattenResponse(resp: unknown): AnyItem[] {
   return []
 }
 
-const NAV_ITEMS = [
+interface SearchNavItem {
+  id: string
+  label: string
+  icon: string
+  path: string
+  enterpriseOnly?: boolean
+}
+
+const NAV_ITEMS: SearchNavItem[] = [
   { id: 'home', label: 'Home', icon: 'home', path: '/' },
   { id: 'tasks', label: 'Tasks', icon: 'checklist', path: '/tasks' },
-  { id: 'agents', label: 'Agents', icon: 'smart_toy', path: '/agents' },
   { id: 'specs', label: 'Specs', icon: 'description', path: '/specs' },
-  { id: 'files', label: 'Files', icon: 'folder', path: '/files' },
-  { id: 'drive', label: 'Drive', icon: 'cloud', path: '/drive' },
-  { id: 'gmail', label: 'Gmail', icon: 'mail', path: '/gmail' },
-  { id: 'calendar', label: 'Calendar', icon: 'calendar_month', path: '/calendar' },
-  { id: 'imessage', label: 'iMessage', icon: 'chat_bubble', path: '/imessage' },
-  { id: 'slack', label: 'Slack', icon: 'chat', path: '/slack' },
-  { id: 'github', label: 'GitHub', icon: 'code', path: '/github' },
-  { id: 'jira', label: 'Jira', icon: 'bug_report', path: '/jira' },
-  { id: 'confluence', label: 'Confluence', icon: 'menu_book', path: '/confluence' },
+  { id: 'agents', label: 'Agents', icon: 'smart_toy', path: '/agents' },
+  { id: 'transcripts', label: 'Recall', icon: 'record_voice_over', path: '/transcripts' },
+  { id: 'projects', label: 'Projects', icon: 'folder', path: '/projects' },
+  { id: 'portfolio', label: 'Portfolio', icon: 'account_tree', path: '/portfolio', enterpriseOnly: true },
+  { id: 'executive-summary', label: 'Executive Summary', icon: 'summarize', path: '/executive-summary', enterpriseOnly: true },
+  { id: 'slack', label: 'Slack', icon: 'chat', path: '/slack', enterpriseOnly: true },
+  { id: 'jira', label: 'Jira', icon: 'bug_report', path: '/jira', enterpriseOnly: true },
+  { id: 'confluence', label: 'Confluence', icon: 'menu_book', path: '/confluence', enterpriseOnly: true },
   { id: 'timeline', label: 'Timeline', icon: 'timeline', path: '/timeline' },
-  { id: 'transcripts', label: 'Transcripts', icon: 'record_voice_over', path: '/transcripts' },
   { id: 'activity', label: 'Activity', icon: 'local_activity', path: '/activity' },
   { id: 'sessions', label: 'Sessions', icon: 'history', path: '/sessions' },
-  { id: 'costs', label: 'Costs', icon: 'attach_money', path: '/costs' },
+  { id: 'costs', label: 'Usage', icon: 'attach_money', path: '/costs' },
   { id: 'releases', label: 'Releases', icon: 'new_releases', path: '/releases' },
-  { id: 'workflows', label: 'Workflows', icon: 'account_tree', path: '/workflows' },
+  { id: 'break', label: 'The Arcade', icon: 'sports_esports', path: '/break' },
   { id: 'settings', label: 'Settings', icon: 'settings', path: '/settings' },
 ]
 
@@ -106,16 +111,18 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const navigate = useNavigate()
   const toggleChat = useAppStore((s) => s.toggleChat)
+  const enterpriseEnabled = useAppStore((s) => s.enterpriseEnabled)
 
   const q = query.trim()
 
   const filteredNav = useMemo(() => {
-    if (!q) return NAV_ITEMS
+    const allowed = NAV_ITEMS.filter((n) => !n.enterpriseOnly || enterpriseEnabled)
+    if (!q) return allowed
     const lower = q.toLowerCase()
-    return NAV_ITEMS.filter(
+    return allowed.filter(
       (n) => n.label.toLowerCase().includes(lower) || 'navigate'.startsWith(lower)
     )
-  }, [q])
+  }, [q, enterpriseEnabled])
 
   const actions = useMemo(
     () => [
@@ -358,7 +365,7 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
       navigate(specPath ? `/specs?focus=${encodeURIComponent(specPath)}` : '/specs')
       onClose()
     } else if (selectedIndex < recallOffset) {
-      navigate('/files')
+      navigate('/projects')
       onClose()
     } else if (selectedIndex < totalItems) {
       navigate('/transcripts')
@@ -689,7 +696,7 @@ export function UniversalSearch({ open, onClose }: UniversalSearchProps) {
                         <button
                           key={`doc-${i}`}
                           data-us-item
-                          onClick={() => { navigate('/files'); onClose() }}
+                          onClick={() => { navigate('/projects'); onClose() }}
                           onMouseEnter={() => setSelectedIndex(idx)}
                           className={rowCls(idx)}
                           data-testid={`doc-item-${i}`}

@@ -37,6 +37,7 @@ interface NavItem {
   tasksBadge?: boolean
   specsBadge?: boolean
   backlogBadge?: boolean
+  enterpriseOnly?: boolean
   iconColor?: string
 }
 
@@ -57,7 +58,7 @@ interface NavGroup {
 // Value is a JSON object: { [groupId]: boolean }
 const COLLAPSED_KEY = 'sidebar-group-collapsed'
 
-export const TOP_LEVEL_ROUTES = new Set(['/', '/agents', '/tasks', '/specs', '/portfolio'])
+export const TOP_LEVEL_ROUTES = new Set(['/', '/specs', '/tasks', '/agents', '/transcripts', '/portfolio'])
 
 const NAV_GROUPS: NavGroup[] = [
   {
@@ -66,17 +67,12 @@ const NAV_GROUPS: NavGroup[] = [
     icon: 'hub',
     defaultCollapsed: true,
     items: [
-      { to: '/gems', icon: 'auto_awesome', label: 'Gems', featureLabel: 'Gems', iconColor: 'text-yellow-600 dark:text-yellow-400' },
-      { to: '/files', icon: 'folder', label: 'Projects', featureLabel: 'Projects', iconColor: 'text-blue-600 dark:text-blue-400' },
+      { to: '/projects', icon: 'folder', label: 'Projects', featureLabel: 'Projects', iconColor: 'text-blue-600 dark:text-blue-400' },
       { to: '/ostk', icon: 'terminal', label: 'ostk', featureLabel: 'ostk', iconColor: 'text-green-600 dark:text-green-400' },
-      { to: '/drive', icon: 'cloud', label: 'Drive', featureLabel: 'Drive', iconColor: 'text-indigo-600 dark:text-indigo-400' },
-      { to: '/gmail', icon: 'mail', label: 'Gmail', featureLabel: 'Gmail', gmailBadge: true, iconColor: 'text-red-600 dark:text-red-400' },
-      { to: '/calendar', icon: 'calendar_month', label: 'Calendar', featureLabel: 'Calendar', iconColor: 'text-teal-600 dark:text-teal-400' },
-      { to: '/imessage', icon: 'sms', label: 'Messages', featureLabel: 'iMessage', iconColor: 'text-lime-600 dark:text-lime-400' },
-      { to: '/slack', icon: 'chat', label: 'Slack', featureLabel: 'Slack', iconColor: 'text-purple-600 dark:text-purple-400' },
-      { to: '/github', icon: 'code', label: 'GitHub', featureLabel: 'GitHub', iconColor: 'text-slate-500 dark:text-slate-300' },
-      { to: '/jira', icon: 'bug_report', label: 'Jira', featureLabel: 'Jira', iconColor: 'text-blue-700 dark:text-blue-400' },
-      { to: '/confluence', icon: 'menu_book', label: 'Confluence', featureLabel: 'Confluence', iconColor: 'text-cyan-600 dark:text-cyan-400' },
+      { to: '/executive-summary', icon: 'insights', label: 'Executive Summary', featureLabel: 'Executive Summary', enterpriseOnly: true, iconColor: 'text-amber-600 dark:text-amber-400' },
+      { to: '/slack', icon: 'chat', label: 'Slack', featureLabel: 'Slack', enterpriseOnly: true, iconColor: 'text-purple-600 dark:text-purple-400' },
+      { to: '/jira', icon: 'bug_report', label: 'Jira', featureLabel: 'Jira', enterpriseOnly: true, iconColor: 'text-blue-700 dark:text-blue-400' },
+      { to: '/confluence', icon: 'menu_book', label: 'Confluence', featureLabel: 'Confluence', enterpriseOnly: true, iconColor: 'text-cyan-600 dark:text-cyan-400' },
     ],
   },
 ]
@@ -84,11 +80,11 @@ const NAV_GROUPS: NavGroup[] = [
 // All items for route-based lookups (preserves featureLabel for feature filtering)
 const ALL_NAV_ITEMS: NavItem[] = [
   { to: '/', icon: 'home', label: 'Home', featureLabel: null },
-  { to: '/tasks', icon: 'checklist', label: 'Tasks', featureLabel: 'Tasks', tasksBadge: true, iconColor: 'text-emerald-600 dark:text-emerald-400' },
   { to: '/specs', icon: 'article', label: 'Specs', featureLabel: 'Specs', specsBadge: true, iconColor: 'text-violet-600 dark:text-violet-400' },
-  { to: '/executive-summary', icon: 'insights', label: 'Executive Summary', featureLabel: 'Executive Summary', iconColor: 'text-amber-600 dark:text-amber-400' },
-  { to: '/portfolio', icon: 'donut_small', label: 'Portfolio', featureLabel: 'Portfolio', iconColor: 'text-orange-600 dark:text-orange-400' },
+  { to: '/tasks', icon: 'checklist', label: 'Tasks', featureLabel: 'Tasks', tasksBadge: true, iconColor: 'text-emerald-600 dark:text-emerald-400' },
   { to: '/agents', icon: 'smart_toy', label: 'Agents', badge: true, featureLabel: 'Agents', iconColor: 'text-sky-600 dark:text-sky-400' },
+  { to: '/transcripts', icon: 'history', label: 'Recall', featureLabel: 'Recall', iconColor: 'text-amber-600 dark:text-amber-400' },
+  { to: '/portfolio', icon: 'donut_small', label: 'Portfolio', featureLabel: 'Portfolio', enterpriseOnly: true, iconColor: 'text-orange-600 dark:text-orange-400' },
   ...NAV_GROUPS.flatMap((g) => g.items),
 ]
 
@@ -379,6 +375,7 @@ export function Sidebar() {
   const hideFeature = useAppStore((s) => s.hideFeature)
   const showFeature = useAppStore((s) => s.showFeature)
   const powerUserMode = useAppStore((s) => s.powerUserMode)
+  const enterpriseEnabled = useAppStore((s) => s.enterpriseEnabled)
   const enterpriseUser = useAppStore((s) => s.enterpriseUser)
   const sidebarPosition = useAppStore((s) => s.sidebarPosition)
   const iconStyle = useAppStore((s) => s.iconStyle)
@@ -416,7 +413,7 @@ export function Sidebar() {
   const activeAgents = useRunningAgentsStore((s) => s.count)
   const [openTasksCount, setOpenTasksCount] = useState(0)
   const [unfinishedSpecs, setUnfinishedSpecs] = useState(0)
-  const [gmailUnread, setGmailUnread] = useState(0)
+  const gmailUnread = 0
   const [version, setVersion] = useState('')
   const [healthState, setHealthState] = useState<'healthy' | 'checking' | 'down' | 'starting' | null>(null)
   const [lastHealthyAt, setLastHealthyAt] = useState<number | null>(null)
@@ -594,22 +591,6 @@ export function Sidebar() {
   }, [])
 
   useEffect(() => {
-    const fetchGmail = async () => {
-      try {
-        const res = await api.get<{ authenticated: boolean; unread_count: number }>('/gmail/auth/status')
-        if (res.authenticated) {
-          setGmailUnread(res.unread_count ?? 0)
-        }
-      } catch {
-        // ignore
-      }
-    }
-    fetchGmail()
-    const interval = setInterval(fetchGmail, 60000)
-    return () => clearInterval(interval)
-  }, [])
-
-  useEffect(() => {
     const fetchSessions = async () => {
       try {
         // Read `count`, not `active_count`. `active_count` only
@@ -717,6 +698,7 @@ export function Sidebar() {
     return items
       .filter(isEnabled)
       .filter((item) => {
+        if (item.enterpriseOnly && !enterpriseEnabled) return false
         // Gate ostk browser behind power user mode. Route /ostk stays
         // mounted, but the sidebar entry only appears when the user has
         // enabled power user mode in Settings.
@@ -730,9 +712,11 @@ export function Sidebar() {
       })
   }
 
-  // Top-level items (Home + Tasks + Agents) that are not in any group
-  const topLevelItems = ALL_NAV_ITEMS.filter((i) => TOP_LEVEL_ROUTES.has(i.to) && isEnabled(i)).sort((a, b) => {
-    const order = ['/', '/tasks', '/specs', '/portfolio', '/agents']
+  // Top-level Core items (Home, Specs, Tasks, Agents, Recall) plus Portfolio when enterprise is enabled
+  const topLevelItems = ALL_NAV_ITEMS.filter(
+    (i) => TOP_LEVEL_ROUTES.has(i.to) && isEnabled(i) && (!i.enterpriseOnly || enterpriseEnabled),
+  ).sort((a, b) => {
+    const order = ['/', '/specs', '/tasks', '/agents', '/transcripts', '/portfolio']
     return order.indexOf(a.to) - order.indexOf(b.to)
   })
 
@@ -744,6 +728,7 @@ export function Sidebar() {
   // (→2886). The ostk entry only counts while power user mode is on: with
   // the mode off the entry would not reappear even after restoring it.
   const hiddenNavItems = HIDEABLE_NAV_ITEMS.filter((item) => {
+    if (item.enterpriseOnly && !enterpriseEnabled) return false
     if (item.to === '/ostk' && !powerUserMode) return false
     return !isEnabled(item)
   })
@@ -810,7 +795,7 @@ export function Sidebar() {
         {TEAM_MODE_VISIBLE && instanceMode === 'personal' && (
           <Link
             data-testid="team-cta"
-            to="/team-setup"
+            to="/settings"
             className="block mt-2 text-[11px] text-slate-400 hover:text-indigo-400 transition-colors"
           >
             Start or join a team →
@@ -952,7 +937,7 @@ export function Sidebar() {
         )}
         {TEAM_MODE_VISIBLE && instanceMode === 'team' && enterpriseUser && enterpriseUser.role !== 'admin' && (
           <NavLink
-            to="/team"
+            to="/admin"
             onClick={() => setMobileOpen(false)}
             className={({ isActive }) => linkClass(isActive)}
           >

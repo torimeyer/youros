@@ -1,5 +1,7 @@
 """Tests for default_confluence_space setting: bare key and URL parsing."""
 import pytest
+
+pytestmark = pytest.mark.enterprise
 from unittest.mock import AsyncMock, patch
 from models.schemas import Settings
 

@@ -17,6 +17,8 @@ from pathlib import Path
 from unittest.mock import patch, AsyncMock
 
 import pytest
+
+pytestmark = pytest.mark.enterprise
 import pytest_asyncio
 import httpx
 

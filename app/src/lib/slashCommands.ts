@@ -27,8 +27,6 @@ export interface CommandContext {
   openNeedleModal: () => void
   /** Open the spec wizard modal. */
   openSpecModal: () => void
-  /** Open the gem picker (navigate to /gems). */
-  openGemPicker: () => void
   /** Open the giphy picker. */
   openGiphy: () => void
   /** Toggle plan mode flag (→1395 owns the UI). */
@@ -127,14 +125,6 @@ export function createSlashCommands(ctx: CommandContext): SlashCommand[] {
       category: 'data',
       keywords: ['task', 'todo', 'issue', 'work'],
       trigger: () => ctx.openNeedleModal(),
-    },
-    {
-      id: '/gem',
-      label: 'Gem',
-      description: 'Switch to a different gem or AI persona',
-      category: 'mode',
-      keywords: ['persona', 'assistant', 'switch', 'gems'],
-      trigger: () => ctx.openGemPicker(),
     },
     {
       id: '/giphy',

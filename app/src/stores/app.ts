@@ -7,12 +7,22 @@ export type AccentColor = 'blue' | 'pink' | 'purple' | 'cyan' | 'orange'
 
 export const TEAM_MODE_VISIBLE = false
 
+export const ENTERPRISE_DASHBOARD_WIDGETS = new Set([
+  'jira',
+  'confluence',
+  'jira_due_soon',
+  'jira_new_on_plate',
+  'jira_stale_mine',
+  'jira_activity_on_mine',
+  'conf_edited_by_me',
+  'conf_stale_docs_i_own',
+])
+
 // Default order and visibility for home dashboard widgets. Users can
 // hide any of these and reorder them via the Customize modal.
 export const DEFAULT_DASHBOARD_WIDGETS: string[] = [
   'briefing',
   'focus_first',
-  'adventure',
   'todays_focus',
   'quick_launch',
   'next_meeting',
@@ -36,7 +46,6 @@ export const DEFAULT_DASHBOARD_WIDGETS: string[] = [
 export const DASHBOARD_WIDGET_LABELS: Record<string, string> = {
   briefing: 'Briefing',
   focus_first: 'Focus on this first',
-  adventure: 'Try an Adventure',
   todays_focus: "Today's Focus",
   quick_launch: 'Quick Launch',
   next_meeting: 'Next Event',
@@ -55,12 +64,12 @@ export const DASHBOARD_WIDGET_LABELS: Record<string, string> = {
 
 // Calm starter set shown to a brand-new user who has no saved dashboard yet
 // (G4). Chat is always available via the Open Chat button, so the home screen
-// starts as chat plus a couple of welcoming cards rather than all 13 at once.
+// starts as chat plus a couple of welcoming cards rather than all at once.
 // Every id must also exist in DEFAULT_DASHBOARD_WIDGETS; the rest stay one tap
 // away in Customize. The invariant test in app.test.ts enforces the subset.
 export const FIRST_RUN_DASHBOARD_WIDGETS: string[] = [
   'briefing',
-  'adventure',
+  'focus_first',
   'quick_launch',
 ]
 
@@ -68,12 +77,9 @@ export const FIRST_RUN_DASHBOARD_WIDGETS: string[] = [
 // two columns, 'full' spans both.
 export type DashboardWidgetSize = 'half' | 'full'
 
-// Width used when the user has never picked one for a widget. The
-// calendar and adventure cards spanned both columns before per-widget
-// widths existed, so they stay full by default: a fresh install with no
-// saved widths renders exactly like it did before this feature.
+// Width used when the user has never picked one for a widget.
 export function widgetDefaultSize(id: string): DashboardWidgetSize {
-  return id === 'next_meeting' || id === 'adventure' ? 'full' : 'half'
+  return id === 'next_meeting' ? 'full' : 'half'
 }
 
 export interface FeatureToggle {
@@ -92,23 +98,18 @@ export const DEFAULT_FEATURE_TOGGLES: FeatureToggle[] = [
   { label: 'The Arcade', enabled: true },
   { label: 'Tasks', enabled: true },
   { label: 'Specs', enabled: true },
-  { label: 'Executive Summary', enabled: true },
-  { label: 'Portfolio', enabled: true },
   { label: 'Agents', enabled: true },
+  { label: 'Recall', enabled: true },
   { label: 'Activity', enabled: true },
   { label: 'Projects', enabled: true },
   { label: 'ostk', enabled: true },
-  { label: 'Drive', enabled: true },
-  { label: 'Calendar', enabled: true },
-  { label: 'Gmail', enabled: true },
-  { label: 'iMessage', enabled: true },
+  { label: 'Executive Summary', enabled: true },
+  { label: 'Portfolio', enabled: true },
   { label: 'Slack', enabled: true },
-  { label: 'GitHub', enabled: true },
   { label: 'Jira', enabled: true },
   { label: 'Confluence', enabled: true },
   { label: 'Automations', enabled: true },
   { label: 'Cost Tracking', enabled: true },
-  { label: 'Gems', enabled: true },
 ]
 
 // Returns a copy of the list with the label's switch set to the given value.
@@ -231,6 +232,8 @@ interface AppState {
   setTourComplete: (v: boolean) => void
   powerUserMode: boolean
   setPowerUserMode: (v: boolean) => void
+  enterpriseEnabled: boolean
+  setEnterpriseEnabled: (v: boolean) => void
   whatsNewLastSeen: string
   setWhatsNewLastSeen: (v: string) => void
   agentsLastViewed: string
@@ -300,6 +303,7 @@ const LS_KEYS = {
   useOstkTerms: 'myos-use-ostk-terms',
   tourComplete: 'myos-tour-complete',
   powerUserMode: 'myos-power-user-mode',
+  enterpriseEnabled: 'myos-enterprise-enabled',
   whatsNewLastSeen: 'myos-whats-new-last-seen',
   agentsLastViewed: 'myos-agents-last-viewed',
   gmailUnreadAtTop: 'myos-gmail-unread-at-top',
@@ -463,6 +467,7 @@ const initialDefaultChatModel = lsGet(LS_KEYS.defaultChatModel) || 'claude'
 const initialSideBySideEnabled = lsGet(LS_KEYS.sideBySideEnabled) === 'true'
 const initialUseOstkTerms = lsGet(LS_KEYS.useOstkTerms) === 'true'
 const initialTourComplete = lsGet(LS_KEYS.tourComplete) === 'true'
+const initialEnterpriseEnabled = lsGet(LS_KEYS.enterpriseEnabled) === 'true'
 const initialWhatsNewLastSeen = lsGet(LS_KEYS.whatsNewLastSeen) || ''
 const initialAgentsLastViewed = lsGet(LS_KEYS.agentsLastViewed) || ''
 const initialGmailUnreadAtTop = lsGet(LS_KEYS.gmailUnreadAtTop) !== 'false'
@@ -500,7 +505,7 @@ const initialCustomAgentTemplates = readInitialCustomTemplates()
 function migrateBriefingWidgetId(ids: string[]): string[] {
   const out: string[] = []
   for (const id of ids) {
-    if (id === 'ostk_files' || id === 'day_summary' || id === 'blockers_widget') continue // removed widget, drop it
+    if (id === 'ostk_files' || id === 'day_summary' || id === 'blockers_widget' || id === 'adventure') continue // removed widget, drop it
     const mapped = id === 'morning_briefing' ? 'briefing' : id
     if (!out.includes(mapped)) out.push(mapped)
   }
@@ -705,6 +710,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     lsSet(LS_KEYS.powerUserMode, String(powerUserMode))
     set({ powerUserMode })
     patchServer({ power_user_mode: powerUserMode })
+  },
+  enterpriseEnabled: initialEnterpriseEnabled,
+  setEnterpriseEnabled: (enterpriseEnabled) => {
+    lsSet(LS_KEYS.enterpriseEnabled, String(enterpriseEnabled))
+    set({ enterpriseEnabled })
+    patchServer({ enterprise_enabled: enterpriseEnabled })
   },
   whatsNewLastSeen: initialWhatsNewLastSeen,
   setWhatsNewLastSeen: (whatsNewLastSeen) => {
@@ -1049,6 +1060,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       backfill.power_user_mode = state.powerUserMode
     }
 
+    // enterprise_enabled
+    if (hasValue(server.enterprise_enabled)) {
+      const v = Boolean(server.enterprise_enabled)
+      updates.enterpriseEnabled = v
+      lsSet(LS_KEYS.enterpriseEnabled, String(v))
+    } else if (state.enterpriseEnabled) {
+      backfill.enterprise_enabled = state.enterpriseEnabled
+    }
+
     // whats_new_last_seen
     if (hasValue(server.whats_new_last_seen)) {
       const v = String(server.whats_new_last_seen)
@@ -1179,6 +1199,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       patchServer(backfill)
     }
     set({ hydrated: true })
+
+    // Skip Enterprise/Org HTTP probes completely in Core mode so unmounted
+    // /api/enterprise endpoints never produce 404 console noise on boot.
+    if (!get().enterpriseEnabled) {
+      set({ enterpriseUser: null })
+      return
+    }
 
     // Fetch enterprise user identity and org info
     try {

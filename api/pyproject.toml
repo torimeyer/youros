@@ -8,7 +8,9 @@ dependencies = [
 timeout = 60
 timeout_method = "signal"
 asyncio_default_fixture_loop_scope = "function"
+addopts = "-m 'not enterprise'"
 markers = [
     "integration: tests that hit external services or full stack",
     "touches_agent_registry: tests that read or write the live agent registry",
+    "enterprise: opt-in Enterprise and Work Extension router tests (run with -m enterprise)",
 ]

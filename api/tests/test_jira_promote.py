@@ -4,6 +4,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+pytestmark = pytest.mark.enterprise
+
 from routers.atlassian import router  # noqa: F401  — fail loudly on import errors
 
 

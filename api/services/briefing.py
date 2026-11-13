@@ -929,10 +929,15 @@ async def generate_action_items() -> list[dict]:
         else:
             sender = msg.get("from", "Unknown sender")
         msg_id = msg.get("id", "")
+        email_url = (
+            f"https://mail.google.com/mail/u/0/#inbox/{msg_id}"
+            if msg_id
+            else "https://mail.google.com"
+        )
         items.append({
             "type": "reply_email",
             "label": f"Reply to: {subject[:60]}",
-            "action_url": f"/gmail?thread={msg_id}",
+            "action_url": email_url,
             "context": f"From {sender}.",
         })
         reply_cards_added += 1
@@ -950,10 +955,11 @@ async def generate_action_items() -> list[dict]:
                 # Only suggest prep for meetings that have not started yet
                 if start_dt > now:
                     time_label = start_dt.strftime("%-I:%M %p").lower()
+                    cal_url = ev.get("htmlLink") or "https://calendar.google.com"
                     items.append({
                         "type": "prep_meeting",
                         "label": f"Prep for: {summary[:50]}",
-                        "action_url": "/calendar",
+                        "action_url": cal_url,
                         "context": f"Starts at {time_label}.",
                     })
             except Exception:

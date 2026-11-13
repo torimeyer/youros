@@ -117,6 +117,6 @@ async def test_register_without_spawn_still_uses_caller_model(client, monkeypatc
     assert resp.status_code == 200, resp.text
 
     stored = agents_mod.agent_metadata[agent_name]
-    assert stored["model"] == "claude-haiku-4-5-20251001", (
+    assert stored["model"] == "claude-haiku-5-5", (
         f"Expected haiku to resolve to full model ID; got {stored['model']!r}"
     )

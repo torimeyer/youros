@@ -8,6 +8,8 @@ from unittest.mock import patch
 
 import pytest
 
+pytestmark = pytest.mark.enterprise
+
 
 @pytest.mark.asyncio
 async def test_get_returns_404_without_org(client, tmp_path):

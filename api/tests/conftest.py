@@ -122,7 +122,7 @@ from main import app
 
 
 @pytest.fixture(autouse=True)
-def _isolate_settings_store(tmp_path, monkeypatch):
+def _isolate_settings_store(tmp_path, monkeypatch, request):
     """Redirect SETTINGS_PATH to a per-test tmp path so no test ever writes to the
     real ~/.youros/settings.json (→2492).
 
@@ -132,12 +132,29 @@ def _isolate_settings_store(tmp_path, monkeypatch):
     isolated settings file so state cannot bleed between tests.
     """
     import json as _json
+    import main as _main_mod
     import services.settings_store as ss_mod
     from models.schemas import Settings as _Settings
+    is_ent = request.node.get_closest_marker("enterprise") is not None
     tmp_settings = tmp_path / "settings.json"
     # Seed with schema defaults so load() never raises FileNotFoundError
-    tmp_settings.write_text(_json.dumps(_Settings().model_dump()))
+    seed = _Settings().model_dump()
+    if is_ent:
+        seed["enterprise_enabled"] = True
+    tmp_settings.write_text(_json.dumps(seed))
     monkeypatch.setattr(ss_mod, "SETTINGS_PATH", tmp_settings)
+
+    already_mounted = id(app) in _main_mod._ENTERPRISE_ROUTERS_MOUNTED
+    added_routes = []
+    if is_ent and not already_mounted:
+        added_routes = _main_mod.ensure_enterprise_routers(app)
+    try:
+        yield
+    finally:
+        if is_ent and not already_mounted:
+            added_ids = {id(r) for r in added_routes}
+            app.router.routes[:] = [r for r in app.router.routes if id(r) not in added_ids]
+            _main_mod._ENTERPRISE_ROUTERS_MOUNTED.discard(id(app))
 
 
 @pytest.fixture(autouse=True)

@@ -137,22 +137,19 @@ describe('Settings integration: Feature toggles in Sidebar', () => {
     // Expand sidebar groups so items inside collapsible groups are rendered.
     // The 'integrations' group defaults to collapsed for new users (calm-sidebar,
     // commit 006a57da). Seed localStorage to start expanded so assertions
-    // on items like Gems work correctly.
+    // on items inside integrations work correctly.
     localStorage.setItem('sidebar-group-collapsed', JSON.stringify({ integrations: false }))
     useAppStore.setState({
       osName: 'yourOS',
+      enterpriseEnabled: false,
       features: [
         { label: 'Chat', enabled: true },
+        { label: 'Specs', enabled: true },
         { label: 'Backlog', enabled: true },
         { label: 'Agents', enabled: true },
+        { label: 'Recall', enabled: true },
         { label: 'Activity', enabled: true },
         { label: 'Projects', enabled: true },
-        { label: 'Drive', enabled: true },
-        { label: 'Calendar', enabled: true },
-        { label: 'Gmail', enabled: true },
-        { label: 'Slack', enabled: true },
-        { label: 'GitHub', enabled: true },
-        { label: 'Automations', enabled: false },
         { label: 'Cost Tracking', enabled: true },
       ],
     })
@@ -172,14 +169,14 @@ describe('Settings integration: Feature toggles in Sidebar', () => {
     expect(screen.queryByText('Agents')).not.toBeInTheDocument()
   })
 
-  it('hides Files nav item when Projects feature is disabled', () => {
+  it('hides Projects nav item when Projects feature is disabled', () => {
     useAppStore.setState({
       features: useAppStore.getState().features.map((f) =>
         f.label === 'Projects' ? { ...f, enabled: false } : f
       ),
     })
     renderSidebar()
-    expect(screen.queryByText('Files')).not.toBeInTheDocument()
+    expect(screen.queryByText('Projects')).not.toBeInTheDocument()
   })
 
   it('Activity is not in the primary nav regardless of feature flag', () => {
@@ -204,9 +201,10 @@ describe('Settings integration: Feature toggles in Sidebar', () => {
     expect(screen.getByText('Settings')).toBeInTheDocument()
   })
 
-  it('shows all items when all features are enabled', () => {
+  it('shows Core items when all features are enabled', () => {
     renderSidebar()
-    expect(screen.getByText('Gems')).toBeInTheDocument()
+    expect(screen.getByText('Projects')).toBeInTheDocument()
+    expect(screen.getByText('Recall')).toBeInTheDocument()
     expect(screen.getByText('Agents')).toBeInTheDocument()
   })
 

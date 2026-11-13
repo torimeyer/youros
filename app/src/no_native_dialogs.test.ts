@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url'
  * This test walks the app/src tree and fails if any non-test .ts or
  * .tsx file calls window.confirm / window.alert / window.prompt.
  * If this test fails, replace the call with useConfirm() from
- * hooks/useConfirm or an in-app toast. See pages/Files.tsx for an
+ * hooks/useConfirm or an in-app toast. See pages/Tasks.tsx for an
  * example.
  */
 
@@ -71,7 +71,7 @@ describe('no browser-native dialogs', () => {
     if (offenders.length > 0) {
       const help =
         'Replace browser-native dialogs with the in-app <ConfirmModal> via useConfirm() or an in-app toast. ' +
-        'See app/src/pages/Files.tsx for an example.'
+        'See app/src/pages/Tasks.tsx for an example.'
       throw new Error(
         `Found ${offenders.length} browser-native dialog call(s):\n  ${offenders.join(
           '\n  '

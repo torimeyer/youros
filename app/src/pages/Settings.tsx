@@ -71,6 +71,7 @@ export default function Settings() {
     accentColor, setAccentColor,
     features, setFeatures,
     powerUserMode, setPowerUserMode,
+    enterpriseEnabled, setEnterpriseEnabled,
     instanceMode,
     compactMode, setCompactMode,
     greetingStyle, setGreetingStyle,
@@ -390,7 +391,9 @@ export default function Settings() {
         api.get<GmailStatus>('/gmail/auth/status').catch(() => ({ authenticated: false, email: null })),
         api.get<CalStatus>('/calendar/auth/status').catch(() => ({ authenticated: false, email: null })),
         api.get<DriveStatus>('/drive/auth/status').catch(() => ({ authenticated: false, email: null })),
-        api.get<SlackStat>('/slack/status').catch(() => ({ connected: false, team_name: '' })),
+        useAppStore.getState().enterpriseEnabled
+          ? api.get<SlackStat>('/slack/status').catch(() => ({ connected: false, team_name: '' }))
+          : Promise.resolve({ connected: false, team_name: '' }),
         api.get<GitHubStat>('/github/status').catch(() => ({ connected: false })),
       ]);
       setConnectionStatus({
@@ -1131,7 +1134,7 @@ export default function Settings() {
           </div>
 
           {/* ── Power user (G) ────────────────────── */}
-          <div className={activeSection !== 'section-preferences' ? 'hidden' : ''}>
+          <div className={activeSection !== 'section-preferences' ? 'hidden' : 'space-y-6'}>
           <div className={cardClass}>
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
@@ -1150,6 +1153,20 @@ export default function Settings() {
               <Toggle checked={powerUserMode} onChange={() => setPowerUserMode(!powerUserMode)} testId="power-user-toggle" />
             </div>
             <p className="text-xs text-slate-500">Shows advanced agent tabs (Delegate, Shared Workspace) and the ostk browser in the sidebar.</p>
+          </div>
+
+          <div className={cardClass} data-testid="enterprise-extension-card">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-lg font-semibold">Enterprise and Work extension</h2>
+              <Toggle
+                checked={enterpriseEnabled}
+                onChange={() => setEnterpriseEnabled(!enterpriseEnabled)}
+                testId="enterprise-extension-toggle"
+              />
+            </div>
+            <p className="text-xs text-slate-500">
+              Turns on optional Portfolio, Executive Summary, Slack, Jira, Confluence, and Admin surfaces. Restart the backend after turning this on so Work API routes and sync jobs start.
+            </p>
           </div>
           </div>
 
@@ -1672,33 +1689,37 @@ export default function Settings() {
               </div>
             )}
 
-            {/* Slack pill */}
-            <button
-              onClick={() => setExpandedConnection(expandedConnection === 'slack' ? null : 'slack')}
-              className="w-full flex items-center gap-3 px-4 py-3 bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/50 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/70 transition-colors text-left"
-              data-testid="pill-slack"
-            >
-              <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
-                connectionStatus.Slack.loading
-                  ? 'bg-slate-600 animate-pulse'
-                  : connectionStatus.Slack.connected
-                  ? 'bg-emerald-400'
-                  : 'bg-slate-600'
-              }`} />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-slate-800 dark:text-slate-200">Slack</p>
-                <p className="text-xs text-slate-600 dark:text-slate-400 truncate">{connectionStatus.Slack.connected ? connectionStatus.Slack.label || 'Connected' : 'Sign in to use slash commands'}</p>
-              </div>
-              <Icon name={expandedConnection === 'slack' ? 'expand_less' : 'expand_more'} size={18} className="text-slate-600 dark:text-slate-400 flex-shrink-0" />
-            </button>
-            {expandedConnection === 'slack' && (
-              <div className={cardClass} data-testid="slack-connect-section">
-                <div className="flex items-center gap-2 mb-4">
-                  <Icon name="forum" size={18} className="text-purple-600 dark:text-purple-400" />
-                  <h2 className="text-base font-semibold text-slate-900 dark:text-white">Slack</h2>
-                </div>
-                <SlackConnect />
-              </div>
+            {/* Slack pill (Enterprise extension) */}
+            {enterpriseEnabled && (
+              <>
+                <button
+                  onClick={() => setExpandedConnection(expandedConnection === 'slack' ? null : 'slack')}
+                  className="w-full flex items-center gap-3 px-4 py-3 bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/50 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/70 transition-colors text-left"
+                  data-testid="pill-slack"
+                >
+                  <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
+                    connectionStatus.Slack.loading
+                      ? 'bg-slate-600 animate-pulse'
+                      : connectionStatus.Slack.connected
+                      ? 'bg-emerald-400'
+                      : 'bg-slate-600'
+                  }`} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-slate-800 dark:text-slate-200">Slack</p>
+                    <p className="text-xs text-slate-600 dark:text-slate-400 truncate">{connectionStatus.Slack.connected ? connectionStatus.Slack.label || 'Connected' : 'Sign in to use slash commands'}</p>
+                  </div>
+                  <Icon name={expandedConnection === 'slack' ? 'expand_less' : 'expand_more'} size={18} className="text-slate-600 dark:text-slate-400 flex-shrink-0" />
+                </button>
+                {expandedConnection === 'slack' && (
+                  <div className={cardClass} data-testid="slack-connect-section">
+                    <div className="flex items-center gap-2 mb-4">
+                      <Icon name="forum" size={18} className="text-purple-600 dark:text-purple-400" />
+                      <h2 className="text-base font-semibold text-slate-900 dark:text-white">Slack</h2>
+                    </div>
+                    <SlackConnect />
+                  </div>
+                )}
+              </>
             )}
 
             {/* GitHub pill */}
@@ -1755,63 +1776,62 @@ export default function Settings() {
               </div>
             )}
 
-            {/* Atlassian pill */}
-            <button
-              onClick={() => setExpandedConnection(expandedConnection === 'atlassian' ? null : 'atlassian')}
-              className="w-full flex items-center gap-3 px-4 py-3 bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/50 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/70 transition-colors text-left"
-              data-testid="pill-atlassian"
-            >
-              <span className="w-2.5 h-2.5 rounded-full bg-slate-600 flex-shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-slate-800 dark:text-slate-200">Atlassian</p>
-                <p className="text-xs text-slate-600 dark:text-slate-400">Connect Jira & Confluence</p>
-              </div>
-              <Icon name={expandedConnection === 'atlassian' ? 'expand_less' : 'expand_more'} size={18} className="text-slate-600 dark:text-slate-400 flex-shrink-0" />
-            </button>
-            {expandedConnection === 'atlassian' && (
+            {/* Atlassian pill (Enterprise extension) */}
+            {enterpriseEnabled && (
               <>
-                <div className={cardClass} data-testid="atlassian-connect-section">
-                  <div className="flex items-center gap-2 mb-4">
-                    <Icon name="link" size={18} className="text-blue-600 dark:text-blue-400" />
-                    <h2 className="text-base font-semibold text-slate-800 dark:text-slate-200">Jira & Confluence</h2>
+                <button
+                  onClick={() => setExpandedConnection(expandedConnection === 'atlassian' ? null : 'atlassian')}
+                  className="w-full flex items-center gap-3 px-4 py-3 bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/50 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/70 transition-colors text-left"
+                  data-testid="pill-atlassian"
+                >
+                  <span className="w-2.5 h-2.5 rounded-full bg-slate-600 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-slate-800 dark:text-slate-200">Atlassian</p>
+                    <p className="text-xs text-slate-600 dark:text-slate-400">Connect Jira & Confluence</p>
                   </div>
-                  {/* UAT item 6: AtlassianConnect always renders a connect path
-                      (OAuth button + token form) and never blanks while
-                      /atlassian/status is loading. The old AtlassianSetupCard
-                      returned null until connected===false resolved, which left
-                      the panel empty below the header. */}
-                  <AtlassianConnect />
-                </div>
-                <div className={cardClass} data-testid="atlassian-preferences-section">
-                  <h2 className="text-base font-semibold mb-3 text-slate-800 dark:text-slate-200">Confluence preferences</h2>
-                  <div>
-                    <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1" htmlFor="default-confluence-space">
-                      Default Confluence space
-                    </label>
-                    <div className="flex gap-2">
-                      <input
-                        id="default-confluence-space"
-                        type="text"
-                        value={defaultConfluenceSpace}
-                        onChange={(e) => setDefaultConfluenceSpace(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === 'Enter') api.patch('/settings', { default_confluence_space: defaultConfluenceSpace.trim() }).catch(notifySettingsSaveError); }}
-                        placeholder="e.g. IAM"
-                        data-testid="default-confluence-space-input"
-                        className="flex-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white placeholder:text-slate-500 outline-none focus:border-blue-500/50"
-                      />
-                      <button
-                        onClick={() => api.patch('/settings', { default_confluence_space: defaultConfluenceSpace.trim() }).catch(notifySettingsSaveError)}
-                        data-testid="confluence-space-save"
-                        className="px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors"
-                      >
-                        Save
-                      </button>
+                  <Icon name={expandedConnection === 'atlassian' ? 'expand_less' : 'expand_more'} size={18} className="text-slate-600 dark:text-slate-400 flex-shrink-0" />
+                </button>
+                {expandedConnection === 'atlassian' && (
+                  <>
+                    <div className={cardClass} data-testid="atlassian-connect-section">
+                      <div className="flex items-center gap-2 mb-4">
+                        <Icon name="link" size={18} className="text-blue-600 dark:text-blue-400" />
+                        <h2 className="text-base font-semibold text-slate-800 dark:text-slate-200">Jira & Confluence</h2>
+                      </div>
+                      <AtlassianConnect />
                     </div>
-                    <p className="text-xs text-slate-500 mt-1">
-                      Paste a space shortcut (like IAM) or a full Confluence URL. The widget will show pages from this space only.
-                    </p>
-                  </div>
-                </div>
+                    <div className={cardClass} data-testid="atlassian-preferences-section">
+                      <h2 className="text-base font-semibold mb-3 text-slate-800 dark:text-slate-200">Confluence preferences</h2>
+                      <div>
+                        <label className="block text-sm text-slate-600 dark:text-slate-400 mb-1" htmlFor="default-confluence-space">
+                          Default Confluence space
+                        </label>
+                        <div className="flex gap-2">
+                          <input
+                            id="default-confluence-space"
+                            type="text"
+                            value={defaultConfluenceSpace}
+                            onChange={(e) => setDefaultConfluenceSpace(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') api.patch('/settings', { default_confluence_space: defaultConfluenceSpace.trim() }).catch(notifySettingsSaveError); }}
+                            placeholder="e.g. IAM"
+                            data-testid="default-confluence-space-input"
+                            className="flex-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white placeholder:text-slate-500 outline-none focus:border-blue-500/50"
+                          />
+                          <button
+                            onClick={() => api.patch('/settings', { default_confluence_space: defaultConfluenceSpace.trim() }).catch(notifySettingsSaveError)}
+                            data-testid="confluence-space-save"
+                            className="px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors"
+                          >
+                            Save
+                          </button>
+                        </div>
+                        <p className="text-xs text-slate-500 mt-1">
+                          Paste a space shortcut (like IAM) or a full Confluence URL. The widget will show pages from this space only.
+                        </p>
+                      </div>
+                    </div>
+                  </>
+                )}
               </>
             )}
 

@@ -19,8 +19,6 @@ import {
   type RoadmapToTasksResponse,
 } from '../lib/roadmapChatCommand'
 import { isPeerChatIntent } from '../lib/peerChatIntentDetector'
-import { detectIMessageSendIntent } from '../lib/imessageIntentDetector'
-import { IMessageConfirmBubble } from './IMessageConfirmBubble'
 import { PlanBanner } from './PlanBanner'
 import { TodoListPanel, type Todo } from './TodoListPanel'
 import FileChangesPanel, { type FileChange } from './FileChangesPanel'
@@ -668,15 +666,6 @@ export function ChatPanel() {
   const [inlinePrompt, setInlinePrompt] = useState<{ label: string; placeholder: string; prefix: string } | null>(null)
   const [planBannerPending, setPlanBannerPending] = useState<{ id: string; plan: string } | null>(null)
   const [currentTodos, setCurrentTodos] = useState<Todo[]>([])
-
-  const [imessagePending, setImessagePending] = useState<{
-    phrase: string
-    originalInput: string
-    resolving: boolean
-    resolvedId?: string
-    resolvedName?: string
-    messageText?: string
-  } | null>(null)
 
   // In-chat Claude model tier switcher (→1065). Persists for the session.
   const [claudeTier, setClaudeTier] = useState<ClaudeTier>(() => {
@@ -2006,7 +1995,6 @@ export function ChatPanel() {
     },
     openNeedleModal: () => setShowNeedleModal(true),
     openSpecModal: () => setShowSpecWizard(true),
-    openGemPicker: () => { window.location.href = '/gems' },
     openGiphy: () => { setShowGiphy(true); setGiphyInitialSearch('') },
     togglePlanMode: () => {
       const current = localStorage.getItem('plan_mode') === '1'
@@ -2289,41 +2277,6 @@ export function ChatPanel() {
     }
   }
 
-  const handleImessageSend = async () => {
-    if (!imessagePending?.resolvedId || !imessagePending?.messageText) return
-    const { resolvedId, messageText, resolvedName } = imessagePending
-    setImessagePending(null)
-    const confirmId = genId()
-    setMessages(prev => [...prev, {
-      id: confirmId,
-      role: 'assistant' as const,
-      content: `Sending to ${resolvedName} via iMessage...`,
-    }])
-    try {
-      await api.post('/imessage/send', { recipient: resolvedId, text: messageText })
-      setMessages(prev => prev.map(m =>
-        m.id === confirmId
-          ? { ...m, content: `Sent to ${resolvedName} via iMessage.` }
-          : m
-      ))
-    } catch (err) {
-      const detail = err instanceof Error ? err.message : 'Please try again.'
-      setMessages(prev => prev.map(m =>
-        m.id === confirmId
-          ? { ...m, content: `Could not send the iMessage. ${detail}` }
-          : m
-      ))
-    }
-  }
-
-  const handleImessageDismiss = () => {
-    const originalInput = imessagePending?.originalInput
-    setImessagePending(null)
-    if (originalInput) {
-      sendMessage(originalInput)
-    }
-  }
-
   // Re-send the last user turn after a WebSocket-level error.
   //
   // After a mid-turn socket drop the last bubble carries isError=true
@@ -2437,30 +2390,6 @@ export function ChatPanel() {
       }
       setPendingPeerChatText(input.trim())
       setInput('')
-      return
-    }
-    // Check for iMessage send intent before dispatching to AI.
-    const imessageIntent = detectIMessageSendIntent(input.trim())
-    if (imessageIntent) {
-      const originalText = input.trim()
-      setImessagePending({ phrase: imessageIntent.phrase, originalInput: originalText, resolving: true })
-      setInput('')
-      api.get<{ identifier: string; display_name: string; message_text: string }>(
-        `/imessage/resolve-contact?phrase=${encodeURIComponent(imessageIntent.phrase)}`
-      ).then(res => {
-        setImessagePending({
-          phrase: imessageIntent.phrase,
-          originalInput: originalText,
-          resolving: false,
-          resolvedId: res.identifier,
-          resolvedName: res.display_name,
-          messageText: res.message_text,
-        })
-      }).catch(() => {
-        // No contact found — fall through to normal AI chat.
-        setImessagePending(null)
-        sendMessage(originalText)
-      })
       return
     }
     sendMessage(input)
@@ -3315,15 +3244,6 @@ export function ChatPanel() {
               setPlanBannerPending(null)
               send({ type: 'plan_revise', id, comment })
             }}
-          />
-        )}
-        {imessagePending && (
-          <IMessageConfirmBubble
-            resolving={imessagePending.resolving}
-            displayName={imessagePending.resolvedName ?? ''}
-            messageText={imessagePending.messageText ?? ''}
-            onSend={handleImessageSend}
-            onDismiss={handleImessageDismiss}
           />
         )}
         <div ref={messagesEndRef} />

@@ -6,6 +6,8 @@ from unittest.mock import patch
 
 import pytest
 
+pytestmark = pytest.mark.enterprise
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from services import signing as svc

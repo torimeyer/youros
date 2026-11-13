@@ -6,6 +6,7 @@
   "accent_color": "blue",
   "default_model": "@claude",
   "use_ostk_terms": false,
+  "enterprise_enabled": false,
   "features": {
     "Chat": true,
     "Tasks": true,

@@ -2954,7 +2954,7 @@ export default function Tasks() {
                                     {linkedContext.emails.map((email) => (
                                       <div
                                         key={email.id}
-                                        onClick={() => navigate(`/gmail?thread=${email.id}`)}
+                                        onClick={() => window.open(`https://mail.google.com/mail/u/0/#inbox/${encodeURIComponent(email.id)}`, '_blank', 'noopener,noreferrer')}
                                         className="flex items-start gap-2 p-2 rounded-md bg-slate-100 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer transition-colors"
                                       >
                                         <Icon name="mail" className="text-blue-600 dark:text-blue-400 mt-0.5" size={14} />
@@ -2975,7 +2975,7 @@ export default function Tasks() {
                                     {linkedContext.events.map((ev) => (
                                       <div
                                         key={ev.id}
-                                        onClick={() => navigate('/calendar')}
+                                        onClick={() => window.open('https://calendar.google.com', '_blank', 'noopener,noreferrer')}
                                         className="flex items-start gap-2 p-2 rounded-md bg-slate-100 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer transition-colors"
                                       >
                                         <Icon name="event" className="text-purple-600 dark:text-purple-400 mt-0.5" size={14} />

@@ -14,6 +14,8 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 import pytest
+
+pytestmark = pytest.mark.enterprise
 import pytest_asyncio
 import httpx
 

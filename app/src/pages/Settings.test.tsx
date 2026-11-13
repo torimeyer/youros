@@ -84,6 +84,7 @@ describe('Settings', () => {
       osName: 'yourOS',
       darkMode: true,
       accentColor: 'blue',
+      enterpriseEnabled: false,
       features: [
         { label: 'Chat', enabled: true },
         { label: 'Tasks', enabled: true },
@@ -91,7 +92,7 @@ describe('Settings', () => {
         { label: 'Activity', enabled: true },
         { label: 'Projects', enabled: true },
         { label: 'Specs', enabled: true },
-        { label: 'Automations', enabled: false },
+        { label: 'Recall', enabled: true },
         { label: 'Cost Tracking', enabled: true },
       ],
     })
@@ -291,6 +292,29 @@ describe('Settings', () => {
   })
 
   describe('GitHub and Atlassian setup cards in Connections', () => {
+    it('hides Slack and Atlassian pills and skips /slack/status when enterpriseEnabled is false', async () => {
+      const mockedApiGet = vi.mocked(api.get)
+      renderSettings()
+      await waitFor(() => {
+        expect(screen.getByTestId('pill-google')).toBeInTheDocument()
+        expect(screen.getByTestId('pill-github')).toBeInTheDocument()
+      })
+      expect(screen.queryByTestId('pill-slack')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('pill-atlassian')).not.toBeInTheDocument()
+      expect(mockedApiGet.mock.calls.some(([u]) => u === '/slack/status')).toBe(false)
+    })
+
+    it('renders Enterprise extension toggle in Preferences and persists changes', () => {
+      renderSettings()
+      const btn = screen.getAllByRole('button').find(b => b.textContent?.trim() === 'Preferences')
+      if (btn) fireEvent.click(btn)
+      const toggle = screen.getByTestId('enterprise-extension-toggle')
+      expect(toggle).toHaveAttribute('aria-checked', 'false')
+      fireEvent.click(toggle)
+      expect(useAppStore.getState().enterpriseEnabled).toBe(true)
+      expect(mockedApiPatch).toHaveBeenCalledWith('/settings', { enterprise_enabled: true })
+    })
+
     it('renders GitHub connect section in Connections tab', async () => {
       renderSettings()
       const githubPill = screen.getByTestId('pill-github')
@@ -298,7 +322,8 @@ describe('Settings', () => {
       expect(screen.getByTestId('github-connect-section')).toBeInTheDocument()
     })
 
-    it('renders Atlassian connect section in Connections tab', async () => {
+    it('renders Atlassian connect section in Connections tab when enterpriseEnabled is true', async () => {
+      useAppStore.setState({ enterpriseEnabled: true })
       renderSettings()
       const atlassianPill = screen.getByTestId('pill-atlassian')
       fireEvent.click(atlassianPill)
@@ -313,11 +338,8 @@ describe('Settings', () => {
       expect(card).toBeInTheDocument()
     })
 
-    it('renders an always-available Atlassian connect path after api resolves', async () => {
-      // UAT item 6: the old AtlassianSetupCard returned null while
-      // /atlassian/status loaded, leaving the panel blank below the header.
-      // AtlassianConnect always renders a connect path (OAuth button or token
-      // form), so a connect option is reachable as soon as the status resolves.
+    it('renders an always-available Atlassian connect path after api resolves when enterpriseEnabled is true', async () => {
+      useAppStore.setState({ enterpriseEnabled: true })
       renderSettings()
       const atlassianPill = screen.getByTestId('pill-atlassian')
       fireEvent.click(atlassianPill)
@@ -626,6 +648,7 @@ describe('Settings', () => {
         return Promise.resolve({})
       })
 
+      useAppStore.setState({ enterpriseEnabled: true })
       renderSettings()
 
       // Wait for all four to have been dispatched. If the code awaited
@@ -650,7 +673,8 @@ describe('Settings', () => {
       })
     })
 
-    it('renders the four active connection pills: Google, Slack, GitHub, Atlassian', async () => {
+    it('renders the four active connection pills when enterpriseEnabled is true: Google, Slack, GitHub, Atlassian', async () => {
+      useAppStore.setState({ enterpriseEnabled: true })
       renderSettings()
 
       await waitFor(() => {
@@ -1128,6 +1152,7 @@ describe('Settings page: Developer section', () => {
       osName: 'yourOS',
       darkMode: true,
       accentColor: 'blue',
+      enterpriseEnabled: false,
       features: [
         { label: 'Chat', enabled: true },
         { label: 'Tasks', enabled: true },
@@ -1135,7 +1160,7 @@ describe('Settings page: Developer section', () => {
         { label: 'Activity', enabled: true },
         { label: 'Projects', enabled: true },
         { label: 'Specs', enabled: true },
-        { label: 'Automations', enabled: false },
+        { label: 'Recall', enabled: true },
         { label: 'Cost Tracking', enabled: true },
       ],
     })
@@ -1182,6 +1207,7 @@ describe('Settings page: Push notifications toggle', () => {
       osName: 'yourOS',
       darkMode: true,
       accentColor: 'blue',
+      enterpriseEnabled: false,
       features: [
         { label: 'Chat', enabled: true },
         { label: 'Tasks', enabled: true },
@@ -1189,7 +1215,7 @@ describe('Settings page: Push notifications toggle', () => {
         { label: 'Activity', enabled: true },
         { label: 'Projects', enabled: true },
         { label: 'Specs', enabled: true },
-        { label: 'Automations', enabled: false },
+        { label: 'Recall', enabled: true },
         { label: 'Cost Tracking', enabled: true },
       ],
     })
@@ -1361,6 +1387,7 @@ describe('Settings page: Push notifications toggle', () => {
         return Promise.resolve({})
       })
 
+      useAppStore.setState({ enterpriseEnabled: true })
       renderSettings()
 
       expect(screen.getByTestId('pill-google')).toBeInTheDocument()
@@ -1408,6 +1435,7 @@ describe('Settings: Memory provenance (F4)', () => {
       osName: 'yourOS',
       darkMode: true,
       accentColor: 'blue',
+      enterpriseEnabled: false,
       features: [
         { label: 'Chat', enabled: true },
         { label: 'Tasks', enabled: true },
@@ -1415,7 +1443,7 @@ describe('Settings: Memory provenance (F4)', () => {
         { label: 'Activity', enabled: true },
         { label: 'Projects', enabled: true },
         { label: 'Specs', enabled: true },
-        { label: 'Automations', enabled: false },
+        { label: 'Recall', enabled: true },
         { label: 'Cost Tracking', enabled: true },
       ],
     })

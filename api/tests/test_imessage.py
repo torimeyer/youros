@@ -71,37 +71,8 @@ def _make_search_results(n: int = 3) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_imessage_status_available(client):
-    """When the database is readable, status should report available."""
-    with patch(
-        "services.imessage.is_available",
-        return_value={"available": True, "reason": None},
-    ):
-        resp = await client.get("/api/imessage/status")
-
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["available"] is True
-    assert data["reason"] is None
 
 
-@pytest.mark.asyncio
-async def test_imessage_status_not_available(client):
-    """When chat.db is missing, status should report not available."""
-    with patch(
-        "services.imessage.is_available",
-        return_value={
-            "available": False,
-            "reason": "iMessage database not found. This feature only works on macOS.",
-        },
-    ):
-        resp = await client.get("/api/imessage/status")
-
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["available"] is False
-    assert "macOS" in data["reason"]
 
 
 # ---------------------------------------------------------------------------
@@ -109,78 +80,12 @@ async def test_imessage_status_not_available(client):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_imessage_conversations_not_available(client):
-    """When iMessage is not available, conversations should return 503."""
-    with patch(
-        "services.imessage.is_available",
-        return_value={"available": False, "reason": "Not on macOS"},
-    ):
-        resp = await client.get("/api/imessage/conversations")
-
-    assert resp.status_code == 503
 
 
-@pytest.mark.asyncio
-async def test_imessage_conversations_success(client):
-    """When available, conversations endpoint returns conversation list."""
-    fake_convos = _make_conversations(3)
-
-    with (
-        patch(
-            "services.imessage.is_available",
-            return_value={"available": True, "reason": None},
-        ),
-        patch(
-            "services.imessage.get_conversations",
-            new=AsyncMock(return_value=fake_convos),
-        ),
-    ):
-        resp = await client.get("/api/imessage/conversations")
-
-    assert resp.status_code == 200
-    data = resp.json()
-    assert len(data["conversations"]) == 3
-    assert data["conversations"][0]["display_name"] == "Contact 0"
 
 
-@pytest.mark.asyncio
-async def test_imessage_conversations_with_limit(client):
-    """The limit query parameter is passed to the service."""
-    fake_convos = _make_conversations(2)
-
-    with (
-        patch(
-            "services.imessage.is_available",
-            return_value={"available": True, "reason": None},
-        ),
-        patch(
-            "services.imessage.get_conversations",
-            new=AsyncMock(return_value=fake_convos),
-        ),
-    ):
-        resp = await client.get("/api/imessage/conversations?limit=10")
-
-    assert resp.status_code == 200
 
 
-@pytest.mark.asyncio
-async def test_imessage_conversations_error(client):
-    """When the service raises, the endpoint returns 500 with a message."""
-    with (
-        patch(
-            "services.imessage.is_available",
-            return_value={"available": True, "reason": None},
-        ),
-        patch(
-            "services.imessage.get_conversations",
-            new=AsyncMock(side_effect=RuntimeError("db locked")),
-        ),
-    ):
-        resp = await client.get("/api/imessage/conversations")
-
-    assert resp.status_code == 500
-    assert "db locked" in resp.text
 
 
 # ---------------------------------------------------------------------------
@@ -188,39 +93,8 @@ async def test_imessage_conversations_error(client):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_imessage_messages_not_available(client):
-    """When iMessage is not available, messages endpoint returns 503."""
-    with patch(
-        "services.imessage.is_available",
-        return_value={"available": False, "reason": "Not on macOS"},
-    ):
-        resp = await client.get("/api/imessage/conversations/1/messages")
-
-    assert resp.status_code == 503
 
 
-@pytest.mark.asyncio
-async def test_imessage_messages_success(client):
-    """Returns messages for a conversation."""
-    fake_msgs = _make_messages(5)
-
-    with (
-        patch(
-            "services.imessage.is_available",
-            return_value={"available": True, "reason": None},
-        ),
-        patch(
-            "services.imessage.get_messages",
-            new=AsyncMock(return_value=fake_msgs),
-        ),
-    ):
-        resp = await client.get("/api/imessage/conversations/42/messages")
-
-    assert resp.status_code == 200
-    data = resp.json()
-    assert len(data["messages"]) == 5
-    assert data["messages"][0]["text"] == "Message text 0"
 
 
 # ---------------------------------------------------------------------------
@@ -228,104 +102,14 @@ async def test_imessage_messages_success(client):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_imessage_send_not_available(client):
-    """When iMessage is not available, send returns 503."""
-    with patch(
-        "services.imessage.is_available",
-        return_value={"available": False, "reason": "Not on macOS"},
-    ):
-        resp = await client.post(
-            "/api/imessage/send",
-            json={"recipient": "+15550001234", "text": "Hello"},
-        )
-
-    assert resp.status_code == 503
 
 
-@pytest.mark.asyncio
-async def test_imessage_send_success(client):
-    """Successful send returns ok=True and invalidates cache."""
-    with (
-        patch(
-            "services.imessage.is_available",
-            return_value={"available": True, "reason": None},
-        ),
-        patch(
-            "services.imessage.send_message",
-            new=AsyncMock(return_value={"ok": True}),
-        ),
-        patch(
-            "services.imessage.invalidate_conversations_cache",
-        ) as mock_invalidate,
-    ):
-        resp = await client.post(
-            "/api/imessage/send",
-            json={"recipient": "+15550001234", "text": "Hello there"},
-        )
-
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["ok"] is True
-    mock_invalidate.assert_called_once()
 
 
-@pytest.mark.asyncio
-async def test_imessage_send_missing_fields(client):
-    """Send without required fields returns 422."""
-    with patch(
-        "services.imessage.is_available",
-        return_value={"available": True, "reason": None},
-    ):
-        resp = await client.post(
-            "/api/imessage/send",
-            json={"recipient": "+15550001234"},
-        )
-
-    assert resp.status_code == 422
 
 
-@pytest.mark.asyncio
-async def test_imessage_send_value_error(client):
-    """When the service raises ValueError, the endpoint returns 400."""
-    with (
-        patch(
-            "services.imessage.is_available",
-            return_value={"available": True, "reason": None},
-        ),
-        patch(
-            "services.imessage.send_message",
-            new=AsyncMock(side_effect=ValueError("Both recipient and message text are required.")),
-        ),
-    ):
-        resp = await client.post(
-            "/api/imessage/send",
-            json={"recipient": "", "text": "Hello"},
-        )
-
-    assert resp.status_code == 400
 
 
-@pytest.mark.asyncio
-async def test_imessage_send_runtime_error(client):
-    """When AppleScript fails, the endpoint returns 500 with error message."""
-    with (
-        patch(
-            "services.imessage.is_available",
-            return_value={"available": True, "reason": None},
-        ),
-        patch(
-            "services.imessage.send_message",
-            new=AsyncMock(side_effect=RuntimeError("Failed to send iMessage: recipient not found")),
-        ),
-    ):
-        resp = await client.post(
-            "/api/imessage/send",
-            json={"recipient": "+15550001234", "text": "Hello"},
-        )
-
-    assert resp.status_code == 500
-    assert "recipient not found" in resp.text
 
 
 # ---------------------------------------------------------------------------
@@ -333,63 +117,12 @@ async def test_imessage_send_runtime_error(client):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_imessage_search_not_available(client):
-    """When iMessage is not available, search returns 503."""
-    with patch(
-        "services.imessage.is_available",
-        return_value={"available": False, "reason": "Not on macOS"},
-    ):
-        resp = await client.get("/api/imessage/search?q=hello")
-
-    assert resp.status_code == 503
 
 
-@pytest.mark.asyncio
-async def test_imessage_search_success(client):
-    """Search returns matching results."""
-    fake_results = _make_search_results(3)
-
-    with (
-        patch(
-            "services.imessage.is_available",
-            return_value={"available": True, "reason": None},
-        ),
-        patch(
-            "services.imessage.search_messages",
-            new=AsyncMock(return_value=fake_results),
-        ),
-    ):
-        resp = await client.get("/api/imessage/search?q=hello")
-
-    assert resp.status_code == 200
-    data = resp.json()
-    assert len(data["results"]) == 3
-    assert data["query"] == "hello"
 
 
-@pytest.mark.asyncio
-async def test_imessage_search_too_short(client):
-    """Search with a query shorter than 2 characters returns 422."""
-    with patch(
-        "services.imessage.is_available",
-        return_value={"available": True, "reason": None},
-    ):
-        resp = await client.get("/api/imessage/search?q=a")
-
-    assert resp.status_code == 422
 
 
-@pytest.mark.asyncio
-async def test_imessage_search_missing_query(client):
-    """Search without a query parameter returns 422."""
-    with patch(
-        "services.imessage.is_available",
-        return_value={"available": True, "reason": None},
-    ):
-        resp = await client.get("/api/imessage/search")
-
-    assert resp.status_code == 422
 
 
 # ---------------------------------------------------------------------------
@@ -539,105 +272,14 @@ def test_invalidate_conversations_cache(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_imessage_reply_not_available(client):
-    """When iMessage is not available, reply returns 503."""
-    with patch(
-        "services.imessage.is_available",
-        return_value={"available": False, "reason": "Not on macOS"},
-    ):
-        resp = await client.post(
-            "/api/imessage/conversations/1/reply",
-            json={"text": "Hey!"},
-        )
-
-    assert resp.status_code == 503
 
 
-@pytest.mark.asyncio
-async def test_imessage_reply_success(client):
-    """Successful reply returns ok=True and invalidates cache."""
-    with (
-        patch(
-            "services.imessage.is_available",
-            return_value={"available": True, "reason": None},
-        ),
-        patch(
-            "services.imessage.reply_to_chat",
-            new=AsyncMock(return_value={"ok": True}),
-        ),
-        patch(
-            "services.imessage.invalidate_conversations_cache",
-        ) as mock_invalidate,
-    ):
-        resp = await client.post(
-            "/api/imessage/conversations/42/reply",
-            json={"text": "Sounds good!"},
-        )
-
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["ok"] is True
-    mock_invalidate.assert_called_once()
 
 
-@pytest.mark.asyncio
-async def test_imessage_reply_missing_text(client):
-    """Reply without text returns 422."""
-    with patch(
-        "services.imessage.is_available",
-        return_value={"available": True, "reason": None},
-    ):
-        resp = await client.post(
-            "/api/imessage/conversations/1/reply",
-            json={},
-        )
-
-    assert resp.status_code == 422
 
 
-@pytest.mark.asyncio
-async def test_imessage_reply_chat_not_found(client):
-    """When the chat doesn't exist, reply returns 400."""
-    with (
-        patch(
-            "services.imessage.is_available",
-            return_value={"available": True, "reason": None},
-        ),
-        patch(
-            "services.imessage.reply_to_chat",
-            new=AsyncMock(side_effect=ValueError("Conversation 99 not found.")),
-        ),
-    ):
-        resp = await client.post(
-            "/api/imessage/conversations/99/reply",
-            json={"text": "Hello"},
-        )
-
-    assert resp.status_code == 400
-    assert "not found" in resp.text
 
 
-@pytest.mark.asyncio
-async def test_imessage_reply_runtime_error(client):
-    """When AppleScript fails during reply, returns 500."""
-    with (
-        patch(
-            "services.imessage.is_available",
-            return_value={"available": True, "reason": None},
-        ),
-        patch(
-            "services.imessage.reply_to_chat",
-            new=AsyncMock(side_effect=RuntimeError("Failed to send reply: chat not found")),
-        ),
-    ):
-        resp = await client.post(
-            "/api/imessage/conversations/1/reply",
-            json={"text": "Hello"},
-        )
-
-    assert resp.status_code == 500
-    assert "chat not found" in resp.text
 
 
 # ---------------------------------------------------------------------------
@@ -1032,50 +674,12 @@ def test_circuit_breaker_resets_on_success():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_imessage_status_returns_503_on_non_macos(client):
-    """All iMessage endpoints must return 503 on non-macOS."""
-    with patch("platform.system", return_value="Windows"):
-        resp = await client.get("/api/imessage/status")
-    assert resp.status_code == 503
-    assert "macOS" in resp.json()["detail"]
 
 
-@pytest.mark.asyncio
-async def test_imessage_conversations_returns_503_on_non_macos(client):
-    with patch("platform.system", return_value="Windows"):
-        resp = await client.get("/api/imessage/conversations")
-    assert resp.status_code == 503
 
 
-@pytest.mark.asyncio
-async def test_imessage_status_darwin_passes_guard(client):
-    """On Darwin the macOS guard passes; status endpoint returns 200, not 503.
-
-    The availability check may report unavailable (if chat.db is absent on this
-    machine), but the response code must be 200 — 503 is only for non-macOS.
-    """
-    with patch("platform.system", return_value="Darwin"):
-        resp = await client.get("/api/imessage/status")
-    assert resp.status_code == 200
-    assert resp.status_code != 503
 
 
-@pytest.mark.asyncio
-async def test_imessage_conversations_darwin_passes_guard(client):
-    """On Darwin the macOS guard passes; conversations endpoint is not 503.
-
-    If chat.db is missing the endpoint may return 503 from is_available, but
-    the top-level platform guard must not fire.  We mock is_available to avoid
-    a filesystem dependency and confirm the guard itself is satisfied.
-    """
-    with patch("platform.system", return_value="Darwin"), \
-         patch("services.imessage.is_available",
-               return_value={"available": True, "reason": None}), \
-         patch("services.imessage.get_conversations",
-               new=AsyncMock(return_value=[])):
-        resp = await client.get("/api/imessage/conversations")
-    assert resp.status_code != 503
 
 
 # ---------------------------------------------------------------------------
@@ -1083,48 +687,12 @@ async def test_imessage_conversations_darwin_passes_guard(client):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_imessage_contacts_search_returns_matches(client):
-    """Contacts search endpoint returns JSON with name/identifier shape."""
-    fake_contacts = [
-        {"name": "Alice Smith", "phone": "+15550001234", "email": None, "identifier": "+15550001234"},
-    ]
-    with patch("services.imessage_contacts.search_by_prefix", return_value=fake_contacts):
-        resp = await client.get("/api/imessage/contacts/search?q=ali")
-
-    assert resp.status_code == 200
-    data = resp.json()
-    assert "contacts" in data
-    assert len(data["contacts"]) == 1
-    assert data["contacts"][0]["name"] == "Alice Smith"
-    assert data["contacts"][0]["identifier"] == "+15550001234"
 
 
-@pytest.mark.asyncio
-async def test_imessage_contacts_search_empty_on_no_match(client):
-    """Contacts search returns empty list when nothing matches."""
-    with patch("services.imessage_contacts.search_by_prefix", return_value=[]):
-        resp = await client.get("/api/imessage/contacts/search?q=zzznobody")
-
-    assert resp.status_code == 200
-    assert resp.json()["contacts"] == []
 
 
-@pytest.mark.asyncio
-async def test_imessage_contacts_search_requires_query(client):
-    """Contacts search without a q param returns 422."""
-    resp = await client.get("/api/imessage/contacts/search")
-    assert resp.status_code == 422
 
 
-@pytest.mark.asyncio
-async def test_imessage_contacts_search_works_without_macos_guard(client):
-    """Contacts search endpoint does not require macOS — returns 200 on any platform."""
-    with patch("platform.system", return_value="Windows"), \
-         patch("services.imessage_contacts.search_by_prefix", return_value=[]):
-        resp = await client.get("/api/imessage/contacts/search?q=alice")
-    assert resp.status_code == 200
-    assert resp.json()["contacts"] == []
 
 
 # ---------------------------------------------------------------------------
@@ -1780,40 +1348,8 @@ def test_get_conversations_sync_unmuted_thread_shows_unread(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_save_contact_stores_name(client, tmp_path):
-    """POST /api/imessage/contacts/save persists the name and returns ok."""
-    from services import imessage
-
-    cache_path = tmp_path / "contacts.json"
-
-    with (
-        patch.object(imessage, "CONTACTS_CACHE_PATH", cache_path),
-        patch.object(imessage, "_contacts_cache", None),
-        patch.object(imessage, "invalidate_conversations_cache"),
-    ):
-        resp = await client.post(
-            "/api/imessage/contacts/save",
-            json={"identifier": "+15551234567", "name": "Test Person"},
-        )
-
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["ok"] is True
-    assert data["name"] == "Test Person"
-    assert cache_path.exists()
-    saved = json.loads(cache_path.read_text())
-    assert saved.get("+15551234567") == "Test Person"
 
 
-@pytest.mark.asyncio
-async def test_save_contact_empty_name_returns_400(client):
-    """POST /api/imessage/contacts/save rejects an empty name."""
-    resp = await client.post(
-        "/api/imessage/contacts/save",
-        json={"identifier": "+15551234567", "name": "  "},
-    )
-    assert resp.status_code == 400
 
 
 @pytest.mark.asyncio

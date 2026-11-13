@@ -407,14 +407,14 @@ else
 fi
 ab screenshot "$SCREENSHOT_DIR/agents.png" > /dev/null 2>&1
 
-# --- Navigate to Gems (was /ideas — route renamed) ---
-ab open "${FRONTEND_URL}/gems" > /dev/null 2>&1
-if wait_for_content "gem|persona|chat|My Gems"; then
-    phase_pass "Gems page renders content"
+# --- Navigate to Specs ---
+ab open "${FRONTEND_URL}/specs" > /dev/null 2>&1
+if wait_for_content "spec|Specs|Create|document"; then
+    phase_pass "Specs page renders content"
 else
-    phase_fail "Gems page appears blank"
+    phase_fail "Specs page appears blank"
 fi
-ab screenshot "$SCREENSHOT_DIR/ideas.png" > /dev/null 2>&1
+ab screenshot "$SCREENSHOT_DIR/specs.png" > /dev/null 2>&1
 
 # --- Navigate to Settings ---
 ab open "${FRONTEND_URL}/settings" > /dev/null 2>&1

@@ -1,5 +1,5 @@
 import { useEffect, lazy, Suspense } from 'react'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, Link } from 'react-router-dom'
 import { useNotificationStore } from './stores/notifications'
 import { Layout } from './components/Layout'
 import { ErrorBoundary } from './components/ErrorBoundary'
@@ -8,7 +8,6 @@ import { useRunningAgentsFeed } from './hooks/useRunningAgentsFeed'
 import { useSessionsFeed } from './hooks/useSessionsFeed'
 import { useDashboardFeed } from './hooks/useDashboardFeed'
 import { useNotificationsFeed } from './hooks/useNotificationsFeed'
-import { useCalendarFeed } from './hooks/useCalendarFeed'
 import { useTaskFinishedSound } from './hooks/useTaskFinishedSound'
 
 const OnboardingWizard = lazy(() => import('./components/OnboardingWizard'))
@@ -28,19 +27,10 @@ const PortfolioPage = lazy(() => import('./pages/PortfolioPage'))
 const SpecImport = lazy(() => import('./pages/SpecImport'))
 const SpecFaq = lazy(() => import('./pages/SpecFaq'))
 const DocsRedirect = lazy(() => import('./pages/DocsRedirect'))
-const Calendar = lazy(() => import('./pages/Calendar'))
-const Gmail = lazy(() => import('./pages/Gmail'))
-const IMessage = lazy(() => import('./pages/IMessage'))
 const Slack = lazy(() => import('./pages/Slack'))
-const GitHub = lazy(() => import('./pages/GitHub'))
 const Jira = lazy(() => import('./pages/Jira'))
 const Confluence = lazy(() => import('./pages/Confluence'))
-const Upgrade = lazy(() => import('./pages/Upgrade'))
 const Releases = lazy(() => import('./pages/Releases'))
-const Workflows = lazy(() => import('./pages/Workflows'))
-const WorkflowBuilder = lazy(() => import('./pages/WorkflowBuilder'))
-const Drive = lazy(() => import('./pages/Drive'))
-const Files = lazy(() => import('./pages/Files'))
 const OstkFiles = lazy(() => import('./pages/OstkFiles'))
 const Sessions = lazy(() => import('./pages/Sessions'))
 const ShareView = lazy(() => import('./pages/ShareView'))
@@ -55,20 +45,41 @@ const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'))
 const AboutYourOS = lazy(() => import('./pages/AboutYourOS'))
 const AgentfileEditor = lazy(() => import('./pages/AgentfileEditor'))
 const MySetup = lazy(() => import('./pages/MySetup'))
-const MyGems = lazy(() => import('./pages/MyGems'))
 const BreakRoom = lazy(() => import('./pages/BreakRoom'))
-const Library = lazy(() => import('./pages/Library'))
 const Projects = lazy(() => import('./pages/Projects'))
+
+function RouteNotFound() {
+  return (
+    <div
+      data-testid="route-not-found"
+      className="flex flex-col items-center justify-center min-h-[60vh] px-6 text-center"
+    >
+      <p className="text-sm font-mono uppercase tracking-wider text-slate-500">404</p>
+      <h1 className="mt-2 text-xl font-semibold text-slate-900 dark:text-slate-100">
+        Page not found
+      </h1>
+      <p className="mt-2 text-sm text-slate-600 dark:text-slate-400 max-w-md">
+        This page is unavailable or belongs to the optional Enterprise and Work Extension.
+      </p>
+      <Link
+        to="/"
+        className="mt-5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors"
+      >
+        Back to Mission Control
+      </Link>
+    </div>
+  )
+}
 
 export default function App() {
   useRunningAgentsFeed()
   useSessionsFeed()
   useDashboardFeed()
   useNotificationsFeed()
-  useCalendarFeed()
   useTaskFinishedSound()
   const hydrated = useAppStore((s) => s.hydrated)
   const onboarded = useAppStore((s) => s.onboarded)
+  const enterpriseEnabled = useAppStore((s) => s.enterpriseEnabled)
   const hydrateFromServer = useAppStore((s) => s.hydrateFromServer)
   const instanceName = useAppStore((s) => s.instanceName)
 
@@ -179,8 +190,12 @@ export default function App() {
         </div>
       }>
       <Routes>
-        <Route path="share/:token" element={<ShareView />} />
-        <Route path="invite/:token" element={<InviteAccept />} />
+        {enterpriseEnabled && (
+          <>
+            <Route path="share/:token" element={<ShareView />} />
+            <Route path="invite/:token" element={<InviteAccept />} />
+          </>
+        )}
         <Route element={<Layout />}>
           <Route index element={<Dashboard />} />
           <Route path="tasks" element={<Tasks />} />
@@ -192,54 +207,44 @@ export default function App() {
           <Route path="backlog" element={<Backlog />} />
           <Route path="break" element={<BreakRoom />} />
           <Route path="specs" element={<Specs />} />
-          <Route path="executive-summary" element={<ExecutiveSummary />} />
-          <Route path="portfolio" element={<PortfolioPage />} />
           <Route path="specs/import" element={<SpecImport />} />
           <Route path="specs/faq" element={<SpecFaq />} />
-          <Route path="files" element={<Files />} />
-          <Route path="library" element={<Library />} />
           <Route path="projects" element={<Projects />} />
           <Route path="ostk" element={<OstkFiles />} />
           <Route path="sessions" element={<Sessions />} />
-          <Route path="drive" element={<Drive />} />
           {/* Backward compat: /docs redirects to /specs after the rename. */}
           <Route path="docs" element={<DocsRedirect />} />
           {/* /onboarding is not a real route: the wizard renders conditionally
               at the app root when onboarded=false. Redirect here so deep-links
               used in QA, support, and demos always land somewhere valid. */}
           <Route path="onboarding" element={<Navigate to="/" replace />} />
-          <Route path="calendar" element={<Calendar />} />
-          <Route path="gmail" element={<Gmail />} />
-          <Route path="imessage" element={<IMessage />} />
-          <Route path="contacts" element={<Navigate to="/imessage" replace />} />
-          <Route path="slack" element={<Slack />} />
-          <Route path="github" element={<GitHub />} />
-          <Route path="jira" element={<Jira />} />
-          <Route path="jira/:key" element={<Jira />} />
-          <Route path="confluence" element={<Confluence />} />
-          <Route path="confluence/:pageId" element={<Confluence />} />
           <Route path="costs" element={<CostTracking />} />
           <Route path="releases" element={<Releases />} />
-          <Route path="workflows" element={<Workflows />} />
-          <Route path="workflows/builder" element={<WorkflowBuilder />} />
-          <Route path="workflows/builder/:id" element={<WorkflowBuilder />} />
-          {/* Admin routes */}
-          <Route path="admin" element={<AdminLayout />}>
-            <Route index element={<AdminOverview />} />
-            <Route path="members" element={<AdminMembers />} />
-            <Route path="policies" element={<AdminPolicies />} />
-            <Route path="audit" element={<AdminAuditTrail />} />
-            <Route path="security" element={<AdminSecurity />} />
-          </Route>
           <Route path="adoption" element={<Navigate to="/settings" replace />} />
           <Route path="settings" element={<Settings />} />
           <Route path="settings/rules" element={<SettingsRules />} />
-          <Route path="settings/upgrade" element={<Upgrade />} />
           <Route path="privacy" element={<PrivacyPolicy />} />
           <Route path="about" element={<AboutYourOS />} />
           <Route path="my-setup" element={<MySetup />} />
-          <Route path="gems" element={<MyGems />} />
-
+          {enterpriseEnabled && (
+            <>
+              <Route path="executive-summary" element={<ExecutiveSummary />} />
+              <Route path="portfolio" element={<PortfolioPage />} />
+              <Route path="slack" element={<Slack />} />
+              <Route path="jira" element={<Jira />} />
+              <Route path="jira/:key" element={<Jira />} />
+              <Route path="confluence" element={<Confluence />} />
+              <Route path="confluence/:pageId" element={<Confluence />} />
+              <Route path="admin" element={<AdminLayout />}>
+                <Route index element={<AdminOverview />} />
+                <Route path="members" element={<AdminMembers />} />
+                <Route path="policies" element={<AdminPolicies />} />
+                <Route path="audit" element={<AdminAuditTrail />} />
+                <Route path="security" element={<AdminSecurity />} />
+              </Route>
+            </>
+          )}
+          <Route path="*" element={<RouteNotFound />} />
         </Route>
       </Routes>
       </Suspense>

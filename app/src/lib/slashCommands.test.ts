@@ -10,7 +10,6 @@ function makeCtx(overrides: Partial<CommandContext> = {}): CommandContext {
     clearChat: vi.fn(),
     openNeedleModal: vi.fn(),
     openSpecModal: vi.fn(),
-    openGemPicker: vi.fn(),
     openGiphy: vi.fn(),
     togglePlanMode: vi.fn(),
     runSkill: vi.fn().mockResolvedValue(undefined),
@@ -19,9 +18,10 @@ function makeCtx(overrides: Partial<CommandContext> = {}): CommandContext {
 }
 
 describe('createSlashCommands', () => {
-  it('returns 12 commands', () => {
+  it('returns 11 commands and omits /gem', () => {
     const cmds = createSlashCommands(makeCtx())
-    expect(cmds).toHaveLength(12)
+    expect(cmds).toHaveLength(11)
+    expect(cmds.find(c => c.id === '/gem')).toBeUndefined()
   })
 
   it('each command has a / prefix id', () => {
@@ -31,12 +31,12 @@ describe('createSlashCommands', () => {
     }
   })
 
-  it('includes the 9 spec commands + /giphy', () => {
+  it('includes the Core spec commands + /giphy', () => {
     const cmds = createSlashCommands(makeCtx())
     const ids = cmds.map(c => c.id)
     const expected = [
       '/handoff', '/plan', '/review', '/init', '/help',
-      '/clear', '/spec', '/task', '/gem', '/giphy',
+      '/clear', '/spec', '/task', '/giphy',
     ]
     for (const id of expected) {
       expect(ids).toContain(id)
@@ -67,12 +67,6 @@ describe('createSlashCommands', () => {
     const ctx = makeCtx()
     createSlashCommands(ctx).find(c => c.id === '/spec')!.trigger()
     expect(ctx.openSpecModal).toHaveBeenCalledOnce()
-  })
-
-  it('/gem trigger calls openGemPicker', () => {
-    const ctx = makeCtx()
-    createSlashCommands(ctx).find(c => c.id === '/gem')!.trigger()
-    expect(ctx.openGemPicker).toHaveBeenCalledOnce()
   })
 
   it('/giphy trigger calls openGiphy', () => {
@@ -138,7 +132,7 @@ describe('filterCommands', () => {
   const cmds = createSlashCommands(ctx)
 
   it('empty query returns all commands', () => {
-    expect(filterCommands(cmds, '')).toHaveLength(12)
+    expect(filterCommands(cmds, '')).toHaveLength(11)
   })
 
   it('"han" matches only /handoff', () => {

@@ -11,6 +11,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+pytestmark = pytest.mark.enterprise
+
 
 def _reset_service_caches(svc):
     svc._config_cache = None

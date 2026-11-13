@@ -52,7 +52,6 @@ def _script_files() -> list[Path]:
 ROUTER_TEST_ALIASES = {
     "specs": ("test_specs.py", "test_docs.py"),
     "ostk": ("test_ostk_language.py",),
-    "gems": ("test_gems_router.py",),
     "contacts": ("test_contacts.py", "test_1310_contacts.py"),
     "usage": ("test_usage.py", "test_1299_usage.py"),
 }

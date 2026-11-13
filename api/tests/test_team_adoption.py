@@ -6,6 +6,8 @@ from unittest.mock import patch
 
 import pytest
 
+pytestmark = pytest.mark.enterprise
+
 
 def _setup_org(tmp_path):
     from services import enterprise_store

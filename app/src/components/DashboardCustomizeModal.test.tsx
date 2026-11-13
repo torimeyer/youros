@@ -2,8 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import DashboardCustomizeModal from './DashboardCustomizeModal'
 import {
+  useAppStore,
   DEFAULT_DASHBOARD_WIDGETS,
   DASHBOARD_WIDGET_LABELS,
+  ENTERPRISE_DASHBOARD_WIDGETS,
 } from '../stores/app'
 
 describe('DashboardCustomizeModal', () => {
@@ -13,6 +15,7 @@ describe('DashboardCustomizeModal', () => {
   beforeEach(() => {
     onClose = vi.fn()
     onSave = vi.fn()
+    useAppStore.setState({ enterpriseEnabled: true })
   })
 
   it('does not render when open is false', () => {
@@ -39,6 +42,23 @@ describe('DashboardCustomizeModal', () => {
     for (const id of Object.keys(DASHBOARD_WIDGET_LABELS)) {
       expect(screen.getByText(DASHBOARD_WIDGET_LABELS[id])).toBeInTheDocument()
     }
+  })
+
+  it('hides Enterprise widgets when enterpriseEnabled is false', () => {
+    useAppStore.setState({ enterpriseEnabled: false })
+    render(
+      <DashboardCustomizeModal
+        open={true}
+        onClose={onClose}
+        widgets={[...DEFAULT_DASHBOARD_WIDGETS]}
+        onSave={onSave}
+      />,
+    )
+    for (const id of ENTERPRISE_DASHBOARD_WIDGETS) {
+      expect(screen.queryByTestId(`widget-row-${id}`)).toBeNull()
+    }
+    expect(screen.getByTestId('widget-row-briefing')).toBeInTheDocument()
+    expect(screen.getByTestId('widget-row-todays_focus')).toBeInTheDocument()
   })
 
   it('shows hidden widgets with their switch off', () => {
@@ -272,10 +292,6 @@ describe('DashboardCustomizeModal widget widths (→2921)', () => {
       'aria-label',
       'Make Next Event half width',
     )
-    expect(screen.getByTestId('widget-row-size-adventure')).toHaveAttribute(
-      'aria-label',
-      'Make Try an Adventure half width',
-    )
     expect(screen.getByTestId('widget-row-size-todays_focus')).toHaveAttribute(
       'aria-label',
       "Make Today's Focus full width",
@@ -324,7 +340,6 @@ describe('DashboardCustomizeModal widget widths (→2921)', () => {
       expect.objectContaining({
         todays_focus: 'full',
         next_meeting: 'full',
-        adventure: 'full',
         quick_launch: 'half',
       }),
     )

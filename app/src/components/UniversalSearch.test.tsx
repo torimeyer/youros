@@ -31,7 +31,7 @@ function renderSearch(open = true, onClose = vi.fn()) {
 describe('UniversalSearch', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    useAppStore.setState({ chatOpen: false })
+    useAppStore.setState({ chatOpen: false, enterpriseEnabled: false })
     mockedApiGet.mockResolvedValue({ tasks: [], query: '' })
   })
 
@@ -81,13 +81,28 @@ describe('UniversalSearch', () => {
     expect(screen.getByText('Actions')).toBeInTheDocument()
   })
 
-  it('renders all nav items', () => {
+  it('renders Core nav items and omits purged Bucket 4 and disabled Enterprise items', () => {
     renderSearch()
     expect(screen.getByTestId('nav-item-home')).toBeInTheDocument()
     expect(screen.getByTestId('nav-item-tasks')).toBeInTheDocument()
+    expect(screen.getByTestId('nav-item-specs')).toBeInTheDocument()
+    expect(screen.getByTestId('nav-item-agents')).toBeInTheDocument()
+    expect(screen.getByTestId('nav-item-projects')).toBeInTheDocument()
+    expect(screen.getByTestId('nav-item-transcripts')).toBeInTheDocument()
+    expect(screen.getByTestId('nav-item-break')).toBeInTheDocument()
     expect(screen.getByTestId('nav-item-settings')).toBeInTheDocument()
-    expect(screen.getByTestId('nav-item-gmail')).toBeInTheDocument()
+    for (const dead of ['gmail', 'calendar', 'drive', 'imessage', 'files', 'github', 'workflows', 'slack', 'jira', 'confluence']) {
+      expect(screen.queryByTestId(`nav-item-${dead}`)).not.toBeInTheDocument()
+    }
+  })
+
+  it('includes Enterprise nav items when enterpriseEnabled is true', () => {
+    useAppStore.setState({ enterpriseEnabled: true })
+    renderSearch()
+    expect(screen.getByTestId('nav-item-slack')).toBeInTheDocument()
+    expect(screen.getByTestId('nav-item-jira')).toBeInTheDocument()
     expect(screen.getByTestId('nav-item-confluence')).toBeInTheDocument()
+    expect(screen.getByTestId('nav-item-portfolio')).toBeInTheDocument()
   })
 
   it('renders action items with shortcuts', () => {
@@ -426,6 +441,8 @@ describe('UniversalSearch search', () => {
       expect(screen.getByTestId('section-files')).toBeInTheDocument()
       expect(screen.getByTestId('doc-item-0').textContent).toContain('roadmap-q3.md')
     })
+    fireEvent.click(screen.getByTestId('doc-item-0'))
+    expect(mockNavigate).toHaveBeenCalledWith('/projects')
   })
 
   it('one failed endpoint does not kill the others', async () => {

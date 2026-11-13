@@ -40,7 +40,7 @@ from services.loopback_guard import LoopbackGuardMiddleware
 from services.security_headers import SecurityHeadersMiddleware
 from services.slow_call_middleware import SlowCallMiddleware
 
-from routers import tasks, dashboard, settings, agents, chat, status, projects, transcripts, costs, auth, onboarding, onboarding_pack, search, threads, secrets, activity, specs, adventures, guesswho, files, beautify, drive, notifications, upgrade, sync, calendar, gmail, gmail_reply, gmail_triage, meeting_prep, meeting_tasks as meeting_tasks_router, workspace, briefing, workflows, shares, export, task_suggestions as task_suggestions_router, recurring_tasks as recurring_tasks_router, agent_patterns, enterprise, agentfiles, indexing, knowledge, predictions, growth, task_audit, slack, github, push, decisions, team_dashboard, sessions, imessage, dogwalk, prototypes, models as models_router, probes, trace, providers, adoption, since_you_last_looked, agent_undo, mcp_catalog, team_catalog, org_settings, team_home, my_setup, gemini as gemini_router, inbox as inbox_router, team as team_router, atlassian, spec_drive, meeting_tasks, portfolio
+from routers import tasks, dashboard, settings, agents, chat, status, projects, transcripts, costs, auth, onboarding, onboarding_pack, search, threads, secrets, activity, specs, guesswho, files, beautify, drive, notifications, upgrade, sync, calendar, gmail, gmail_reply, gmail_triage, meeting_prep, meeting_tasks as meeting_tasks_router, workspace, briefing, workflows, export, task_suggestions as task_suggestions_router, recurring_tasks as recurring_tasks_router, agent_patterns, agentfiles, indexing, knowledge, predictions, growth, task_audit, github, push, decisions, sessions, dogwalk, prototypes, models as models_router, probes, trace, providers, adoption, since_you_last_looked, agent_undo, mcp_catalog, my_setup, gemini as gemini_router, inbox as inbox_router, spec_drive, meeting_tasks
 from routers import theme_rollup
 from routers import patterns as patterns_router
 from routers import git as git_router
@@ -50,7 +50,6 @@ from routers import events as events_router
 from routers import user_memory as user_memory_router
 from routers import ostk as ostk_router
 from routers import agent_uploads as agent_uploads_router
-from routers import gems as gems_router
 from routers import gemini_capture as gemini_capture_router
 from routers import internal as internal_router
 from routers import narrative as narrative_router
@@ -66,6 +65,17 @@ from routers import primitives as primitives_router
 from routers import parked_tasks as parked_tasks_router
 from routers import turn_audit as turn_audit_router
 from routers import cross_search as cross_search_router
+from services.settings_store import is_enterprise_enabled
+
+
+async def _start_optional_enterprise_schedulers(keep_fn):
+    """Start Enterprise/Work background loops only when enterprise_enabled is True."""
+    if not is_enterprise_enabled():
+        return
+    await schedule_atlassian_sync()
+    from services.portfolio_health import start_portfolio_scheduler
+    keep_fn(await start_portfolio_scheduler())
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -85,7 +95,6 @@ async def lifespan(app: FastAPI):
     await schedule_upgrade_check()
     await schedule_label_backfill()
     await schedule_settings_sync_pull()
-    await schedule_gmail_unread_notification()
     await schedule_overdue_task_check()
     # →1806: prewarm_cli now forks off-thread via subprocess.run + asyncio.to_thread
     # so the event loop stays responsive during startup. Both prewarmed.
@@ -107,7 +116,6 @@ async def lifespan(app: FastAPI):
     await schedule_recurring_task_spawner()
     await schedule_test_artifact_sweep()
     await schedule_test_artifact_spec_sweep()
-    await schedule_atlassian_sync()
     await schedule_merge_debt_watcher()
     await schedule_spec_commit_scanner()
     await install_signal_shutdown_hook()
@@ -123,8 +131,7 @@ async def lifespan(app: FastAPI):
     _keep(await start_clock_refresher())
     from services.reminders import start_reminder_scheduler
     _keep(await start_reminder_scheduler())
-    from services.portfolio_health import start_portfolio_scheduler
-    _keep(await start_portfolio_scheduler())
+    await _start_optional_enterprise_schedulers(_keep)
     yield
     await notify_chat_clients_on_shutdown()
     # →1569: cancel background tasks started via _keep() so async tests using
@@ -197,7 +204,6 @@ app.include_router(adhd_router.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")
 app.include_router(providers.router, prefix="/api")
 app.include_router(gemini_router.router, prefix="/api")
-app.include_router(gems_router.router, prefix="/api")
 app.include_router(gemini_capture_router.router, prefix="/api")
 app.include_router(rules_router.router, prefix="/api")
 app.include_router(intel_router.router, prefix="/api")
@@ -219,7 +225,6 @@ app.include_router(trace.router, prefix="/api")
 app.include_router(specs.router, prefix="/api")
 app.include_router(specs._compat, prefix="/api")
 app.include_router(spec_drive.router, prefix="/api")
-app.include_router(adventures.router, prefix="/api")
 app.include_router(guesswho.router, prefix="/api")
 app.include_router(files.router, prefix="/api")
 app.include_router(agent_uploads_router.router, prefix="/api")
@@ -238,8 +243,6 @@ app.include_router(meeting_tasks.router, prefix="/api")
 app.include_router(workspace.router, prefix="/api")
 app.include_router(briefing.router, prefix="/api")
 app.include_router(workflows.router, prefix="/api")
-app.include_router(enterprise.router, prefix="/api")
-app.include_router(shares.router, prefix="/api")
 app.include_router(export.router, prefix="/api")
 app.include_router(task_suggestions_router.router, prefix="/api")
 app.include_router(recurring_tasks_router.router, prefix="/api")
@@ -250,16 +253,11 @@ app.include_router(indexing.router, prefix="/api")
 app.include_router(knowledge.router, prefix="/api")
 app.include_router(predictions.router, prefix="/api")
 app.include_router(growth.router, prefix="/api")
-app.include_router(slack.router, prefix="/api")
 app.include_router(github.router, prefix="/api")
 app.include_router(git_router.router, prefix="/api")
-app.include_router(atlassian.router, prefix="/api")
 app.include_router(push.router, prefix="/api")
 app.include_router(decisions.router, prefix="/api")
-app.include_router(team_dashboard.router, prefix="/api")
 app.include_router(sessions.router, prefix="/api")
-app.include_router(imessage.router, prefix="/api")
-
 app.include_router(contacts_router.router, prefix="/api")
 app.include_router(skills_router.router, prefix="/api")
 app.include_router(time_router.router, prefix="/api")
@@ -272,22 +270,68 @@ app.include_router(models_router.router, prefix="/api")
 app.include_router(probes.router, prefix="/api")
 app.include_router(agent_undo.router, prefix="/api")
 app.include_router(mcp_catalog.router, prefix="/api")
-app.include_router(team_catalog.router, prefix="/api")
-app.include_router(org_settings.router, prefix="/api")
-app.include_router(team_home.router, prefix="/api")
 app.include_router(my_setup.router, prefix="/api")
 app.include_router(inbox_router.router, prefix="/api")
 app.include_router(memory_router.router)
 app.include_router(user_memory_router.router)
-app.include_router(team_router.router, prefix="/api")
 app.include_router(ostk_router.router, prefix="/api")
 app.include_router(internal_router.router, prefix="/api")
 app.include_router(narrative_router.router, prefix="/api")
 app.include_router(coordination_router.router, prefix="/api")
 app.include_router(reminders_router.router, prefix="/api")
 app.include_router(cross_search_router.router, prefix="/api")
-app.include_router(portfolio.router, prefix="/api")
 app.include_router(theme_rollup.router, prefix="/api")
+
+_ENTERPRISE_ROUTERS_MOUNTED: set[int] = set()
+
+
+def ensure_enterprise_routers(target_app: FastAPI) -> list:
+    """Import and mount opt-in Enterprise/Work routers before any root SPA mount."""
+    app_id = id(target_app)
+    if app_id in _ENTERPRISE_ROUTERS_MOUNTED:
+        return []
+    from routers import (
+        atlassian,
+        enterprise,
+        org_settings,
+        portfolio,
+        shares,
+        slack,
+        team as team_router,
+        team_catalog,
+        team_dashboard,
+        team_home,
+    )
+
+    frontend_mounts = [
+        r for r in target_app.router.routes if getattr(r, "name", None) == "frontend"
+    ]
+    for m in frontend_mounts:
+        target_app.router.routes.remove(m)
+
+    before = set(id(r) for r in target_app.router.routes)
+    for mod in (
+        enterprise,
+        shares,
+        slack,
+        atlassian,
+        team_dashboard,
+        team_catalog,
+        org_settings,
+        team_home,
+        team_router,
+        portfolio,
+    ):
+        target_app.include_router(mod.router, prefix="/api")
+    added = [r for r in target_app.router.routes if id(r) not in before]
+
+    target_app.router.routes.extend(frontend_mounts)
+    _ENTERPRISE_ROUTERS_MOUNTED.add(app_id)
+    return added
+
+
+if is_enterprise_enabled():
+    ensure_enterprise_routers(app)
 
 
 async def prune_stale_agent_state():
@@ -380,7 +424,7 @@ async def schedule_upgrade_check():
                     title="Update available",
                     body=body,
                     action_label="Update now",
-                    action_url="/settings/upgrade",
+                    action_url="/settings",
                 )
         except Exception:
             pass
@@ -456,44 +500,6 @@ async def schedule_settings_sync_pull():
             pass
 
     _keep(asyncio.create_task(_pull()))
-
-
-async def schedule_gmail_unread_notification():
-    """After a short delay, check for unread Gmail and fire a notification.
-
-    Only fires if Gmail is authenticated and there are unread messages.
-    Skips if an unread gmail notification already exists.
-    """
-    import asyncio
-
-    async def _check():
-        await asyncio.sleep(12)
-        try:
-            from services.google_auth import is_authenticated
-            from services.notifications import notifications_service
-            from services import gmail as gmail_service
-
-            if not is_authenticated():
-                return
-
-            if notifications_service.has_unread_of_type("gmail"):
-                return
-
-            messages = await gmail_service.get_unread_summary()
-            count = len(messages)
-            if count > 0:
-                word = "email" if count == 1 else "emails"
-                notifications_service.add(
-                    type="gmail",
-                    title="Unread email",
-                    body=f"You have {count} unread {word}.",
-                    action_label="Open Gmail",
-                    action_url="/gmail",
-                )
-        except Exception:
-            pass
-
-    _keep(asyncio.create_task(_check()))
 
 
 async def schedule_overdue_task_check():
@@ -1167,5 +1173,21 @@ async def health():
 # exists (created by npm run build), serve it as static files. This lets
 # the whole app run from a single server process.
 _dist = Path(__file__).resolve().parent.parent / "app" / "dist"
+
+
+@app.get("/admin", include_in_schema=False)
+@app.get("/admin/{rest:path}", include_in_schema=False)
+async def _admin_spa_gate(rest: str = ""):
+    if not is_enterprise_enabled():
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Not Found")
+    index_file = _dist / "index.html"
+    if index_file.is_file():
+        from fastapi.responses import FileResponse
+        return FileResponse(str(index_file))
+    from fastapi import HTTPException
+    raise HTTPException(status_code=404, detail="Not Found")
+
+
 if _dist.is_dir():
     app.mount("/", StaticFilesWSGuard(SPAStaticFiles(directory=str(_dist), html=True)), name="frontend")

@@ -13,6 +13,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+pytestmark = pytest.mark.enterprise
+
 from services import portfolio_health
 
 

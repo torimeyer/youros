@@ -16,8 +16,10 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import Icon from './Icon'
 import {
+  useAppStore,
   DEFAULT_DASHBOARD_WIDGETS,
   DASHBOARD_WIDGET_LABELS,
+  ENTERPRISE_DASHBOARD_WIDGETS,
   widgetDefaultSize,
   type DashboardWidgetSize,
 } from '../stores/app'
@@ -51,12 +53,16 @@ const NO_SAVED_SIZES: Record<string, DashboardWidgetSize> = {}
 function buildRows(
   saved: string[],
   sizes: Record<string, DashboardWidgetSize>,
+  enterpriseEnabled: boolean,
 ): RowState[] {
-  const known = Object.keys(DASHBOARD_WIDGET_LABELS)
+  const known = Object.keys(DASHBOARD_WIDGET_LABELS).filter(
+    (id) => enterpriseEnabled || !ENTERPRISE_DASHBOARD_WIDGETS.has(id),
+  )
+  const allowed = new Set(known)
   const rows: RowState[] = []
   const seen = new Set<string>()
   for (const id of saved) {
-    if (DASHBOARD_WIDGET_LABELS[id]) {
+    if (allowed.has(id)) {
       rows.push({ id, visible: true, size: sizes[id] ?? widgetDefaultSize(id) })
       seen.add(id)
     }
@@ -152,14 +158,15 @@ export default function DashboardCustomizeModal({
   sizes = NO_SAVED_SIZES,
   onSave,
 }: Props) {
-  const [rows, setRows] = useState<RowState[]>(() => buildRows(widgets, sizes))
+  const enterpriseEnabled = useAppStore((s) => s.enterpriseEnabled)
+  const [rows, setRows] = useState<RowState[]>(() => buildRows(widgets, sizes, enterpriseEnabled))
 
   // Reset local state whenever the modal opens with a fresh prop list.
   useEffect(() => {
     if (open) {
-      setRows(buildRows(widgets, sizes))
+      setRows(buildRows(widgets, sizes, enterpriseEnabled))
     }
-  }, [open, widgets, sizes])
+  }, [open, widgets, sizes, enterpriseEnabled])
 
   // Escape closes the modal.
   useEffect(() => {
@@ -211,7 +218,7 @@ export default function DashboardCustomizeModal({
   }
 
   const handleReset = () => {
-    setRows(buildRows([...DEFAULT_DASHBOARD_WIDGETS], {}))
+    setRows(buildRows([...DEFAULT_DASHBOARD_WIDGETS], {}, enterpriseEnabled))
   }
 
   const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {

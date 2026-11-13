@@ -8,6 +8,8 @@ from unittest.mock import patch
 
 import pytest
 
+pytestmark = pytest.mark.enterprise
+
 
 @pytest.mark.asyncio
 async def test_enterprise_not_enabled_by_default(client, tmp_path):

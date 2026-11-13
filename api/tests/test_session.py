@@ -9,6 +9,8 @@ from unittest.mock import patch
 
 import pytest
 
+pytestmark = pytest.mark.enterprise
+
 
 # ---------------------------------------------------------------------------
 # Unit tests: session.py

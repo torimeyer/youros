@@ -22,19 +22,16 @@ const mockedApiGet = vi.mocked(api.get)
 
 const DEFAULT_FEATURES = [
   { label: 'Chat', enabled: true },
+  { label: 'Tasks', enabled: true },
+  { label: 'Specs', enabled: true },
   { label: 'Agents', enabled: true },
+  { label: 'Recall', enabled: true },
   { label: 'Activity', enabled: true },
   { label: 'Projects', enabled: true },
-  { label: 'Drive', enabled: true },
-  { label: 'Calendar', enabled: true },
-  { label: 'Gmail', enabled: true },
-  { label: 'iMessage', enabled: true },
   { label: 'Slack', enabled: true },
-  { label: 'GitHub', enabled: true },
   { label: 'Jira', enabled: true },
   { label: 'Confluence', enabled: true },
   { label: 'Cost Tracking', enabled: true },
-  { label: 'Automations', enabled: true },
 ]
 
 function renderSidebar(initialPath = '/') {
@@ -65,6 +62,7 @@ describe('Sidebar', () => {
     useAppStore.setState({
       osName: 'yourOS',
       features: DEFAULT_FEATURES,
+      enterpriseEnabled: false,
     })
     mockedApiGet.mockImplementation((url: string) => {
       if (url.startsWith('/agents')) return Promise.resolve({ agents: [] })
@@ -74,15 +72,19 @@ describe('Sidebar', () => {
     })
   })
 
-  it('renders all navigation items when all features enabled (groups expanded)', async () => {
+  it('renders Core navigation items by default with zero Enterprise or consumer SaaS bloat', async () => {
     renderSidebar()
-    // Ensure all groups are expanded (only expand if currently collapsed)
     expandAllGroups()
 
-    const navLabels = ['Home', 'Tasks', 'Specs', 'Agents', 'Calendar', 'Gmail', 'Settings']
+    const navLabels = ['Home', 'Specs', 'Tasks', 'Agents', 'Recall', 'Projects', 'The Arcade', 'Activity', 'Usage', 'Settings']
     for (const label of navLabels) {
       expect(screen.getByText(label)).toBeInTheDocument()
     }
+    for (const removed of ['Gmail', 'Calendar', 'Drive', 'Messages', 'Gems', 'GitHub', 'Portfolio', 'Jira', 'Confluence', 'Slack']) {
+      expect(screen.queryByText(removed)).not.toBeInTheDocument()
+    }
+    const gmailCalls = mockedApiGet.mock.calls.filter(([url]) => String(url).includes('/gmail/auth/status'))
+    expect(gmailCalls).toHaveLength(0)
   })
 
   it('Activity is in the sidebar bottom cluster, pointing to /activity', () => {
@@ -169,11 +171,12 @@ describe('Sidebar', () => {
 
     const expectedPaths: Record<string, string> = {
       Home: '/',
-      Tasks: '/tasks',
       Specs: '/specs',
+      Tasks: '/tasks',
       Agents: '/agents',
-      Calendar: '/calendar',
-      Gmail: '/gmail',
+      Recall: '/transcripts',
+      Projects: '/projects',
+      'The Arcade': '/break',
       Settings: '/settings',
     }
 
@@ -712,6 +715,7 @@ describe('Sidebar grouped nav', () => {
     useAppStore.setState({
       osName: 'yourOS',
       features: DEFAULT_FEATURES,
+      enterpriseEnabled: false,
     })
     mockedApiGet.mockImplementation((url: string) => {
       if (url.startsWith('/agents')) return Promise.resolve({ agents: [] })
@@ -727,27 +731,20 @@ describe('Sidebar grouped nav', () => {
   })
 
   it('collapsed Integrations group shows only its header, not sub-items', () => {
-    // Default state: no saved collapsed state, groups start in default (not collapsed = open)
-    // Force collapsed via localStorage before render
     localStorage.setItem('sidebar-group-collapsed', JSON.stringify({ integrations: true }))
     renderSidebar()
 
-    // Header should be visible
     expect(screen.getByTestId('group-header-integrations')).toBeInTheDocument()
-    // Items container should NOT be in the DOM
     expect(screen.queryByTestId('group-items-integrations')).not.toBeInTheDocument()
-    // Gmail link should not appear
-    expect(screen.queryByText('Gmail')).not.toBeInTheDocument()
+    expect(screen.queryByText('Projects')).not.toBeInTheDocument()
   })
 
   it('collapses the Integrations group by default on a brand-new first run (no saved state)', () => {
-    // Brand-new user: no saved collapsed state. The busy integrations group
-    // should start tidied away so the first screen is calm (G4).
     localStorage.removeItem('sidebar-group-collapsed')
     renderSidebar('/')
     expect(screen.getByTestId('group-header-integrations')).toBeInTheDocument()
     expect(screen.queryByTestId('group-items-integrations')).not.toBeInTheDocument()
-    expect(screen.queryByText('Gmail')).not.toBeInTheDocument()
+    expect(screen.queryByText('Projects')).not.toBeInTheDocument()
   })
 
   it('persists the first-run collapsed default so later toggles stick', () => {
@@ -758,60 +755,52 @@ describe('Sidebar grouped nav', () => {
   })
 
   it('does NOT collapse Integrations when a returning user already has a saved expanded state', () => {
-    // Returning user explicitly expanded Integrations — their choice must win.
-    // The first-run default must NOT override saved state.
     localStorage.setItem('sidebar-group-collapsed', JSON.stringify({ integrations: false }))
     renderSidebar('/')
     expect(screen.getByTestId('group-items-integrations')).toBeInTheDocument()
-    expect(screen.getByText('Gmail')).toBeInTheDocument()
+    expect(screen.getByText('Projects')).toBeInTheDocument()
   })
 
-  it('expanded Integrations group shows all sub-items including Jira and Confluence', () => {
+  it('expanded Integrations group shows Projects in Core mode and Enterprise items when enterpriseEnabled=true', () => {
+    useAppStore.setState({ enterpriseEnabled: true })
     renderSidebar()
-    // Ensure integrations is expanded (click header to expand if collapsed)
     const header = screen.getByTestId('group-header-integrations')
-    // If items not present, expand
     if (!screen.queryByTestId('group-items-integrations')) {
       fireEvent.click(header)
     }
     const items = screen.getByTestId('group-items-integrations')
     expect(items).toBeInTheDocument()
-    expect(screen.getByText('Gems')).toBeInTheDocument()
-    expect(screen.getByText('Gmail')).toBeInTheDocument()
-    expect(screen.getByText('Calendar')).toBeInTheDocument()
-    expect(screen.getByText('Messages')).toBeInTheDocument()
+    expect(screen.getByText('Projects')).toBeInTheDocument()
     expect(screen.getByText('Slack')).toBeInTheDocument()
-    expect(screen.getByText('GitHub')).toBeInTheDocument()
     expect(screen.getByText('Jira')).toBeInTheDocument()
     expect(screen.getByText('Confluence')).toBeInTheDocument()
+    expect(screen.queryByText('Gems')).not.toBeInTheDocument()
+    expect(screen.queryByText('Gmail')).not.toBeInTheDocument()
+    expect(screen.queryByText('Calendar')).not.toBeInTheDocument()
+    expect(screen.queryByText('Messages')).not.toBeInTheDocument()
   })
 
   it('clicking a collapsed group header expands it and shows sub-items', () => {
     localStorage.setItem('sidebar-group-collapsed', JSON.stringify({ integrations: true }))
     renderSidebar()
 
-    // Start collapsed
     expect(screen.queryByTestId('group-items-integrations')).not.toBeInTheDocument()
 
-    // Click header to expand
     fireEvent.click(screen.getByTestId('group-header-integrations'))
 
-    // Items should now be visible
     expect(screen.getByTestId('group-items-integrations')).toBeInTheDocument()
-    expect(screen.getByText('Gmail')).toBeInTheDocument()
+    expect(screen.getByText('Projects')).toBeInTheDocument()
   })
 
   it('clicking an expanded group header collapses it and hides sub-items', () => {
     renderSidebar()
     const header = screen.getByTestId('group-header-integrations')
 
-    // Ensure expanded first
     if (!screen.queryByTestId('group-items-integrations')) {
       fireEvent.click(header)
     }
     expect(screen.getByTestId('group-items-integrations')).toBeInTheDocument()
 
-    // Click to collapse
     fireEvent.click(header)
     expect(screen.queryByTestId('group-items-integrations')).not.toBeInTheDocument()
   })
@@ -820,12 +809,10 @@ describe('Sidebar grouped nav', () => {
     renderSidebar()
     const header = screen.getByTestId('group-header-integrations')
 
-    // Expand first if needed
     if (!screen.queryByTestId('group-items-integrations')) {
       fireEvent.click(header)
     }
 
-    // Collapse
     fireEvent.click(header)
 
     const saved = JSON.parse(localStorage.getItem('sidebar-group-collapsed') ?? '{}')
@@ -836,7 +823,6 @@ describe('Sidebar grouped nav', () => {
     localStorage.setItem('sidebar-group-collapsed', JSON.stringify({ integrations: true }))
     renderSidebar()
 
-    // Click to expand
     fireEvent.click(screen.getByTestId('group-header-integrations'))
 
     const saved = JSON.parse(localStorage.getItem('sidebar-group-collapsed') ?? '{}')
@@ -844,39 +830,33 @@ describe('Sidebar grouped nav', () => {
   })
 
   it('active route group (Integrations) auto-expands on mount when collapsed in localStorage', () => {
-    // Store integrations as collapsed
     localStorage.setItem('sidebar-group-collapsed', JSON.stringify({ integrations: true }))
-    // Render with a route that belongs to integrations
-    renderSidebar('/gmail')
+    renderSidebar('/projects')
 
-    // Group items must be visible because /gmail belongs to integrations
     expect(screen.getByTestId('group-items-integrations')).toBeInTheDocument()
-    expect(screen.getByText('Gmail')).toBeInTheDocument()
+    expect(screen.getByText('Projects')).toBeInTheDocument()
   })
 
   it('Integrations group stays collapsed when navigating to a non-integrations route', () => {
     localStorage.setItem('sidebar-group-collapsed', JSON.stringify({ integrations: true }))
-    // Render at a top-level route (Home)
     renderSidebar('/')
 
     expect(screen.queryByTestId('group-items-integrations')).not.toBeInTheDocument()
   })
 
-  it('every route is reachable: all links present when all groups expanded', () => {
+  it('every Core route is reachable when all groups expanded', () => {
     renderSidebar()
-    // Ensure all groups are expanded (only expand if currently collapsed)
     expandAllGroups()
 
     const expectedLinks = [
       { label: 'Home', href: '/' },
-      { label: 'Tasks', href: '/tasks' },
       { label: 'Specs', href: '/specs' },
+      { label: 'Tasks', href: '/tasks' },
       { label: 'Agents', href: '/agents' },
-      { label: 'Gmail', href: '/gmail' },
-      { label: 'Calendar', href: '/calendar' },
-      { label: 'Messages', href: '/imessage' },
-      { label: 'Slack', href: '/slack' },
-      { label: 'GitHub', href: '/github' },
+      { label: 'Recall', href: '/transcripts' },
+      { label: 'Projects', href: '/projects' },
+      { label: 'The Arcade', href: '/break' },
+      { label: 'Activity', href: '/activity' },
       { label: 'Usage', href: '/costs' },
       { label: 'Settings', href: '/settings' },
     ]
@@ -887,7 +867,6 @@ describe('Sidebar grouped nav', () => {
       expect(link).toHaveAttribute('href', href)
     }
 
-    // Automations is no longer in the sidebar.
     expect(screen.queryByText('Automations')).not.toBeInTheDocument()
   })
 
@@ -929,22 +908,13 @@ describe('Sidebar grouped nav', () => {
     expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
-  it('Integrations group header shows rolled-up gmail badge when collapsed and gmail unread > 0', async () => {
-    mockedApiGet.mockImplementation((url: string) => {
-      if (url.startsWith('/agents')) return Promise.resolve({ active: [], agents: [] })
-      if (url === '/tasks/counts') return Promise.resolve({ open: 0 })
-      if (url === '/gmail/auth/status') return Promise.resolve({ authenticated: true, unread_count: 5 })
-      return Promise.resolve({})
-    })
-    localStorage.setItem('sidebar-group-collapsed', JSON.stringify({ integrations: true }))
+  it('does not poll /gmail/auth/status from Sidebar', async () => {
     renderSidebar()
-
-    // Wait for gmail badge to load
     await waitFor(() => {
-      const header = screen.getByTestId('group-header-integrations')
-      // Badge should appear inside the header
-      expect(header.textContent).toContain('5')
+      expect(mockedApiGet).toHaveBeenCalledWith('/tasks/counts')
     })
+    const gmailCalls = mockedApiGet.mock.calls.filter(([u]) => String(u).includes('/gmail/auth/status'))
+    expect(gmailCalls).toHaveLength(0)
   })
 
   it('ostk entry is hidden when power user mode is off', () => {
@@ -1401,7 +1371,7 @@ describe('Jira and Confluence sidebar entries', () => {
     vi.clearAllMocks()
     localStorage.clear()
     _resetSidebarBus()
-    useAppStore.setState({ osName: 'yourOS', features: DEFAULT_FEATURES })
+    useAppStore.setState({ osName: 'yourOS', features: DEFAULT_FEATURES, enterpriseEnabled: true })
     mockedApiGet.mockImplementation((url: string) => {
       if (url.startsWith('/agents')) return Promise.resolve({ agents: [] })
       if (url === '/tasks/counts') return Promise.resolve({ open: 0 })
@@ -1410,13 +1380,21 @@ describe('Jira and Confluence sidebar entries', () => {
     })
   })
 
-  it('Jira link renders in Integrations group', () => {
+  it('hides Jira and Confluence when enterpriseEnabled is false', () => {
+    useAppStore.setState({ enterpriseEnabled: false })
+    renderSidebar()
+    expandAllGroups()
+    expect(screen.queryByText('Jira')).not.toBeInTheDocument()
+    expect(screen.queryByText('Confluence')).not.toBeInTheDocument()
+  })
+
+  it('Jira link renders in Integrations group when enterpriseEnabled is true', () => {
     renderSidebar()
     expandAllGroups()
     expect(screen.getByText('Jira')).toBeInTheDocument()
   })
 
-  it('Confluence link renders in Integrations group', () => {
+  it('Confluence link renders in Integrations group when enterpriseEnabled is true', () => {
     renderSidebar()
     expandAllGroups()
     expect(screen.getByText('Confluence')).toBeInTheDocument()
@@ -1437,38 +1415,18 @@ describe('Jira and Confluence sidebar entries', () => {
   })
 })
 
-describe('Files and Drive sidebar entries', () => {
-  it('shows Projects entry in Integrations group', () => {
+describe('Projects and purged Bucket 4 sidebar entries', () => {
+  it('shows Projects entry in Integrations group and hides Files/Drive/Inbox', () => {
+    useAppStore.setState({ enterpriseEnabled: false })
     renderSidebar()
     expandAllGroups()
     expect(screen.getByText('Projects')).toBeInTheDocument()
     expect(screen.queryByText('Files')).not.toBeInTheDocument()
-  })
-
-  it('shows Drive entry in Files & Docs group', () => {
-    renderSidebar()
-    expandAllGroups()
-    expect(screen.getByText('Drive')).toBeInTheDocument()
-  })
-
-  it('Files entry links to /files', () => {
-    renderSidebar()
-    expandAllGroups()
+    expect(screen.queryByText('Drive')).not.toBeInTheDocument()
     const links = screen.getAllByRole('link')
-    expect(links.some((l) => l.getAttribute('href') === '/files')).toBe(true)
-  })
-
-  it('Drive entry links to /drive', () => {
-    renderSidebar()
-    expandAllGroups()
-    const links = screen.getAllByRole('link')
-    expect(links.some((l) => l.getAttribute('href') === '/drive')).toBe(true)
-  })
-
-  it('does not render Inbox in the nav', () => {
-    renderSidebar()
-    expandAllGroups()
-    const links = screen.getAllByRole('link')
+    expect(links.some((l) => l.getAttribute('href') === '/projects')).toBe(true)
+    expect(links.some((l) => l.getAttribute('href') === '/files')).toBe(false)
+    expect(links.some((l) => l.getAttribute('href') === '/drive')).toBe(false)
     expect(links.some((l) => l.getAttribute('href') === '/inbox')).toBe(false)
   })
 })
@@ -1567,33 +1525,19 @@ describe('nav rename and reorder', () => {
     expect(screen.getByText('Projects')).toBeInTheDocument()
   })
 
-  it('Projects nav link points to /files route', () => {
+  it('Projects nav link points to /projects route', () => {
     renderSidebar()
     expandAllGroups()
     const link = screen.getByText('Projects').closest('a')
-    expect(link).toHaveAttribute('href', '/files')
+    expect(link).toHaveAttribute('href', '/projects')
   })
 
-  it('"My Gems" label is not in the sidebar', () => {
+  it('Gems is completely purged from the sidebar', () => {
     renderSidebar()
     expandAllGroups()
     expect(screen.queryByText('My Gems')).not.toBeInTheDocument()
-  })
-
-  it('Gems is inside the Integrations group linking to /gems', () => {
-    renderSidebar()
-    expandAllGroups()
-    const link = screen.getByText('Gems').closest('a')
-    expect(link).toHaveAttribute('href', '/gems')
-    const integrationsGroup = screen.getByTestId('group-items-integrations')
-    expect(integrationsGroup.contains(link)).toBe(true)
-  })
-
-  it('Gems is NOT a direct top-level nav item (lives inside Integrations)', () => {
-    renderSidebar()
-    const primaryNav = screen.getByTestId('primary-nav')
-    const directLinks = Array.from(primaryNav.querySelectorAll(':scope > a'))
-    expect(directLinks.some((l) => l.getAttribute('href') === '/gems')).toBe(false)
+    expect(screen.queryByText('Gems')).not.toBeInTheDocument()
+    expect(document.querySelector('a[href="/gems"]')).toBeNull()
   })
 
   it('Home is the first link in the primary nav', () => {
@@ -1603,18 +1547,21 @@ describe('nav rename and reorder', () => {
     expect(directLinks[0]?.getAttribute('href')).toBe('/')
   })
 
-  it('Tasks and Specs appear before Agents in the nav', () => {
+  it('Tasks and Specs appear before Agents in the nav, followed by Recall', () => {
     renderSidebar()
     const primaryNav = screen.getByTestId('primary-nav')
     const allLinks = Array.from(primaryNav.querySelectorAll('a'))
     const tasksIdx = allLinks.findIndex((l) => l.getAttribute('href') === '/tasks')
     const specsIdx = allLinks.findIndex((l) => l.getAttribute('href') === '/specs')
     const agentsIdx = allLinks.findIndex((l) => l.getAttribute('href') === '/agents')
+    const recallIdx = allLinks.findIndex((l) => l.getAttribute('href') === '/transcripts')
     expect(tasksIdx).toBeGreaterThan(-1)
     expect(specsIdx).toBeGreaterThan(-1)
     expect(agentsIdx).toBeGreaterThan(-1)
+    expect(recallIdx).toBeGreaterThan(-1)
+    expect(specsIdx).toBeLessThan(tasksIdx)
     expect(tasksIdx).toBeLessThan(agentsIdx)
-    expect(specsIdx).toBeLessThan(agentsIdx)
+    expect(agentsIdx).toBeLessThan(recallIdx)
   })
 
   describe('hide nav items from the sidebar (→2883)', () => {
@@ -1631,7 +1578,7 @@ describe('nav rename and reorder', () => {
       renderSidebar()
       expandAllGroups()
       expect(screen.getByLabelText('Hide Tasks from the sidebar')).toBeTruthy()
-      expect(screen.getByLabelText('Hide Messages from the sidebar')).toBeTruthy()
+      expect(screen.getByLabelText('Hide Projects from the sidebar')).toBeTruthy()
       expect(screen.getByLabelText('Hide Usage from the sidebar')).toBeTruthy()
       expect(screen.getByLabelText('Hide The Arcade from the sidebar')).toBeTruthy()
       expect(screen.queryByLabelText('Hide Home from the sidebar')).toBeNull()
@@ -1640,14 +1587,14 @@ describe('nav rename and reorder', () => {
     it('clicking the hide button removes the item and saves the change to the server', async () => {
       renderSidebar()
       expandAllGroups()
-      fireEvent.click(screen.getByLabelText('Hide Messages from the sidebar'))
+      fireEvent.click(screen.getByLabelText('Hide Projects from the sidebar'))
       await waitFor(() => {
-        expect(screen.queryByText('Messages')).toBeNull()
+        expect(screen.queryByText('Projects')).toBeNull()
       })
       expect(api.patch).toHaveBeenCalledWith(
         '/settings',
         expect.objectContaining({
-          features: expect.objectContaining({ iMessage: false }),
+          features: expect.objectContaining({ Projects: false }),
         }),
       )
     })
@@ -1667,10 +1614,8 @@ describe('nav rename and reorder', () => {
       expect(homeLink.className).toContain('accent-highlight')
     })
 
-    it('hiding Portfolio works even though the feature list has no Portfolio entry (→2885)', async () => {
-      // The user's exact bug: DEFAULT_FEATURES above deliberately lacks
-      // 'Portfolio', mirroring the shipped defaults before the fix. Hiding
-      // it must append an entry, remove the link, and save the change.
+    it('hiding Portfolio works when enterpriseEnabled is true even if feature list lacks Portfolio (→2885)', async () => {
+      useAppStore.setState({ enterpriseEnabled: true })
       renderSidebar()
       expect(document.querySelector('a[href="/portfolio"]')).not.toBeNull()
       fireEvent.click(screen.getByLabelText('Hide Portfolio from the sidebar'))
@@ -1766,6 +1711,7 @@ describe('bring hidden nav items back from the sidebar (→2886)', () => {
 
   it('hiding an item shows a collapsed Hidden items row with the count', () => {
     useAppStore.setState({
+      enterpriseEnabled: true,
       features: [...DEFAULT_FEATURES, { label: 'Portfolio', enabled: false }],
     })
     renderSidebar()
@@ -1776,8 +1722,9 @@ describe('bring hidden nav items back from the sidebar (→2886)', () => {
 
   it('expanding the row lists each hidden item by its visible label', () => {
     useAppStore.setState({
+      enterpriseEnabled: true,
       features: DEFAULT_FEATURES.map((f) =>
-        f.label === 'Gmail' ? { ...f, enabled: false } : f,
+        f.label === 'Projects' ? { ...f, enabled: false } : f,
       ).concat([{ label: 'Portfolio', enabled: false }]),
     })
     renderSidebar()
@@ -1786,11 +1733,12 @@ describe('bring hidden nav items back from the sidebar (→2886)', () => {
     fireEvent.click(toggle)
     const list = screen.getByTestId('hidden-items-list')
     expect(within(list).getByTestId('restore-Portfolio').textContent).toContain('Portfolio')
-    expect(within(list).getByTestId('restore-Gmail').textContent).toContain('Gmail')
+    expect(within(list).getByTestId('restore-Projects').textContent).toContain('Projects')
   })
 
   it('clicking a hidden item turns it back on and saves the change', async () => {
     useAppStore.setState({
+      enterpriseEnabled: true,
       features: [...DEFAULT_FEATURES, { label: 'Portfolio', enabled: false }],
     })
     renderSidebar()

@@ -15,6 +15,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
+pytestmark = pytest.mark.enterprise
+
 from services import atlassian as atlassian_service
 from services.oauth_state import oauth_states
 

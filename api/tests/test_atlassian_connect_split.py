@@ -1,5 +1,7 @@
 """Tests for split jira_site/confluence_site in POST /atlassian/connect."""
 import pytest
+
+pytestmark = pytest.mark.enterprise
 from unittest.mock import AsyncMock, patch
 
 

@@ -192,3 +192,22 @@ class SettingsStore:
 
 
 settings_store = SettingsStore()
+
+
+def is_enterprise_enabled() -> bool:
+    """Return True when the opt-in Enterprise/Work Extension is enabled.
+
+    Checks ``YOUROS_ENTERPRISE_ENABLED`` first so CI and tests can toggle
+    the extension deterministically without mutating settings on disk.
+    """
+    env_override = os.environ.get("YOUROS_ENTERPRISE_ENABLED")
+    if env_override is not None:
+        normalized = env_override.strip().lower()
+        if normalized in ("1", "true", "yes", "on"):
+            return True
+        if normalized in ("0", "false", "no", "off"):
+            return False
+    try:
+        return bool(settings_store.get("enterprise_enabled", False))
+    except Exception:
+        return False

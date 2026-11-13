@@ -19,12 +19,12 @@ import { renderMarkdown } from '../lib/markdown';
 import {
   useAppStore,
   DASHBOARD_WIDGET_LABELS,
+  ENTERPRISE_DASHBOARD_WIDGETS,
   widgetDefaultSize,
   type DashboardWidgetSize,
 } from '../stores/app';
 import { useDashboardStore } from '../stores/dashboardStore';
 import { useDashboardFeed } from '../hooks/useDashboardFeed';
-import { ADVENTURE_DISMISSED_KEY, pickTryNowSuggestion, type AdventureTemplate, type TryNowSuggestion } from '../lib/adventures';
 import { ClampedDescription } from '../components/ClampedDescription';
 import CalendarGridWidget from '../components/CalendarGridWidget';
 
@@ -182,8 +182,7 @@ export default function Dashboard() {
   useDashboardFeed();
   const navigate = useNavigate();
   const toggleChat = useAppStore((s) => s.toggleChat);
-  const setChatPrefill = useAppStore((s) => s.setChatPrefill);
-  const setChatOpen = useAppStore((s) => s.setChatOpen);
+  const enterpriseEnabled = useAppStore((s) => s.enterpriseEnabled);
   const liveAgentsCount = useDashboardStore((s) => s.agentsCount);
   const liveTasksCount = useDashboardStore((s) => s.tasksCount);
   const displayOsName = useAppStore((s) => s.displayOsName());
@@ -223,19 +222,6 @@ export default function Dashboard() {
   const [quickAddTaskOpen, setQuickAddTaskOpen] = useState(false);
   const [quickSpawnOpen, setQuickSpawnOpen] = useState(false);
   const [customizeOpen, setCustomizeOpen] = useState(false);
-
-  // Adventure card state
-  const [adventureTemplates, setAdventureTemplates] = useState<AdventureTemplate[]>([]);
-  const [adventureDismissed, setAdventureDismissed] = useState(() =>
-    typeof window !== 'undefined' && localStorage.getItem(ADVENTURE_DISMISSED_KEY) === 'true'
-  );
-  const [adventureSelected, setAdventureSelected] = useState<AdventureTemplate | null>(null);
-  const [adventureDescription, setAdventureDescription] = useState('');
-  const [adventureLoading, setAdventureLoading] = useState(false);
-  const [adventureSpawned, setAdventureSpawned] = useState(false);
-  // →2920: "One thing to try right now" suggestion, moved here from the
-  // onboarding wizard. Null until the connection checks resolve.
-  const [tryNow, setTryNow] = useState<TryNowSuggestion | null>(null);
 
 
   const fetchSummary = useCallback(async () => {
@@ -284,6 +270,13 @@ export default function Dashboard() {
   // day/week/month through end of the window). No hard cap — the
   // grid views manage their own display limits.
   const fetchCalendarEvents = useCallback(async (range: CalendarRange) => {
+    const authStatus = await api
+      .get<{ authenticated?: boolean }>('/calendar/auth/status')
+      .catch(() => ({ authenticated: true }));
+    if (authStatus && authStatus.authenticated === false) {
+      setCalendarEvents([]);
+      return;
+    }
     const days = CALENDAR_RANGE_DAYS[range];
     const path = days === 7 ? '/calendar/events' : `/calendar/events?days=${days}`;
     let res: { events: CalendarEvent[] } | null = null;
@@ -334,11 +327,13 @@ export default function Dashboard() {
     setCalendarEvents(filtered);
   }, []);
 
+  const hasNextMeetingWidget = dashboardWidgets.includes('next_meeting');
   useEffect(() => {
+    if (!hasNextMeetingWidget) return;
     fetchCalendarEvents(calendarRange);
     const interval = setInterval(() => fetchCalendarEvents(calendarRange), 60000);
     return () => clearInterval(interval);
-  }, [fetchCalendarEvents, calendarRange]);
+  }, [fetchCalendarEvents, calendarRange, hasNextMeetingWidget]);
 
 
   useEffect(() => {
@@ -418,57 +413,6 @@ export default function Dashboard() {
     }
     return () => { if (pollTimer) clearTimeout(pollTimer); };
   }, []);
-
-  // Load adventure templates once (only if the card is not dismissed)
-  useEffect(() => {
-    if (adventureDismissed) return;
-    api.get<{ adventures: AdventureTemplate[] }>('/adventures/templates')
-      .then((data) => setAdventureTemplates(data.adventures || []))
-      .catch(() => {});
-  }, [adventureDismissed]);
-
-  // →2920: pick the try-right-now suggestion from what's connected. A
-  // failed check counts as not connected, so the card still shows the
-  // default suggestion when the backend is unreachable.
-  useEffect(() => {
-    if (adventureDismissed) return;
-    Promise.all([
-      api.get<{ google_connected?: boolean }>('/secrets/key-status').catch(() => ({}) as { google_connected?: boolean }),
-      api.get<{ connected?: boolean }>('/atlassian/status').catch(() => ({}) as { connected?: boolean }),
-    ]).then(([keyStatus, atlStatus]) => {
-      setTryNow(pickTryNowSuggestion(keyStatus.google_connected ?? false, atlStatus.connected ?? false));
-    });
-  }, [adventureDismissed]);
-
-
-  const handleDismissAdventure = () => {
-    localStorage.setItem(ADVENTURE_DISMISSED_KEY, 'true');
-    setAdventureDismissed(true);
-  };
-
-  // →2920: clicking the try-right-now suggestion pre-fills the chat input
-  // and opens the chat panel (same mechanism the wizard's card used).
-  const handleTryNow = () => {
-    if (!tryNow) return;
-    setChatPrefill(tryNow.prompt);
-    setChatOpen(true);
-  };
-
-  const handleSpawnAdventure = async () => {
-    if (!adventureSelected && !adventureDescription.trim()) return;
-    setAdventureLoading(true);
-    try {
-      const payload = adventureSelected
-        ? { adventure_id: adventureSelected.id, description: adventureDescription || adventureSelected.tagline }
-        : { adventure_id: 'custom', description: adventureDescription };
-      await api.post('/adventures/start', payload);
-      setAdventureSpawned(true);
-    } catch {
-      // silently ignore
-    } finally {
-      setAdventureLoading(false);
-    }
-  };
 
   const handleDismissBriefing = () => {
     api.post('/briefing/dismiss', {}).catch(() => {});
@@ -663,7 +607,9 @@ export default function Dashboard() {
                           key={i}
                           onClick={() => {
                             const url = item.action_url;
-                            if (url.startsWith('/api/')) {
+                            if (url.startsWith('http://') || url.startsWith('https://')) {
+                              window.open(url, '_blank', 'noopener,noreferrer');
+                            } else if (url.startsWith('/api/')) {
                               // API action: navigate to the task/resource view
                               navigate(url.replace('/api/tasks/', '/tasks?focus='));
                             } else {
@@ -957,7 +903,12 @@ export default function Dashboard() {
 
     return (
       <div key="next_meeting" data-testid="widget-next-meeting">
-        <Card hover padding="sm" className="sm:p-6" onClick={() => navigate('/calendar')}>
+        <Card
+          hover
+          padding="sm"
+          className="sm:p-6"
+          onClick={() => window.open('https://calendar.google.com', '_blank', 'noopener,noreferrer')}
+        >
           {header}
           <CalendarGridWidget
             events={events}
@@ -965,95 +916,6 @@ export default function Dashboard() {
             loading={calendarEvents === undefined}
           />
         </Card>
-      </div>
-    );
-  };
-
-  const renderAdventure = () => {
-    if (adventureDismissed) return null;
-    return (
-      <div key="adventure" data-testid="widget-adventure">
-      <Card hover padding="sm" className="sm:p-6">
-        <div className="flex items-start gap-4 mb-4 pr-8">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-indigo-500/20 flex items-center justify-center shrink-0">
-              <Icon name="rocket_launch" className="text-indigo-600 dark:text-indigo-400" size={20} />
-            </div>
-            <div>
-              <p className="text-xs font-medium text-indigo-600 dark:text-indigo-400 uppercase tracking-wide mb-0.5">Try an Adventure</p>
-              <p className="font-semibold">Pick something to get started on</p>
-            </div>
-          </div>
-        </div>
-
-        {adventureSpawned ? (
-          <div data-testid="adventure-spawned-banner" className="flex items-center gap-2 px-4 py-3 bg-green-500/10 border border-green-500/30 rounded-lg text-sm text-green-700 dark:text-green-300">
-            <Icon name="check_circle" size={16} />
-            <span>Agent started.</span>
-            <button
-              onClick={() => navigate('/agents')}
-              className="ml-1 underline hover:text-green-200 transition-colors"
-              data-testid="adventure-agents-link"
-            >
-              See the Agents page
-            </button>
-          </div>
-        ) : (
-          <>
-            {tryNow && (
-              <div className="mb-4" data-testid="adventure-try-now">
-                <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5">One thing to try right now</p>
-                <button
-                  onClick={handleTryNow}
-                  data-testid="adventure-try-now-btn"
-                  className="w-full text-left p-3 rounded-lg border border-indigo-300 dark:border-indigo-700 bg-indigo-500/5 hover:bg-indigo-500/10 transition-colors"
-                >
-                  <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{tryNow.label}</p>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">{tryNow.description}</p>
-                  <p className="text-xs text-indigo-600 dark:text-indigo-400 italic" data-testid="adventure-try-now-text">&ldquo;{tryNow.prompt}&rdquo;</p>
-                </button>
-              </div>
-            )}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4" data-testid="adventure-cards">
-              {adventureTemplates.map((adv) => (
-                <button
-                  key={adv.id}
-                  onClick={() => setAdventureSelected(adventureSelected?.id === adv.id ? null : adv)}
-                  data-testid={`adventure-card-${adv.id}`}
-                  className={`text-left p-3 rounded-lg border transition-colors ${
-                    adventureSelected?.id === adv.id
-                      ? 'border-indigo-500 bg-indigo-500/10'
-                      : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900/50 hover:border-slate-600'
-                  }`}
-                >
-                  <Icon name={adv.icon} size={16} className="text-indigo-600 dark:text-indigo-400 mb-1" />
-                  <p className="text-xs font-medium text-slate-800 dark:text-slate-200 leading-snug">{adv.title}</p>
-                </button>
-              ))}
-            </div>
-
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={adventureDescription}
-                onChange={(e) => setAdventureDescription(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter' && !adventureLoading) handleSpawnAdventure(); }}
-                placeholder={adventureSelected ? adventureSelected.placeholder : 'Describe what you want to do...'}
-                data-testid="adventure-description-input"
-                className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-900 dark:text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition-colors"
-              />
-              <button
-                onClick={handleSpawnAdventure}
-                disabled={!adventureSelected && !adventureDescription.trim() || adventureLoading}
-                data-testid="adventure-spawn-button"
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-600/40 disabled:cursor-not-allowed rounded-lg text-sm font-medium text-white transition-colors whitespace-nowrap"
-              >
-                {adventureLoading ? 'Starting...' : 'Spawn agent'}
-              </button>
-            </div>
-          </>
-        )}
-      </Card>
       </div>
     );
   };
@@ -1096,7 +958,6 @@ export default function Dashboard() {
   const widgetRenderers: Record<string, () => ReactNode> = {
     briefing: renderBriefing,
     focus_first: renderFocusFirst,
-    adventure: renderAdventure,
     todays_focus: renderTodaysFocus,
     quick_launch: renderQuickLaunch,
     next_meeting: renderNextMeeting,
@@ -1131,6 +992,7 @@ export default function Dashboard() {
   });
   const visibleGridCards = dashboardWidgets.filter((id) => {
     if (bannerIds.has(id) || !widgetRenderers[id]) return false;
+    if (!enterpriseEnabled && ENTERPRISE_DASHBOARD_WIDGETS.has(id)) return false;
     if (focusCount >= focusLimit) return false;
     focusCount++;
     return true;
@@ -1245,16 +1107,6 @@ export default function Dashboard() {
                 </button>
                 {widgetMenuOpen === id && (
                   <div className="absolute right-0 mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg py-1 z-10 min-w-[140px]">
-                    {id === 'adventure' && (
-                      <button
-                        onClick={() => { handleDismissAdventure(); setWidgetMenuOpen(null); }}
-                        data-testid="widget-menu-adventure-dismiss"
-                        className="w-full text-left px-3 py-1.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors flex items-center gap-2"
-                      >
-                        <Icon name="close" size={14} />
-                        Dismiss
-                      </button>
-                    )}
                     {id === 'todays_focus' && (
                       <button
                         onClick={() => { fetchSummary(); setWidgetMenuOpen(null); }}

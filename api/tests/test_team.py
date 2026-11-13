@@ -6,6 +6,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+
+pytestmark = pytest.mark.enterprise
 from fastapi.testclient import TestClient
 
 import main

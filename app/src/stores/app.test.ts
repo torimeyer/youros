@@ -775,7 +775,7 @@ describe('useAppStore — team mode gate (TEAM_MODE_VISIBLE=false)', () => {
   it('enterprise auto-migration does not switch to team when TEAM_MODE_VISIBLE=false', async () => {
     useAppStore.setState({ instanceMode: 'personal' })
     vi.mocked(api.get)
-      .mockResolvedValueOnce({ onboarded: true })  // /settings
+      .mockResolvedValueOnce({ onboarded: true, enterprise_enabled: true })  // /settings
       .mockResolvedValueOnce({ authenticated: true, enterprise: true, email: 'a@b.com', role: 'member' })  // /enterprise/me
       .mockResolvedValueOnce({ org: { name: 'Acme' } })  // /enterprise
     await useAppStore.getState().hydrateFromServer()
@@ -787,7 +787,7 @@ describe('useAppStore — team mode gate (TEAM_MODE_VISIBLE=false)', () => {
     const enterprisePromise = new Promise((res) => { resolveEnterprise = res })
 
     vi.mocked(api.get)
-      .mockResolvedValueOnce({ onboarded: true })  // /settings — resolves immediately
+      .mockResolvedValueOnce({ onboarded: true, enterprise_enabled: true })  // /settings — resolves immediately
       .mockResolvedValueOnce({ authenticated: true, enterprise: true, email: 'a@b.com', role: 'member' })  // /enterprise/me — resolves immediately
       .mockReturnValueOnce(enterprisePromise as Promise<unknown>)  // /enterprise — deferred
 
@@ -817,7 +817,7 @@ describe('useAppStore — team mode gate (TEAM_MODE_VISIBLE=false)', () => {
   it('enterprise/me timeout leaves hydrated=true and enterpriseUser=null', async () => {
     const enterpriseError = Object.assign(new Error('timeout'), { name: 'AbortError' })
     vi.mocked(api.get)
-      .mockResolvedValueOnce({ onboarded: true })  // /settings
+      .mockResolvedValueOnce({ onboarded: true, enterprise_enabled: true })  // /settings
       .mockRejectedValueOnce(enterpriseError)       // /enterprise/me
 
     await useAppStore.getState().hydrateFromServer()
@@ -836,9 +836,9 @@ describe('useAppStore — team mode gate (TEAM_MODE_VISIBLE=false)', () => {
     )
   })
 
-  it('enterprise/me fetch is called with HYDRATION_ENTERPRISE_TIMEOUT_MS option', async () => {
+  it('enterprise/me fetch is called with HYDRATION_ENTERPRISE_TIMEOUT_MS option when enterprise_enabled is true', async () => {
     vi.mocked(api.get)
-      .mockResolvedValueOnce({ onboarded: true })  // /settings
+      .mockResolvedValueOnce({ onboarded: true, enterprise_enabled: true })  // /settings
       .mockResolvedValueOnce({ authenticated: true, enterprise: true, email: 'a@b.com', role: 'member' })  // /enterprise/me
       .mockResolvedValueOnce({ org: {} })  // /enterprise
 
@@ -848,6 +848,13 @@ describe('useAppStore — team mode gate (TEAM_MODE_VISIBLE=false)', () => {
       '/enterprise/me',
       expect.objectContaining({ timeoutMs: HYDRATION_ENTERPRISE_TIMEOUT_MS }),
     )
+  })
+
+  it('skips /enterprise/me fetch completely in Core mode when enterprise_enabled is false', async () => {
+    vi.mocked(api.get).mockResolvedValueOnce({ onboarded: true, enterprise_enabled: false })
+    await useAppStore.getState().hydrateFromServer()
+    const calledUrls = vi.mocked(api.get).mock.calls.map((c) => c[0])
+    expect(calledUrls).not.toContain('/enterprise/me')
   })
 })
 
@@ -1054,9 +1061,8 @@ describe('dashboard widget widths (→2921)', () => {
     try { localStorage.clear() } catch { /* noop */ }
   })
 
-  it('next_meeting and adventure default to full width, everything else to half', () => {
+  it('next_meeting defaults to full width, everything else to half', () => {
     expect(widgetDefaultSize('next_meeting')).toBe('full')
-    expect(widgetDefaultSize('adventure')).toBe('full')
     expect(widgetDefaultSize('todays_focus')).toBe('half')
     expect(widgetDefaultSize('quick_launch')).toBe('half')
     expect(widgetDefaultSize('some_future_widget')).toBe('half')
@@ -1109,13 +1115,10 @@ describe('dashboard widget widths (→2921)', () => {
 describe('feature toggle defaults cover the whole sidebar (→2885)', () => {
   it('every nav item that can be hidden has a default entry, switched on', () => {
     const labels = DEFAULT_FEATURE_TOGGLES.map((f) => f.label)
-    // Every featureLabel used by a sidebar nav item in Sidebar.tsx. A nav
-    // item whose label is missing here cannot be hidden: hideFeature used
-    // to map over the list and change nothing (→2885).
     const navFeatureLabels = [
-      'Tasks', 'Specs', 'Executive Summary', 'Portfolio', 'Agents',
-      'Gems', 'Projects', 'ostk', 'Drive', 'Gmail', 'Calendar',
-      'iMessage', 'Slack', 'GitHub', 'Jira', 'Confluence',
+      'Tasks', 'Specs', 'Agents', 'Recall',
+      'Executive Summary', 'Portfolio',
+      'ostk', 'Slack', 'Jira', 'Confluence',
       'Cost Tracking', 'The Arcade', 'Activity',
     ]
     for (const label of navFeatureLabels) {
@@ -1127,5 +1130,36 @@ describe('feature toggle defaults cover the whole sidebar (→2885)', () => {
   it('has no duplicate labels', () => {
     const labels = DEFAULT_FEATURE_TOGGLES.map((f) => f.label)
     expect(new Set(labels).size).toBe(labels.length)
+  })
+})
+
+describe('enterpriseEnabled store flag (Phase 1)', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    vi.clearAllMocks()
+    useAppStore.setState({ enterpriseEnabled: false } as never)
+  })
+
+  it('defaults enterpriseEnabled to false', () => {
+    expect((useAppStore.getState() as unknown as { enterpriseEnabled: boolean }).enterpriseEnabled).toBe(false)
+  })
+
+  it('setEnterpriseEnabled updates state, localStorage, and patches /settings', () => {
+    const store = useAppStore.getState() as unknown as {
+      setEnterpriseEnabled: (v: boolean) => void
+    }
+    store.setEnterpriseEnabled(true)
+    expect((useAppStore.getState() as unknown as { enterpriseEnabled: boolean }).enterpriseEnabled).toBe(true)
+    expect(localStorage.getItem('myos-enterprise-enabled')).toBe('true')
+    expect(api.patch).toHaveBeenCalledWith('/settings', { enterprise_enabled: true })
+  })
+
+  it('hydrateFromServer loads enterprise_enabled from /settings', async () => {
+    vi.mocked(api.get).mockResolvedValueOnce({
+      onboarded: true,
+      enterprise_enabled: true,
+    })
+    await useAppStore.getState().hydrateFromServer()
+    expect((useAppStore.getState() as unknown as { enterpriseEnabled: boolean }).enterpriseEnabled).toBe(true)
   })
 })

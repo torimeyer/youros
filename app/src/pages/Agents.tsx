@@ -4999,7 +4999,13 @@ export default function Agents() {
                                 return (
                                   <button
                                     key={artifactPath}
-                                    onClick={() => navigate('/files?path=' + encodeURIComponent(artifactPath))}
+                                    onClick={() =>
+                                      navigate(
+                                        artifactPath.includes('docs/spec/')
+                                          ? '/specs?focus=' + encodeURIComponent(artifactPath)
+                                          : '/projects',
+                                      )
+                                    }
                                     className="self-start text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 underline transition-colors text-left"
                                     title={artifactPath}
                                   >
@@ -5031,7 +5037,13 @@ export default function Agents() {
                               onNavigateToChat={() => navigate('/')}
                             />
                             <button
-                              onClick={() => navigate('/files' + (roadmapFilePath ? '?path=' + encodeURIComponent(roadmapFilePath) : ''))}
+                              onClick={() =>
+                                navigate(
+                                  roadmapFilePath && roadmapFilePath.includes('docs/spec/')
+                                    ? '/specs?focus=' + encodeURIComponent(roadmapFilePath)
+                                    : '/projects',
+                                )
+                              }
                               className="self-start text-xs text-blue-500 hover:text-blue-400 underline"
                             >
                               Open roadmap file

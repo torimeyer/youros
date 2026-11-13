@@ -12,6 +12,8 @@ Covers:
 
 import time
 import pytest
+
+pytestmark = pytest.mark.enterprise
 import httpx
 from unittest.mock import AsyncMock, MagicMock, patch
 

@@ -10,6 +10,8 @@ from unittest.mock import patch
 
 import pytest
 
+pytestmark = pytest.mark.enterprise
+
 
 # ---------------------------------------------------------------------------
 # Helpers

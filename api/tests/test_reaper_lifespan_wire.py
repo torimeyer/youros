@@ -65,7 +65,6 @@ _LIFESPAN_STARTUP_NOOPS = [
     "main.schedule_upgrade_check",
     "main.schedule_label_backfill",
     "main.schedule_settings_sync_pull",
-    "main.schedule_gmail_unread_notification",
     "main.schedule_overdue_task_check",
     "main.prewarm_claude_cli",
     "main.pregenerate_briefing",

@@ -1242,11 +1242,21 @@ print(s.get('features',{}).get('Specs', True))
         else
             phase_fail "journey: Drive auth status unexpected ($drive_auth)"
         fi
-        atlassian_auth=$(curl -sS $CURL_OPTS "${API_BASE}/api/atlassian/status" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('connected','missing'))" 2>/dev/null)
-        if [ "$atlassian_auth" = "True" ] || [ "$atlassian_auth" = "False" ]; then
-            phase_pass "journey: Atlassian auth status returns boolean"
+        settings_ent_enabled=$(curl -sS $CURL_OPTS "${API_BASE}/api/settings" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('enterprise_enabled', False))" 2>/dev/null)
+        if [ "$settings_ent_enabled" = "True" ]; then
+            atlassian_auth=$(curl -sS $CURL_OPTS "${API_BASE}/api/atlassian/status" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('connected','missing'))" 2>/dev/null)
+            if [ "$atlassian_auth" = "True" ] || [ "$atlassian_auth" = "False" ]; then
+                phase_pass "journey: Atlassian auth status returns boolean"
+            else
+                phase_fail "journey: Atlassian auth status unexpected ($atlassian_auth)"
+            fi
         else
-            phase_fail "journey: Atlassian auth status unexpected ($atlassian_auth)"
+            atlassian_code=$(curl -sS $CURL_OPTS -o /dev/null -w "%{http_code}" "${API_BASE}/api/atlassian/status" 2>/dev/null)
+            if [ "$atlassian_code" = "404" ]; then
+                phase_pass "journey: Atlassian status gated (404) when enterprise_enabled=false"
+            else
+                phase_fail "journey: expected /api/atlassian/status 404 when enterprise_enabled=false, got $atlassian_code"
+            fi
         fi
         github_auth=$(curl -sS $CURL_OPTS "${API_BASE}/api/github/status" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('connected','missing'))" 2>/dev/null)
         if [ "$github_auth" = "True" ] || [ "$github_auth" = "False" ]; then
@@ -1347,26 +1357,35 @@ print(d.get('id', d.get('rule_id', d.get('rule',{}).get('id',''))))
         fi
         check_http_json "journey: list recurring rules"             "/api/recurring"             ""
 
-        # --- Journey: Shares CRUD ---
-        share_resp=$(curl -sS $CURL_OPTS -X POST "${API_BASE}/api/shares" \
-            -H 'content-type: application/json' \
-            -d '{"share_type":"task_list","content_ids":["e2e-fake-id"],"title":"e2e share test"}' 2>/dev/null)
-        share_token=$(echo "$share_resp" | python3 -c "
+        # --- Journey: Shares CRUD (gated on enterprise_enabled) ---
+        if [ "$settings_ent_enabled" = "True" ]; then
+            share_resp=$(curl -sS $CURL_OPTS -X POST "${API_BASE}/api/shares" \
+                -H 'content-type: application/json' \
+                -d '{"share_type":"task_list","content_ids":["e2e-fake-id"],"title":"e2e share test"}' 2>/dev/null)
+            share_token=$(echo "$share_resp" | python3 -c "
 import sys,json
 d=json.load(sys.stdin)
 print(d.get('token', d.get('share',{}).get('token','')))
 " 2>/dev/null || true)
-        if [ -n "$share_token" ] && [ "$share_token" != "None" ] && [ "$share_token" != "" ]; then
-            phase_pass "journey: create share link"
-            curl -sS $CURL_OPTS -X DELETE "${API_BASE}/api/shares/${share_token}" > /dev/null 2>&1
-        else
-            if echo "$share_resp" | grep -q '"token"\|"result"'; then
-                phase_pass "journey: create share link (response ok)"
+            if [ -n "$share_token" ] && [ "$share_token" != "None" ] && [ "$share_token" != "" ]; then
+                phase_pass "journey: create share link"
+                curl -sS $CURL_OPTS -X DELETE "${API_BASE}/api/shares/${share_token}" > /dev/null 2>&1
             else
-                phase_fail "journey: create share link failed (body: $share_resp)"
+                if echo "$share_resp" | grep -q '"token"\|"result"'; then
+                    phase_pass "journey: create share link (response ok)"
+                else
+                    phase_fail "journey: create share link failed (body: $share_resp)"
+                fi
+            fi
+            check_http_json "journey: list shares"                      "/api/shares"                ""
+        else
+            shares_code=$(curl -sS $CURL_OPTS -o /dev/null -w "%{http_code}" "${API_BASE}/api/shares" 2>/dev/null)
+            if [ "$shares_code" = "404" ]; then
+                phase_pass "journey: shares gated (404) when enterprise_enabled=false"
+            else
+                phase_fail "journey: expected /api/shares 404 when enterprise_enabled=false, got $shares_code"
             fi
         fi
-        check_http_json "journey: list shares"                      "/api/shares"                ""
 
         # --- Journey: Knowledge notes ---
         know_resp=$(curl -sS $CURL_OPTS -X POST "${API_BASE}/api/knowledge" \
@@ -1444,8 +1463,13 @@ print(d.get('id', d.get('note_id', d.get('note',{}).get('id',''))))
             phase_fail "journey: secrets key-status missing expected fields (body: $key_status_resp)"
         fi
 
-        # --- Journey: Adventures templates ---
-        check_http_json "journey: adventures templates"             "/api/adventures/templates"  ""
+        # --- Journey: Purged Bucket 4 endpoints remain unmounted ---
+        adv_code=$(curl -sS $CURL_OPTS -o /dev/null -w "%{http_code}" "${API_BASE}/api/adventures/templates" 2>/dev/null)
+        if [ "$adv_code" = "404" ]; then
+            phase_pass "journey: purged /api/adventures/templates returns 404"
+        else
+            phase_fail "journey: expected /api/adventures/templates 404, got $adv_code"
+        fi
 
         # --- Journey: Sync status ---
         check_http_json "journey: sync status"                      "/api/sync/status"           ""
@@ -1601,31 +1625,32 @@ print(msgs[0].get('id','') if msgs else '')
         # =================================================================
 
         # --- Enterprise lifecycle: org, members, policies, isolation, SSO ---
-        check_http_json "enterprise: GET state"                          "/api/enterprise"            '"enabled"'
-        check_http_json "enterprise: GET policies"                       "/api/enterprise/policies"   '"policies"'
-        check_http_json "enterprise: GET audit"                          "/api/enterprise/audit"      '"events"'
+        if [ "$settings_ent_enabled" = "True" ]; then
+            check_http_json "enterprise: GET state"                          "/api/enterprise"            '"enabled"'
+            check_http_json "enterprise: GET policies"                       "/api/enterprise/policies"   '"policies"'
+            check_http_json "enterprise: GET audit"                          "/api/enterprise/audit"      '"events"'
 
-        # Check if enterprise is already enabled (avoid double-create)
-        ent_enabled=$(curl -sS $CURL_OPTS "${API_BASE}/api/enterprise" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('enabled', False))" 2>/dev/null)
+            # Check if enterprise is already enabled (avoid double-create)
+            ent_enabled=$(curl -sS $CURL_OPTS "${API_BASE}/api/enterprise" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('enabled', False))" 2>/dev/null)
 
-        # If not already enabled, run the full org lifecycle
-        if [ "$ent_enabled" = "False" ]; then
-            # Create org
-            org_resp=$(curl -sS $CURL_OPTS -X POST "${API_BASE}/api/enterprise/org" \
-                -H 'content-type: application/json' \
-                -d '{"name":"e2e-test-org","admin_email":"e2e@test.com"}' 2>/dev/null)
-            if echo "$org_resp" | grep -q '"org"\|"name"\|"id"'; then
-                phase_pass "enterprise: create org"
+            # If not already enabled, run the full org lifecycle
+            if [ "$ent_enabled" = "False" ]; then
+                # Create org
+                org_resp=$(curl -sS $CURL_OPTS -X POST "${API_BASE}/api/enterprise/org" \
+                    -H 'content-type: application/json' \
+                    -d '{"name":"e2e-test-org","admin_email":"e2e@test.com"}' 2>/dev/null)
+                if echo "$org_resp" | grep -q '"org"\|"name"\|"id"'; then
+                    phase_pass "enterprise: create org"
+                else
+                    phase_fail "enterprise: create org failed (body: $org_resp)"
+                fi
             else
-                phase_fail "enterprise: create org failed (body: $org_resp)"
+                phase_pass "enterprise: org already exists (skipping create)"
             fi
-        else
-            phase_pass "enterprise: org already exists (skipping create)"
-        fi
 
-        # pre-clear enterprise member (idempotent setup)
-        echo "pre-clearing enterprise member (idempotent setup)"
-        existing_member=$(curl -sS $CURL_OPTS "${API_BASE}/api/enterprise/members" 2>/dev/null | python3 -c "
+            # pre-clear enterprise member (idempotent setup)
+            echo "pre-clearing enterprise member (idempotent setup)"
+            existing_member=$(curl -sS $CURL_OPTS "${API_BASE}/api/enterprise/members" 2>/dev/null | python3 -c "
 import sys,json
 try:
     members=json.load(sys.stdin).get('members',[])
@@ -1633,85 +1658,94 @@ try:
     print(hit[0].get('id','') if hit else '')
 except: pass
 " 2>/dev/null || true)
-        if [ -n "$existing_member" ] && [ "$existing_member" != "None" ] && [ "$existing_member" != "" ]; then
-            curl -sS $CURL_OPTS -X DELETE "${API_BASE}/api/enterprise/members/${existing_member}" > /dev/null 2>&1
-        fi
-        # Add a member
-        member_resp=$(curl -sS $CURL_OPTS -X POST "${API_BASE}/api/enterprise/members" \
-            -H 'content-type: application/json' \
-            -d '{"email":"e2e-member@test.com","role":"member"}' 2>/dev/null)
-        member_id=$(echo "$member_resp" | python3 -c "
+            if [ -n "$existing_member" ] && [ "$existing_member" != "None" ] && [ "$existing_member" != "" ]; then
+                curl -sS $CURL_OPTS -X DELETE "${API_BASE}/api/enterprise/members/${existing_member}" > /dev/null 2>&1
+            fi
+            # Add a member
+            member_resp=$(curl -sS $CURL_OPTS -X POST "${API_BASE}/api/enterprise/members" \
+                -H 'content-type: application/json' \
+                -d '{"email":"e2e-member@test.com","role":"member"}' 2>/dev/null)
+            member_id=$(echo "$member_resp" | python3 -c "
 import sys,json
 d=json.load(sys.stdin)
 print(d.get('id', d.get('member',{}).get('id','')))
 " 2>/dev/null || true)
-        if [ -n "$member_id" ] && [ "$member_id" != "None" ] && [ "$member_id" != "" ]; then
-            phase_pass "enterprise: add member"
+            if [ -n "$member_id" ] && [ "$member_id" != "None" ] && [ "$member_id" != "" ]; then
+                phase_pass "enterprise: add member"
 
-            # Update member role
-            role_resp=$(curl -sS $CURL_OPTS -X PATCH "${API_BASE}/api/enterprise/members/${member_id}/role" \
+                # Update member role
+                role_resp=$(curl -sS $CURL_OPTS -X PATCH "${API_BASE}/api/enterprise/members/${member_id}/role" \
+                    -H 'content-type: application/json' \
+                    -d '{"role":"admin"}' 2>/dev/null)
+                if echo "$role_resp" | grep -q '"role"\|"admin"\|"member"'; then
+                    phase_pass "enterprise: update member role"
+                else
+                    phase_fail "enterprise: update member role failed (body: $role_resp)"
+                fi
+
+                # Remove member (cleanup)
+                curl -sS $CURL_OPTS -X DELETE "${API_BASE}/api/enterprise/members/${member_id}" > /dev/null 2>&1
+            else
+                if echo "$member_resp" | grep -q '"id"\|"member"\|"email"'; then
+                    phase_pass "enterprise: add member (response ok)"
+                else
+                    phase_fail "enterprise: add member failed (body: $member_resp)"
+                fi
+            fi
+
+            # List members
+            check_http_json "enterprise: list members"                       "/api/enterprise/members"    '"members"'
+
+            # Update policies
+            policy_resp=$(curl -sS $CURL_OPTS -X PATCH "${API_BASE}/api/enterprise/policies" \
                 -H 'content-type: application/json' \
-                -d '{"role":"admin"}' 2>/dev/null)
-            if echo "$role_resp" | grep -q '"role"\|"admin"\|"member"'; then
-                phase_pass "enterprise: update member role"
+                -d '{"max_agent_budget":5.0}' 2>/dev/null)
+            if echo "$policy_resp" | grep -q '"policies"\|"max_agent_budget"'; then
+                phase_pass "enterprise: update policies"
             else
-                phase_fail "enterprise: update member role failed (body: $role_resp)"
+                phase_fail "enterprise: update policies failed (body: $policy_resp)"
             fi
 
-            # Remove member (cleanup)
-            curl -sS $CURL_OPTS -X DELETE "${API_BASE}/api/enterprise/members/${member_id}" > /dev/null 2>&1
-        else
-            if echo "$member_resp" | grep -q '"id"\|"member"\|"email"'; then
-                phase_pass "enterprise: add member (response ok)"
+            # Isolation: get + set
+            check_http_json "enterprise: GET isolation"                      "/api/enterprise/isolation"  '"current"'
+            iso_resp=$(curl -sS $CURL_OPTS -X PATCH "${API_BASE}/api/enterprise/isolation" \
+                -H 'content-type: application/json' \
+                -d '{"level":"governed"}' 2>/dev/null)
+            if echo "$iso_resp" | grep -q '"level"\|"governed"\|"result"'; then
+                phase_pass "enterprise: set isolation level"
             else
-                phase_fail "enterprise: add member failed (body: $member_resp)"
+                phase_fail "enterprise: set isolation failed (body: $iso_resp)"
             fi
-        fi
+            # Restore to open
+            curl -sS $CURL_OPTS -X PATCH "${API_BASE}/api/enterprise/isolation" \
+                -H 'content-type: application/json' \
+                -d '{"level":"open"}' > /dev/null 2>&1
 
-        # List members
-        check_http_json "enterprise: list members"                       "/api/enterprise/members"    '"members"'
+            # SSO: get config (should work even without SSO configured)
+            check_http_json "enterprise: GET SSO config"                     "/api/enterprise/sso"        ""
+            # SSO login URL endpoint (verifies redirect_uri is dynamically derived)
+            sso_login_resp=$(curl -sS $CURL_OPTS "${API_BASE}/api/enterprise/sso/login" 2>/dev/null)
+            if echo "$sso_login_resp" | python3 -c "import sys,json; d=json.load(sys.stdin); assert 'url' in d or 'detail' in d" 2>/dev/null; then
+                phase_pass "enterprise: SSO login URL endpoint responds"
+            else
+                phase_fail "enterprise: SSO login URL endpoint failed (body: $sso_login_resp)"
+            fi
 
-        # Update policies
-        policy_resp=$(curl -sS $CURL_OPTS -X PATCH "${API_BASE}/api/enterprise/policies" \
-            -H 'content-type: application/json' \
-            -d '{"max_agent_budget":5.0}' 2>/dev/null)
-        if echo "$policy_resp" | grep -q '"policies"\|"max_agent_budget"'; then
-            phase_pass "enterprise: update policies"
+            # Agentfile
+            check_http_json "enterprise: GET agentfile"                      "/api/enterprise/agentfile"  ""
+
+            # Clean up: delete the org if we created it
+            if [ "$ent_enabled" = "False" ]; then
+                curl -sS $CURL_OPTS -X DELETE "${API_BASE}/api/enterprise/org" > /dev/null 2>&1
+            fi
         else
-            phase_fail "enterprise: update policies failed (body: $policy_resp)"
-        fi
-
-        # Isolation: get + set
-        check_http_json "enterprise: GET isolation"                      "/api/enterprise/isolation"  '"current"'
-        iso_resp=$(curl -sS $CURL_OPTS -X PATCH "${API_BASE}/api/enterprise/isolation" \
-            -H 'content-type: application/json' \
-            -d '{"level":"governed"}' 2>/dev/null)
-        if echo "$iso_resp" | grep -q '"level"\|"governed"\|"result"'; then
-            phase_pass "enterprise: set isolation level"
-        else
-            phase_fail "enterprise: set isolation failed (body: $iso_resp)"
-        fi
-        # Restore to open
-        curl -sS $CURL_OPTS -X PATCH "${API_BASE}/api/enterprise/isolation" \
-            -H 'content-type: application/json' \
-            -d '{"level":"open"}' > /dev/null 2>&1
-
-        # SSO: get config (should work even without SSO configured)
-        check_http_json "enterprise: GET SSO config"                     "/api/enterprise/sso"        ""
-        # SSO login URL endpoint (verifies redirect_uri is dynamically derived)
-        sso_login_resp=$(curl -sS $CURL_OPTS "${API_BASE}/api/enterprise/sso/login" 2>/dev/null)
-        if echo "$sso_login_resp" | python3 -c "import sys,json; d=json.load(sys.stdin); assert 'url' in d or 'detail' in d" 2>/dev/null; then
-            phase_pass "enterprise: SSO login URL endpoint responds"
-        else
-            phase_fail "enterprise: SSO login URL endpoint failed (body: $sso_login_resp)"
-        fi
-
-        # Agentfile
-        check_http_json "enterprise: GET agentfile"                      "/api/enterprise/agentfile"  ""
-
-        # Clean up: delete the org if we created it
-        if [ "$ent_enabled" = "False" ]; then
-            curl -sS $CURL_OPTS -X DELETE "${API_BASE}/api/enterprise/org" > /dev/null 2>&1
+            admin_code=$(curl -sS $CURL_OPTS -o /dev/null -w "%{http_code}" "${API_BASE}/admin" 2>/dev/null)
+            ent_code=$(curl -sS $CURL_OPTS -o /dev/null -w "%{http_code}" "${API_BASE}/api/enterprise" 2>/dev/null)
+            if [ "$admin_code" = "404" ] && [ "$ent_code" = "404" ]; then
+                phase_pass "enterprise: /admin and /api/enterprise gated (404) when enterprise_enabled=false"
+            else
+                phase_fail "enterprise: expected 404 for /admin ($admin_code) and /api/enterprise ($ent_code) when enterprise_enabled=false"
+            fi
         fi
 
         # --- No hardcoded ports in routers ---

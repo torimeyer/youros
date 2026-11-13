@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import importlib
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -103,7 +104,7 @@ def test_linter_exits_zero():
     linter = REPO_ROOT / "scripts" / "check_primitive_contracts.py"
     assert linter.exists()
     result = subprocess.run(
-        ["python3", str(linter)],
+        [sys.executable, str(linter)],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,

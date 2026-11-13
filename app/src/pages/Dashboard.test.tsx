@@ -1,10 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import Dashboard from './Dashboard'
 import { useAppStore, DEFAULT_DASHBOARD_WIDGETS } from '../stores/app'
-import { ADVENTURE_DISMISSED_KEY } from '../lib/adventures'
 
 const mockNavigate = vi.fn()
 
@@ -778,269 +776,68 @@ describe("Today's Focus session task filter", () => {
   })
 })
 
-const MOCK_ADVENTURES = {
-  adventures: [
-    { id: 'build_website', title: 'Build a website', tagline: 'From idea to live site.', icon: 'language', placeholder: 'e.g. A recipe site' },
-    { id: 'plan_project', title: 'Plan a project', tagline: 'Turn a fuzzy idea into a plan.', icon: 'bolt', placeholder: 'e.g. Launch a newsletter' },
-    { id: 'learn_skill', title: 'Learn something new', tagline: 'A starter path.', icon: 'school', placeholder: 'e.g. Learn Spanish' },
-    { id: 'off_plate', title: 'Get something off your plate', tagline: 'Break it into steps.', icon: 'task_alt', placeholder: 'e.g. Do my taxes' },
-  ],
-}
-
-describe('Dashboard - Adventure card', () => {
+describe('Phase 1 Core Dashboard isolation & external briefing links', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockNavigate.mockClear()
-    localStorage.removeItem(ADVENTURE_DISMISSED_KEY)
+    localStorage.clear()
+    localStorage.setItem('myos-tour-complete', 'true')
     useAppStore.setState({
       chatOpen: false,
-      osName: 'ToriOS',
+      osName: 'yourOS',
       darkMode: true,
       showTour: false,
-      dashboardWidgets: ['adventure', 'todays_focus'],
-      setDashboardWidgets: vi.fn(),
+      enterpriseEnabled: false,
+      dashboardWidgets: ['briefing', 'todays_focus', 'jira', 'confluence', 'adventure'],
     })
     mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/adventures/templates') return Promise.resolve(MOCK_ADVENTURES)
       if (path === '/dashboard') return Promise.resolve(mockDashboardData)
       if (path === '/dashboard/summary') return Promise.resolve(mockSummaryData)
       if (path === '/dashboard/compounds') return Promise.resolve(mockCompoundsData)
       if (path === '/dashboard/diff') return Promise.resolve(mockSessionDiff)
-      if (path === '/briefing') return Promise.resolve({ show: false, briefing: null })
-      if (path === '/calendar/events') return Promise.resolve({ events: [] })
-      if (path === '/sessions/active') return Promise.resolve({ sessions: [], count: 0, active_count: 0, idle_count: 0 })
-      if (path === '/secrets/key-status') return Promise.resolve({ google_connected: false })
-      if (path === '/atlassian/status') return Promise.resolve({ connected: false })
-      return Promise.reject(new Error(`unmocked path: ${path}`))
+      if (path === '/briefing') {
+        return Promise.resolve({
+          show: true,
+          briefing: 'Clean task-only morning briefing.',
+          action_items: [
+            {
+              type: 'prep_meeting',
+              label: 'Open calendar',
+              action_url: 'https://calendar.google.com',
+              context: 'Standup',
+            },
+          ],
+        })
+      }
+      return Promise.resolve({})
     })
   })
 
-  // →2920: the "One thing to try right now" suggestion moved out of the
-  // onboarding wizard and into this widget.
-  function mockWithConnections(google: boolean, atlassian: boolean) {
-    mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/secrets/key-status') return Promise.resolve({ google_connected: google })
-      if (path === '/atlassian/status') return Promise.resolve({ connected: atlassian })
-      if (path === '/adventures/templates') return Promise.resolve(MOCK_ADVENTURES)
-      if (path === '/dashboard') return Promise.resolve(mockDashboardData)
-      if (path === '/dashboard/summary') return Promise.resolve(mockSummaryData)
-      if (path === '/dashboard/compounds') return Promise.resolve(mockCompoundsData)
-      if (path === '/dashboard/diff') return Promise.resolve(mockSessionDiff)
-      if (path === '/briefing') return Promise.resolve({ show: false, briefing: null })
-      if (path === '/calendar/events') return Promise.resolve({ events: [] })
-      if (path === '/sessions/active') return Promise.resolve({ sessions: [], count: 0, active_count: 0, idle_count: 0 })
-      return Promise.reject(new Error(`unmocked path: ${path}`))
-    })
-  }
-
-  it('shows the try-right-now suggestion inside the adventure widget (→2920)', async () => {
+  it('omits removed adventure widget, gates Jira/Confluence when enterpriseEnabled=false, and skips /calendar/events when next_meeting is off', async () => {
     renderDashboard()
     await waitFor(() => {
-      expect(screen.getByTestId('adventure-try-now')).toBeInTheDocument()
+      expect(screen.getByTestId('widget-briefing')).toBeInTheDocument()
+      expect(screen.getByTestId('widget-todays-focus')).toBeInTheDocument()
     })
-    const widget = screen.getByTestId('widget-adventure')
-    expect(within(widget).getByText('One thing to try right now')).toBeInTheDocument()
-    // Nothing connected: the default tasks-and-agents suggestion shows.
-    expect(screen.getByTestId('adventure-try-now-text')).toHaveTextContent(/tasks and agents/i)
+    expect(screen.queryByTestId('widget-adventure')).toBeNull()
+    expect(screen.queryByTestId('widget-jira')).toBeNull()
+    expect(screen.queryByTestId('widget-confluence')).toBeNull()
+    const calCalls = mockedApiGet.mock.calls.filter(([u]) => String(u).startsWith('/calendar/events'))
+    expect(calCalls).toHaveLength(0)
+    const advCalls = mockedApiGet.mock.calls.filter(([u]) => String(u).startsWith('/adventures'))
+    expect(advCalls).toHaveLength(0)
   })
 
-  it('try-right-now shows the meeting-prep prompt when Google is connected', async () => {
-    mockWithConnections(true, false)
+  it('opens external https briefing action_urls in a new tab instead of SPA navigate', async () => {
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
     renderDashboard()
     await waitFor(() => {
-      expect(screen.getByTestId('adventure-try-now')).toBeInTheDocument()
+      expect(screen.getByText('Open calendar')).toBeInTheDocument()
     })
-    expect(screen.getByTestId('adventure-try-now-text')).toHaveTextContent(/meetings/i)
-  })
-
-  it('try-right-now shows the cross-tool prompt when two sources are connected', async () => {
-    mockWithConnections(true, true)
-    renderDashboard()
-    await waitFor(() => {
-      expect(screen.getByTestId('adventure-try-now')).toBeInTheDocument()
-    })
-    expect(screen.getByTestId('adventure-try-now-text')).toHaveTextContent(/search across/i)
-  })
-
-  it('clicking the try-right-now suggestion pre-fills chat and opens it', async () => {
-    const setChatPrefill = vi.fn()
-    const setChatOpen = vi.fn()
-    useAppStore.setState({
-      setChatPrefill: setChatPrefill as unknown as (v: string | null) => void,
-      setChatOpen: setChatOpen as unknown as (v: boolean) => void,
-    })
-    renderDashboard()
-    await waitFor(() => {
-      expect(screen.getByTestId('adventure-try-now-btn')).toBeInTheDocument()
-    })
-    fireEvent.click(screen.getByTestId('adventure-try-now-btn'))
-    expect(setChatPrefill).toHaveBeenCalledWith(expect.stringContaining('tasks'))
-    expect(setChatOpen).toHaveBeenCalledWith(true)
-  })
-
-  it('try-right-now still shows the default suggestion when status checks fail', async () => {
-    mockedApiGet.mockImplementation((path: string) => {
-      if (path === '/secrets/key-status') return Promise.reject(new Error('network'))
-      if (path === '/atlassian/status') return Promise.reject(new Error('network'))
-      if (path === '/adventures/templates') return Promise.resolve(MOCK_ADVENTURES)
-      if (path === '/dashboard') return Promise.resolve(mockDashboardData)
-      if (path === '/dashboard/summary') return Promise.resolve(mockSummaryData)
-      if (path === '/dashboard/compounds') return Promise.resolve(mockCompoundsData)
-      if (path === '/dashboard/diff') return Promise.resolve(mockSessionDiff)
-      if (path === '/briefing') return Promise.resolve({ show: false, briefing: null })
-      if (path === '/calendar/events') return Promise.resolve({ events: [] })
-      if (path === '/sessions/active') return Promise.resolve({ sessions: [], count: 0, active_count: 0, idle_count: 0 })
-      return Promise.reject(new Error(`unmocked path: ${path}`))
-    })
-    renderDashboard()
-    await waitFor(() => {
-      expect(screen.getByTestId('adventure-try-now')).toBeInTheDocument()
-    })
-    expect(screen.getByTestId('adventure-try-now-text')).toHaveTextContent(/tasks and agents/i)
-  })
-
-  it('try-right-now does not render for a dismissed adventure card', async () => {
-    localStorage.setItem(ADVENTURE_DISMISSED_KEY, 'true')
-    renderDashboard()
-    await waitFor(() => {
-      expect(mockedApiGet).toHaveBeenCalledWith('/dashboard')
-    })
-    expect(screen.queryByTestId('adventure-try-now')).not.toBeInTheDocument()
-  })
-
-  it('renders the adventure card when widget is in dashboardWidgets', async () => {
-    renderDashboard()
-    await waitFor(() => {
-      expect(screen.getByTestId('widget-adventure')).toBeInTheDocument()
-    })
-  })
-
-  it('fetches adventure templates from /adventures/templates', async () => {
-    renderDashboard()
-    await waitFor(() => {
-      expect(mockedApiGet).toHaveBeenCalledWith('/adventures/templates')
-    })
-  })
-
-  it('shows all four sample adventure cards after loading', async () => {
-    renderDashboard()
-    await waitFor(() => {
-      expect(screen.getByTestId('adventure-card-build_website')).toBeInTheDocument()
-    })
-    expect(screen.getByTestId('adventure-card-plan_project')).toBeInTheDocument()
-    expect(screen.getByTestId('adventure-card-learn_skill')).toBeInTheDocument()
-    expect(screen.getByTestId('adventure-card-off_plate')).toBeInTheDocument()
-  })
-
-  it('selecting a card highlights it', async () => {
-    renderDashboard()
-    await waitFor(() => {
-      expect(screen.getByTestId('adventure-card-build_website')).toBeInTheDocument()
-    })
-    const card = screen.getByTestId('adventure-card-build_website')
-    fireEvent.click(card)
-    expect(screen.getByTestId('adventure-card-build_website').className).toContain('border-indigo-500')
-  })
-
-  it('clicking the same card twice deselects it', async () => {
-    renderDashboard()
-    await waitFor(() => {
-      expect(screen.getByTestId('adventure-card-build_website')).toBeInTheDocument()
-    })
-    const card = screen.getByTestId('adventure-card-build_website')
-    fireEvent.click(card)
-    expect(card.className).toContain('border-indigo-500')
-    fireEvent.click(card)
-    expect(screen.getByTestId('adventure-card-build_website').className).not.toContain('border-indigo-500')
-  })
-
-  it('spawn button is disabled when nothing is selected and description is empty', async () => {
-    renderDashboard()
-    await waitFor(() => {
-      expect(screen.getByTestId('adventure-spawn-button')).toBeInTheDocument()
-    })
-    expect(screen.getByTestId('adventure-spawn-button')).toBeDisabled()
-  })
-
-  it('spawn button is enabled when a card is selected', async () => {
-    renderDashboard()
-    await waitFor(() => {
-      expect(screen.getByTestId('adventure-card-build_website')).toBeInTheDocument()
-    })
-    fireEvent.click(screen.getByTestId('adventure-card-build_website'))
-    expect(screen.getByTestId('adventure-spawn-button')).not.toBeDisabled()
-  })
-
-  it('spawn button is enabled when description text is entered', async () => {
-    const user = userEvent.setup()
-    renderDashboard()
-    await waitFor(() => {
-      expect(screen.getByTestId('adventure-description-input')).toBeInTheDocument()
-    })
-    await user.type(screen.getByTestId('adventure-description-input'), 'Build a thing')
-    expect(screen.getByTestId('adventure-spawn-button')).not.toBeDisabled()
-  })
-
-  it('clicking Spawn calls /adventures/start and shows the confirmation banner', async () => {
-    vi.mocked(api.post).mockResolvedValue({})
-    renderDashboard()
-    await waitFor(() => {
-      expect(screen.getByTestId('adventure-card-build_website')).toBeInTheDocument()
-    })
-    fireEvent.click(screen.getByTestId('adventure-card-build_website'))
-    fireEvent.click(screen.getByTestId('adventure-spawn-button'))
-    await waitFor(() => {
-      expect(api.post).toHaveBeenCalledWith('/adventures/start', expect.objectContaining({ adventure_id: 'build_website' }))
-    })
-    await waitFor(() => {
-      expect(screen.getByTestId('adventure-spawned-banner')).toBeInTheDocument()
-    })
-  })
-
-  it('spawned banner contains a link to the Agents page', async () => {
-    vi.mocked(api.post).mockResolvedValue({})
-    renderDashboard()
-    await waitFor(() => {
-      expect(screen.getByTestId('adventure-card-build_website')).toBeInTheDocument()
-    })
-    fireEvent.click(screen.getByTestId('adventure-card-build_website'))
-    fireEvent.click(screen.getByTestId('adventure-spawn-button'))
-    await waitFor(() => {
-      expect(screen.getByTestId('adventure-agents-link')).toBeInTheDocument()
-    })
-  })
-
-  it('dismissing the card hides it and persists to localStorage', async () => {
-    renderDashboard()
-    await waitFor(() => {
-      expect(screen.getByTestId('widget-adventure')).toBeInTheDocument()
-    })
-    // Dismiss is now in the three-dot menu
-    fireEvent.click(screen.getByTestId('widget-menu-trigger-adventure'))
-    await waitFor(() => {
-      expect(screen.getByTestId('widget-menu-adventure-dismiss')).toBeInTheDocument()
-    })
-    fireEvent.click(screen.getByTestId('widget-menu-adventure-dismiss'))
-    expect(screen.queryByTestId('widget-adventure')).not.toBeInTheDocument()
-    expect(localStorage.getItem(ADVENTURE_DISMISSED_KEY)).toBe('true')
-  })
-
-  it('card does not render when localStorage flag is already set', async () => {
-    localStorage.setItem(ADVENTURE_DISMISSED_KEY, 'true')
-    renderDashboard()
-    await waitFor(() => {
-      expect(mockedApiGet).toHaveBeenCalledWith('/dashboard')
-    })
-    expect(screen.queryByTestId('widget-adventure')).not.toBeInTheDocument()
-  })
-
-  it('does not fetch adventure templates when already dismissed', async () => {
-    localStorage.setItem(ADVENTURE_DISMISSED_KEY, 'true')
-    renderDashboard()
-    await waitFor(() => {
-      expect(mockedApiGet).toHaveBeenCalledWith('/dashboard')
-    })
-    expect(mockedApiGet).not.toHaveBeenCalledWith('/adventures/templates')
+    fireEvent.click(screen.getByText('Open calendar'))
+    expect(openSpy).toHaveBeenCalledWith('https://calendar.google.com', '_blank', 'noopener,noreferrer')
+    expect(mockNavigate).not.toHaveBeenCalledWith('https://calendar.google.com')
+    openSpy.mockRestore()
   })
 })
 
@@ -1487,20 +1284,7 @@ describe('Widget three-dot menu and header overlap fix', () => {
     await waitFor(() => {
       expect(screen.getByTestId('widget-menu-trigger-todays_focus')).toBeInTheDocument()
     })
-    expect(screen.getByTestId('widget-menu-trigger-adventure')).toBeInTheDocument()
-  })
-
-  it('adventure widget menu contains Dismiss and Hide widget options', async () => {
-    renderDashboard()
-    await waitFor(() => {
-      expect(screen.getByTestId('widget-menu-trigger-adventure')).toBeInTheDocument()
-    })
-    fireEvent.click(screen.getByTestId('widget-menu-trigger-adventure'))
-    await waitFor(() => {
-      expect(screen.getByTestId('widget-menu-adventure-dismiss')).toBeInTheDocument()
-    })
-    expect(screen.getByText('Dismiss')).toBeInTheDocument()
-    expect(screen.getByText('Hide widget')).toBeInTheDocument()
+    expect(screen.getByTestId('widget-menu-trigger-quick_launch')).toBeInTheDocument()
   })
 
   it('todays_focus widget menu contains Refresh summary and Hide widget options', async () => {
@@ -1514,14 +1298,6 @@ describe('Widget three-dot menu and header overlap fix', () => {
     })
     expect(screen.getByText('Refresh summary')).toBeInTheDocument()
     expect(screen.getByText('Hide widget')).toBeInTheDocument()
-  })
-
-  it('adventure widget no longer has an inline dismiss button', async () => {
-    renderDashboard()
-    await waitFor(() => {
-      expect(screen.getByTestId('widget-adventure')).toBeInTheDocument()
-    })
-    expect(screen.queryByTestId('adventure-dismiss')).not.toBeInTheDocument()
   })
 })
 
@@ -1584,16 +1360,14 @@ describe('Widget move handles and width toggles (→2921)', () => {
 
   it('a fresh install with no saved widths renders the default spans exactly (regression)', async () => {
     useAppStore.setState({
-      dashboardWidgets: ['todays_focus', 'quick_launch', 'next_meeting', 'adventure'],
+      dashboardWidgets: ['todays_focus', 'quick_launch', 'next_meeting'],
       dashboardWidgetSizes: {},
     })
     renderDashboard()
     await waitFor(() => {
       expect(screen.getByTestId('widget-next-meeting')).toBeInTheDocument()
-      expect(screen.getByTestId('widget-adventure')).toBeInTheDocument()
     })
     expect(gridWrapper('widget-next-meeting').className).toContain('lg:col-span-2')
-    expect(gridWrapper('widget-adventure').className).toContain('lg:col-span-2')
     expect(gridWrapper('widget-todays-focus').className).not.toContain('lg:col-span-2')
     expect(gridWrapper('widget-quick-launch').className).not.toContain('lg:col-span-2')
   })

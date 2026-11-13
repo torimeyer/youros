@@ -112,12 +112,16 @@ class Settings(BaseModel):
         "Chat": True, "Tasks": True,
         "Agents": True, "Activity": True, "Projects": True,
         "Drive": True, "Calendar": True, "Gmail": True,
-        "Slack": True, "GitHub": True, "Specs": True,
+        "Slack": True, "GitHub": True, "Specs": True, "Recall": True,
         "Automations": True, "Cost Tracking": True,
         # Legacy keys kept for existing user settings that may still reference them.
         "Transcripts": True,
     }
     power_user_mode: bool = False
+    # Opt-in Enterprise and Work Extension gate (Admin, Org, Portfolio,
+    # Executive Summary, Share/Invite, Jira, Confluence, Slack). Off by default
+    # on fresh installs so Core stays focused on the solo builder loop.
+    enterprise_enabled: bool = False
     # When on, an approved plan is turned into a spec first (the spec-first
     # workflow) before any implementation. On by default.
     plans_become_specs: bool = True

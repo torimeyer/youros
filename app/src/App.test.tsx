@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, act } from '@testing-library/react'
+import { api } from './lib/api'
 import { useAppStore } from './stores/app'
 
 vi.mock('./lib/api', () => ({
@@ -12,33 +13,29 @@ vi.mock('./lib/api', () => ({
   },
 }))
 
-vi.mock('./pages/Files', () => ({ default: () => <div data-testid="page-files">Files</div> }))
-vi.mock('./pages/Drive', () => ({ default: () => <div data-testid="page-drive">Drive</div> }))
 vi.mock('./pages/Dashboard', () => ({ default: () => <div data-testid="page-dashboard" /> }))
-vi.mock('./pages/Tasks', () => ({ default: () => <div /> }))
+vi.mock('./pages/Tasks', () => ({ default: () => <div data-testid="page-tasks" /> }))
 vi.mock('./pages/Timeline', () => ({ default: () => <div /> }))
-vi.mock('./pages/Agents', () => ({ default: () => <div /> }))
+vi.mock('./pages/Agents', () => ({ default: () => <div data-testid="page-agents" /> }))
 vi.mock('./pages/Settings', () => ({ default: () => <div /> }))
-vi.mock('./pages/Transcripts', () => ({ default: () => <div /> }))
+vi.mock('./pages/Transcripts', () => ({ default: () => <div data-testid="page-transcripts" /> }))
 vi.mock('./pages/Activity', () => ({ default: () => <div /> }))
 vi.mock('./pages/CostTracking', () => ({ default: () => <div /> }))
-vi.mock('./pages/Specs', () => ({ default: () => <div /> }))
+vi.mock('./pages/Specs', () => ({ default: () => <div data-testid="page-specs" /> }))
+vi.mock('./pages/BreakRoom', () => ({ default: () => <div data-testid="page-break" /> }))
+vi.mock('./pages/Projects', () => ({ default: () => <div data-testid="page-projects" /> }))
 vi.mock('./pages/DocsRedirect', () => ({ default: () => <div /> }))
-vi.mock('./pages/Calendar', () => ({ default: () => <div /> }))
-vi.mock('./pages/Gmail', () => ({ default: () => <div /> }))
-vi.mock('./pages/IMessage', () => ({ default: () => <div /> }))
-vi.mock('./pages/Slack', () => ({ default: () => <div /> }))
-vi.mock('./pages/GitHub', () => ({ default: () => <div /> }))
-vi.mock('./pages/Upgrade', () => ({ default: () => <div /> }))
+vi.mock('./pages/Slack', () => ({ default: () => <div data-testid="page-slack" /> }))
+vi.mock('./pages/Jira', () => ({ default: () => <div data-testid="page-jira" /> }))
+vi.mock('./pages/Confluence', () => ({ default: () => <div data-testid="page-confluence" /> }))
+vi.mock('./pages/PortfolioPage', () => ({ default: () => <div data-testid="page-portfolio" /> }))
+vi.mock('./pages/ExecutiveSummary', () => ({ default: () => <div data-testid="page-exec-summary" /> }))
 vi.mock('./pages/Releases', () => ({ default: () => <div /> }))
-vi.mock('./pages/Workflows', () => ({ default: () => <div /> }))
-vi.mock('./pages/WorkflowBuilder', () => ({ default: () => <div /> }))
 vi.mock('./pages/ShareView', () => ({ default: () => <div data-testid="page-share" /> }))
 vi.mock('./pages/InviteAccept', () => ({ default: () => <div data-testid="page-invite" /> }))
 vi.mock('./pages/PrivacyPolicy', () => ({ default: () => <div /> }))
 vi.mock('./pages/AboutYourOS', () => ({ default: () => <div /> }))
-vi.mock('./pages/MyGems', () => ({ default: () => <div data-testid="page-gems" /> }))
-vi.mock('./pages/admin/Overview', () => ({ default: () => <div /> }))
+vi.mock('./pages/admin/Overview', () => ({ default: () => <div data-testid="page-admin-overview" /> }))
 vi.mock('./pages/admin/Members', () => ({ default: () => <div /> }))
 vi.mock('./pages/admin/Policies', () => ({ default: () => <div /> }))
 vi.mock('./pages/admin/AuditTrail', () => ({ default: () => <div /> }))
@@ -59,23 +56,79 @@ import App from './App'
 describe('App routing', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    useAppStore.setState({ hydrated: true, onboarded: true })
+    useAppStore.setState({ hydrated: true, onboarded: true, enterpriseEnabled: false } as never)
   })
 
   afterEach(() => {
     window.history.pushState({}, '', '/')
   })
 
-  it('renders the /files route', async () => {
-    window.history.pushState({}, '', '/files')
+  it('does not poll /calendar/events unconditionally on boot (root useCalendarFeed removed)', async () => {
+    window.history.pushState({}, '', '/')
     render(<App />)
-    expect(await screen.findByTestId('page-files')).toBeInTheDocument()
+    expect(await screen.findByTestId('page-dashboard')).toBeInTheDocument()
+    const getCalls = vi.mocked(api.get).mock.calls.map((c) => c[0])
+    expect(getCalls.some((u) => String(u).includes('/calendar/events'))).toBe(false)
   })
 
-  it('renders the /drive route', async () => {
-    window.history.pushState({}, '', '/drive')
-    render(<App />)
-    expect(await screen.findByTestId('page-drive')).toBeInTheDocument()
+  it('renders Core routes (/specs, /tasks, /agents, /transcripts, /break, /projects)', async () => {
+    for (const [path, testId] of [
+      ['/specs', 'page-specs'],
+      ['/tasks', 'page-tasks'],
+      ['/agents', 'page-agents'],
+      ['/transcripts', 'page-transcripts'],
+      ['/break', 'page-break'],
+      ['/projects', 'page-projects'],
+    ] as const) {
+      window.history.pushState({}, '', path)
+      const { unmount } = render(<App />)
+      expect(await screen.findByTestId(testId)).toBeInTheDocument()
+      unmount()
+    }
+  })
+
+  it('renders 404 route-not-found for enterprise and purged routes when enterpriseEnabled is false', async () => {
+    for (const blockedPath of [
+      '/admin',
+      '/portfolio',
+      '/executive-summary',
+      '/jira',
+      '/confluence',
+      '/slack',
+      '/gmail',
+      '/calendar',
+      '/drive',
+      '/files',
+      '/gems',
+      '/workflows',
+      '/github',
+    ]) {
+      window.history.pushState({}, '', blockedPath)
+      const { unmount } = render(<App />)
+      expect(await screen.findByTestId('route-not-found')).toBeInTheDocument()
+      expect(screen.queryByTestId('page-admin-overview')).not.toBeInTheDocument()
+      unmount()
+    }
+  })
+
+  it('mounts enterprise routes (/admin, /portfolio, /jira, /slack, /share/:token) when enterpriseEnabled is true', async () => {
+    useAppStore.setState({ enterpriseEnabled: true } as never)
+
+    window.history.pushState({}, '', '/admin')
+    const r1 = render(<App />)
+    expect(await screen.findByTestId('page-admin-overview')).toBeInTheDocument()
+    r1.unmount()
+
+    window.history.pushState({}, '', '/portfolio')
+    const r2 = render(<App />)
+    expect(await screen.findByTestId('page-portfolio')).toBeInTheDocument()
+    r2.unmount()
+
+    window.history.pushState({}, '', '/share/abc123')
+    const r3 = render(<App />)
+    expect(await screen.findByTestId('page-share')).toBeInTheDocument()
+    expect(screen.queryByTestId('footer')).not.toBeInTheDocument()
+    r3.unmount()
   })
 
   it('Footer is visible on an authenticated route', async () => {
@@ -84,16 +137,17 @@ describe('App routing', () => {
     expect(await screen.findByTestId('footer')).toBeInTheDocument()
   })
 
-  it('Footer is not visible on /share/:token (pre-auth, outside Layout)', () => {
+  it('Footer is not visible on /share/:token or /invite/:token when enterpriseEnabled is true', () => {
+    useAppStore.setState({ enterpriseEnabled: true } as never)
     window.history.pushState({}, '', '/share/abc123')
-    render(<App />)
+    const r1 = render(<App />)
     expect(screen.queryByTestId('footer')).not.toBeInTheDocument()
-  })
+    r1.unmount()
 
-  it('Footer is not visible on /invite/:token (pre-auth, outside Layout)', () => {
     window.history.pushState({}, '', '/invite/abc123')
-    render(<App />)
+    const r2 = render(<App />)
     expect(screen.queryByTestId('footer')).not.toBeInTheDocument()
+    r2.unmount()
   })
 
   it('Footer is not visible on onboarding (OnboardingWizard pre-auth screen)', () => {
@@ -102,11 +156,6 @@ describe('App routing', () => {
     expect(screen.queryByTestId('footer')).not.toBeInTheDocument()
   })
 
-  // →2687: the wizard decision is live, not a one-shot. When the first
-  // settings fetch fails, the store keeps retrying in the background and
-  // flips onboarded=true when the server finally answers. This pins the
-  // React side of that contract: the moment the store flips, the wizard
-  // unmounts and the real app renders in its place.
   it('swaps the wizard for the app the moment onboarded flips to true', () => {
     useAppStore.setState({ hydrated: true, onboarded: false })
     render(<App />)
@@ -118,9 +167,6 @@ describe('App routing', () => {
     expect(screen.getByTestId('page-dashboard')).toBeInTheDocument()
   })
 
-  // OAuth callback cleanup: when Atlassian's callback redirects back to
-  // the app with ?atlassian_connected=true, App must strip the param so
-  // a refresh does not surface it again.
   it('strips ?atlassian_connected=true from the URL on mount', async () => {
     window.history.pushState({}, '', '/?atlassian_connected=true')
     render(<App />)
