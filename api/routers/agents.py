@@ -6147,16 +6147,22 @@ async def spawn_agent(body: AgentSpawn, request: Request = None, response: Respo
                         except Exception:
                             _fb_runtime = "claude"
                     if _fb_runtime not in ("", "claude"):
-                        raise HTTPException(
-                            status_code=400,
-                            detail=(
-                                f"No agentfile found for '{_ostk_stem}' on the "
-                                f"{_fb_runtime.capitalize()} runtime. "
-                                f"The {_fb_runtime.capitalize()} runtime uses agentfiles "
-                                f"to spawn agents. Check that agents/{_ostk_stem}.agent "
-                                f"exists, or switch to the Claude runtime in Settings."
-                            ),
+                        _adhoc_fallback = (
+                            _ostk_find_agentfile("adhoc-default")
+                            if not body.template
+                            else None
                         )
+                        if _adhoc_fallback is None:
+                            raise HTTPException(
+                                status_code=400,
+                                detail=(
+                                    f"No agentfile found for '{_ostk_stem}' on the "
+                                    f"{_fb_runtime.capitalize()} runtime. "
+                                    f"The {_fb_runtime.capitalize()} runtime uses agentfiles "
+                                    f"to spawn agents. Check that agents/{_ostk_stem}.agent "
+                                    f"exists, or switch to the Claude runtime in Settings."
+                                ),
+                            )
                     logger.warning(
                         "OSTK_RUN_FALLBACK name=%s reason=no_agentfile stem=%s",
                         body.name, _ostk_stem,
@@ -6409,6 +6415,7 @@ async def spawn_agent(body: AgentSpawn, request: Request = None, response: Respo
             "task_id": body.task_id,
             "needle_id": body.needle_id,
             "locks": body.locks,
+            "source": body.source,
         }
     )
     provider = default_provider(spawn_fn=_native_spawn_internals)
@@ -12698,6 +12705,40 @@ async def pin_agent_decision_endpoint(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return {"agent": canonical, **result}
+
+
+class _AgentRuntimeHandoffRequest(BaseModel):
+    target_runtime: str
+    target_model: Optional[str] = None
+    task_id: Optional[str] = None
+    transition_note: Optional[str] = None
+    repo_path: Optional[str] = None
+
+
+@router.post("/agents/{name}/handoff-runtime")
+async def handoff_agent_runtime_endpoint(
+    name: str,
+    body: _AgentRuntimeHandoffRequest,
+):
+    """Hand off an agent's worktree and task context across runtimes via ostk handoff (->3095)."""
+    from services.ostk_handoff import execute_runtime_handoff
+    from services.runtime_provider import SpawnNotSupportedError
+
+    try:
+        return await execute_runtime_handoff(
+            target_runtime=body.target_runtime,
+            agent_name=name,
+            target_model=body.target_model,
+            task_id=body.task_id,
+            transition_note=body.transition_note,
+            repo_path=body.repo_path,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except SpawnNotSupportedError as exc:
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 # ---------------------------------------------------------------------------

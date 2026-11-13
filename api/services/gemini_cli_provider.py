@@ -267,34 +267,383 @@ async def is_gemini_cli_available(force: bool = False) -> bool:
 from services.runtime_provider import (  # noqa: E402
     Feature,
     SpawnNotSupportedError,
+    SpawnResult,
     _BaseRuntimeProvider,
 )
 
-# Feature set based on code inspection: gemini CLI streams tokens (stream-json
-# output format) but has no worktrees, plan mode, hooks, isolation, monitor,
-# or subagent-spawn support in this codebase.
-_GEMINI_CLI_FEATURES = frozenset({Feature.STREAMING})
+# Gemini CLI streams JSONL events and spawns subagents inside .youros/worktrees/
+# managed by spawn_pipeline (->3095). Plan mode, hooks, and live monitor remain
+# Claude-specific capabilities.
+_GEMINI_CLI_FEATURES = frozenset({
+    Feature.STREAMING,
+    Feature.SUBAGENTS,
+    Feature.ISOLATION,
+    Feature.WORKTREES,
+})
+
+# Strong references to background subagent watcher tasks so asyncio GC never
+# drops an active stdout-streaming task mid-run.
+_gemini_spawn_tasks: set[asyncio.Task[Any]] = set()
 
 
 class GeminiCliRuntimeProvider(_BaseRuntimeProvider):
-    """RuntimeProvider for the local gemini CLI. Streaming only."""
+    """RuntimeProvider for the local gemini CLI with spawn_pipeline worktrees."""
 
     _features = _GEMINI_CLI_FEATURES
     display_name = "Gemini"
 
-    async def spawn_subagent(self, request=None, /, **fields):
-        """Refuse loudly: the Gemini runtime cannot start agents yet (→2945).
+    async def spawn_subagent(self, request=None, /, **fields) -> SpawnResult:
+        """Spawn a detached Gemini CLI subagent via spawn_pipeline (->3095).
 
-        The spawn endpoint injects its in-process spawn internals (the
-        Claude implementation) into whichever provider the runtime switch
-        picks. This override guarantees Gemini never runs them: the user
-        chose Gemini, and silently spawning Claude instead would misreport
-        what is actually running.
+        CRITICAL SAFETY INVARIANT (->2945): never invoke ``self._spawn_fn``,
+        which holds the Claude-only bespoke spawner injected by agents.py.
         """
-        raise SpawnNotSupportedError(
-            "Agent spawning is not yet supported on Gemini. Chat still works "
-            "on Gemini, but agents need Claude for now. Switch your provider "
-            "to Claude in Settings to start agents."
+        from datetime import datetime, timezone
+        import subprocess as _sp
+
+        from services import spawn_pipeline
+        from services.agentfile_parser import (
+            _find_any_agentfile,
+            get_template_aliases,
+            parse_agentfile,
+        )
+        from services.event_bus import (
+            AGENT_COMPLETED,
+            AGENT_DELTA,
+            AGENT_SPAWNED,
+            bus as _event_bus,
+        )
+        from services.youros_paths import youros_home
+
+        req = self._coerce_request(request, fields)
+
+        gemini_bin = _find_gemini_binary()
+        if not gemini_bin:
+            raise SpawnNotSupportedError(
+                "Gemini CLI binary was not found on this machine. "
+                "Install @google/gemini-cli or switch your provider to Claude in Settings to start agents."
+            )
+
+        extra = dict(req.extra or {})
+        repo_root = spawn_pipeline.resolve_target_repo(req.repo_path)
+
+        reuse_wt_raw = extra.get("reuse_worktree_path")
+        worktree_path: Optional[Path] = None
+        branch_name: Optional[str] = None
+        base_sha: Optional[str] = req.base_sha or extra.get("base_sha")
+
+        if reuse_wt_raw:
+            worktree_path = Path(str(reuse_wt_raw)).expanduser().resolve()
+            cwd_path = worktree_path
+            isolation_mode = "worktree"
+            branch_name = extra.get("reuse_branch_name") or extra.get("branch_name")
+            if not branch_name and worktree_path.is_dir():
+                br = _sp.run(
+                    ["git", "-C", str(worktree_path), "rev-parse", "--abbrev-ref", "HEAD"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5.0,
+                    check=False,
+                )
+                if br.returncode == 0 and br.stdout.strip():
+                    branch_name = br.stdout.strip()
+            if not base_sha and repo_root.is_dir():
+                bs = _sp.run(
+                    ["git", "-C", str(repo_root), "rev-parse", "HEAD"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5.0,
+                    check=False,
+                )
+                if bs.returncode == 0 and bs.stdout.strip():
+                    base_sha = bs.stdout.strip()
+        elif req.isolation != "none":
+            lease = await asyncio.to_thread(
+                spawn_pipeline.provision_agent_worktree,
+                repo_root,
+                req.name,
+                base_sha or "HEAD",
+            )
+            worktree_path = lease.worktree_path
+            cwd_path = worktree_path
+            branch_name = lease.branch_name
+            base_sha = lease.base_sha
+            isolation_mode = "worktree"
+        else:
+            cwd_path = repo_root
+            isolation_mode = "none"
+            if not base_sha and repo_root.is_dir():
+                try:
+                    bs = _sp.run(
+                        ["git", "-C", str(repo_root), "rev-parse", "HEAD"],
+                        capture_output=True,
+                        text=True,
+                        timeout=5.0,
+                        check=False,
+                    )
+                    if bs.returncode == 0 and bs.stdout.strip():
+                        base_sha = bs.stdout.strip()
+                except Exception:
+                    pass
+
+        mapped_cli_model = resolve_gemini_cli_model(req.model)
+        raw_model_lower = str(req.model or "").strip().lower()
+        if mapped_cli_model:
+            resolved_model = mapped_cli_model
+        elif "gemini" in raw_model_lower or raw_model_lower in _VALID_GEMINI_CLI_MODELS:
+            resolved_model = str(req.model).strip()
+        else:
+            resolved_model = "gemini-default"
+
+        ostk_signed_af = extra.get("ostk_agentfile_path")
+        if not ostk_signed_af and req.template and str(req.template).startswith(".ostk/agents/"):
+            cand_af = cwd_path / str(req.template)
+            if cand_af.is_file():
+                ostk_signed_af = str(cand_af)
+
+        if ostk_signed_af:
+            ostk_bin = shutil.which("ostk") or "ostk"
+            cmd: list[str] = [ostk_bin, "agentfile", "run", str(ostk_signed_af)]
+        else:
+            if req.template:
+                aliases = get_template_aliases()
+                stem = aliases.get(req.template, req.template)
+                recipe_path = _find_any_agentfile(stem)
+                if recipe_path is None:
+                    raise ValueError(
+                        f"No agentfile found for '{req.template}' on the Gemini runtime."
+                    )
+            else:
+                recipe_path = get_adhoc_agentfile_path()
+
+            recipe_prompt = ""
+            if recipe_path and recipe_path.is_file():
+                cfg = parse_agentfile(recipe_path)
+                recipe_prompt = cfg.prompt or ""
+
+            user_prompt = req.prompt or ""
+            if "{{prompt}}" in recipe_prompt:
+                composed_prompt = recipe_prompt.replace("{{prompt}}", user_prompt)
+            elif recipe_prompt and user_prompt:
+                composed_prompt = f"{recipe_prompt}\n\nTask:\n{user_prompt}"
+            else:
+                composed_prompt = user_prompt or recipe_prompt
+
+            if worktree_path is not None:
+                wt_header = (
+                    f"[WORKTREE] Your isolated git worktree is: {worktree_path} "
+                    f"(branch: {branch_name or 'HEAD'}).\n"
+                    "Make all file edits inside this worktree and commit your changes before finishing."
+                )
+                composed_prompt = f"{wt_header}\n\n{composed_prompt}".strip()
+
+            try:
+                from routers.agents import agent_mailbox_instruction_short
+
+                mailbox_short = agent_mailbox_instruction_short(req.name, model=resolved_model)
+                if mailbox_short:
+                    composed_prompt = f"{composed_prompt}\n\n{mailbox_short}"
+            except Exception:
+                pass
+
+            # Never pass Gemini CLI's -w flag; worktrees are provisioned and reaped by spawn_pipeline.
+            cmd = [
+                gemini_bin,
+                "-p",
+                composed_prompt,
+                "--output-format",
+                "stream-json",
+                "--skip-trust",
+                "--approval-mode",
+                "yolo",
+            ]
+            if mapped_cli_model is not None:
+                cmd.extend(["-m", mapped_cli_model])
+
+        api_key = None if _gemini_signed_in() else (_resolve_gemini_api_key() or None)
+        base_env = _build_subprocess_env(api_key=api_key)
+        proc_env = spawn_pipeline.build_short_socket_env(base_env, cwd_path, req.name)
+
+        safe_name = spawn_pipeline._safe_agent_slug(req.name)
+        transcripts_dir = youros_home() / "transcripts"
+        transcripts_dir.mkdir(parents=True, exist_ok=True)
+        transcript_path = transcripts_dir / f"{safe_name}.jsonl"
+        transcript_path.touch()
+
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=str(cwd_path),
+            env=proc_env,
+            start_new_session=True,
+        )
+        pid = getattr(proc, "pid", None)
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        meta_record: dict[str, Any] = {
+            "status": "running",
+            "spawned_at": now_iso,
+            "last_heartbeat_at": now_iso,
+            "model": resolved_model,
+            "runtime": "gemini",
+            "budget": str(req.budget),
+            "tokens_used": 0,
+            "source": str(extra.get("source") or "api"),
+            "isolation": isolation_mode,
+            "repo_path": str(repo_root),
+            "worktree_path": str(worktree_path) if worktree_path is not None else None,
+            "branch_name": branch_name,
+            "worktree_branch": branch_name,
+            "base_sha": base_sha,
+            "pid": pid,
+            "transcript_path": str(transcript_path),
+            "transcript_path_source": "caller",
+            "prompt": (req.prompt or "")[:4000],
+        }
+        if req.template:
+            meta_record["template"] = req.template
+        if req.task:
+            meta_record["task"] = req.task
+        if extra.get("description"):
+            meta_record["description"] = extra["description"]
+        if extra.get("task_id"):
+            meta_record["task_id"] = extra["task_id"]
+        if extra.get("needle_id"):
+            meta_record["needle_id"] = extra["needle_id"]
+        if extra.get("handed_off_from"):
+            meta_record["handed_off_from"] = extra["handed_off_from"]
+
+        try:
+            import routers.agents as agents_mod
+
+            agents_mod.agent_metadata[req.name] = meta_record
+            agents_mod.active_agents[req.name] = proc
+        except Exception as exc:
+            _gemini_log.warning("gemini.spawn.metadata_register_failed name=%s err=%s", req.name, exc)
+
+        await _event_bus.publish(
+            AGENT_SPAWNED,
+            {
+                "name": req.name,
+                "runtime": "gemini",
+                "model": resolved_model,
+                "status": "running",
+                "pid": pid,
+                "worktree_path": str(worktree_path) if worktree_path is not None else None,
+            },
+        )
+        await _event_bus.publish(AGENT_DELTA, {"name": req.name, "status": "running"})
+
+        async def _watch_gemini_subagent() -> None:
+            tokens_used = 0
+            stderr_buf = bytearray()
+
+            async def _drain_stdout() -> None:
+                nonlocal tokens_used
+                if proc.stdout is None:
+                    return
+                with open(transcript_path, "ab") as tfh:
+                    while True:
+                        line = await proc.stdout.readline()
+                        if not line:
+                            break
+                        tfh.write(line)
+                        if not line.endswith(b"\n"):
+                            tfh.write(b"\n")
+                        tfh.flush()
+                        try:
+                            ev = json.loads(line.decode("utf-8", errors="replace"))
+                            if isinstance(ev, dict) and ev.get("type") == "result":
+                                stats = ev.get("stats")
+                                if isinstance(stats, dict):
+                                    tokens_used += int(stats.get("input_tokens", 0) or 0) + int(
+                                        stats.get("output_tokens", 0) or 0
+                                    )
+                        except Exception:
+                            pass
+                        hb_now = datetime.now(timezone.utc).isoformat()
+                        meta_record["last_heartbeat_at"] = hb_now
+
+            async def _drain_stderr() -> None:
+                if proc.stderr is None:
+                    return
+                while True:
+                    chunk = await proc.stderr.read(4096)
+                    if not chunk:
+                        break
+                    if len(stderr_buf) < 8192:
+                        stderr_buf.extend(chunk[: 8192 - len(stderr_buf)])
+
+            try:
+                await asyncio.gather(_drain_stdout(), _drain_stderr(), return_exceptions=True)
+                rc = await proc.wait()
+            except Exception as exc:
+                _gemini_log.warning("gemini.spawn.watcher_error name=%s err=%s", req.name, exc)
+                rc = getattr(proc, "returncode", 1)
+                if rc is None:
+                    rc = 1
+
+            done_iso = datetime.now(timezone.utc).isoformat()
+            final_status = "completed" if rc == 0 else "failed"
+            if tokens_used:
+                meta_record["tokens_used"] = tokens_used
+
+            try:
+                import routers.agents as agents_mod
+
+                agents_mod.active_agents.pop(req.name, None)
+                live_meta = agents_mod.agent_metadata.get(req.name)
+                if live_meta is not None and live_meta.get("status") == "running":
+                    extra_done: dict[str, Any] = {
+                        "completed_at": done_iso,
+                        "last_heartbeat_at": done_iso,
+                        "exit_code": rc,
+                    }
+                    if rc != 0 and stderr_buf:
+                        extra_done["error"] = stderr_buf.decode("utf-8", errors="replace").strip()[:500]
+                    live_meta["status"] = final_status
+                    live_meta.update(extra_done)
+            except Exception as exc:
+                _gemini_log.warning("gemini.spawn.complete_update_failed name=%s err=%s", req.name, exc)
+
+            await _event_bus.publish(
+                AGENT_DELTA,
+                {"name": req.name, "status": final_status, "terminal": True},
+            )
+            await _event_bus.publish(
+                AGENT_COMPLETED,
+                {"name": req.name, "status": final_status, "runtime": "gemini", "exit_code": rc},
+            )
+
+        watcher = asyncio.create_task(_watch_gemini_subagent())
+        _gemini_spawn_tasks.add(watcher)
+        watcher.add_done_callback(_gemini_spawn_tasks.discard)
+
+        wt_str = str(worktree_path) if worktree_path is not None else None
+        return SpawnResult(
+            name=req.name,
+            pid=pid,
+            status="running",
+            worktree_path=wt_str,
+            transcript_path=str(transcript_path),
+            branch_name=branch_name,
+            base_sha=base_sha,
+            repo_path=str(repo_root),
+            detail={
+                "result": f"Agent '{req.name}' spawned on Gemini",
+                "name": req.name,
+                "pid": pid,
+                "status": "running",
+                "runtime": "gemini",
+                "model": resolved_model,
+                "transcript": str(transcript_path),
+                "worktree_path": wt_str,
+                "branch_name": branch_name,
+                "base_sha": base_sha,
+                "repo_path": str(repo_root),
+            },
         )
 
     async def invoke_skill(self, skill_id: str, **args: Any) -> None:

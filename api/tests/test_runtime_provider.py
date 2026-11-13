@@ -226,15 +226,15 @@ def test_gemini_cli_provider_reports_correct_subset():
     p = GeminiCliRuntimeProvider()
     assert isinstance(p, RuntimeProvider)
     feats = p.features()
-    # Gemini CLI streams tokens — STREAMING is declared.
+    # Gemini CLI streams tokens and runs subagents in isolated worktrees via spawn_pipeline (->3095).
     assert Feature.STREAMING in feats
-    # Gemini CLI lacks worktrees, plan mode, hooks, monitor, isolation, subagents.
-    assert Feature.WORKTREES not in feats
+    assert Feature.SUBAGENTS in feats
+    assert Feature.ISOLATION in feats
+    assert Feature.WORKTREES in feats
+    # Gemini CLI lacks plan mode, hooks, and live monitor.
     assert Feature.PLAN_MODE not in feats
     assert Feature.MONITOR not in feats
     assert Feature.HOOKS not in feats
-    assert Feature.ISOLATION not in feats
-    assert Feature.SUBAGENTS not in feats
 
 
 def test_switching_between_claude_code_and_gemini_providers_changes_features():

@@ -41,6 +41,7 @@ from test_2944_ostk_run_safety_rails import _install_bespoke_doubles, _post_spaw
 _TEST_NAMES = {
     "t2945-claude-seam",
     "t2945-gemini-block",
+    "t2945-gemini-spawn",
 }
 
 
@@ -129,12 +130,13 @@ def test_env_var_stays_as_test_only_override(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# (c) Gemini fails loudly, never silently runs the Claude internals
+# (c) Gemini never calls Claude internals: fails loudly if binary missing,
+#     and spawns a real Gemini subprocess when binary is present (->3095)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_gemini_provider_spawn_fails_loudly_and_never_calls_spawn_fn():
+async def test_gemini_provider_spawn_fails_loudly_when_binary_missing_and_never_calls_spawn_fn():
     from services.gemini_cli_provider import GeminiCliRuntimeProvider
     from services.runtime_provider import (
         SpawnNotSupportedError,
@@ -149,32 +151,32 @@ async def test_gemini_provider_spawn_fails_loudly_and_never_calls_spawn_fn():
         return SpawnResult(name=req.name)
 
     provider = GeminiCliRuntimeProvider(spawn_fn=claude_internals)
-    with pytest.raises(SpawnNotSupportedError) as exc:
-        await provider.spawn_subagent(SpawnRequest(name="t2945-unit", prompt="p"))
+    with patch("services.gemini_cli_provider._find_gemini_binary", return_value=None):
+        with pytest.raises(SpawnNotSupportedError) as exc:
+            await provider.spawn_subagent(SpawnRequest(name="t2945-unit", prompt="p"))
 
     message = str(exc.value)
-    assert "not yet supported" in message
     assert "Gemini" in message
     assert "Settings" in message, "the error must tell the user where to fix it"
     assert calls == [], "gemini must never silently run the claude spawn internals"
 
 
 @pytest.mark.asyncio
-async def test_gemini_setting_spawn_endpoint_refuses_in_plain_language(monkeypatch):
+async def test_gemini_setting_spawn_endpoint_refuses_when_binary_missing(monkeypatch):
     import routers.agents as agents_mod
 
     monkeypatch.delenv("YOUROS_RUNTIME", raising=False)
     _patch_saved_runtime(monkeypatch, "gemini")
 
-    exec_calls = []
+    claude_exec_calls = []
 
-    async def _record_exec(*args, **kwargs):
-        exec_calls.append(args)
-        raise AssertionError("no spawn subprocess may start on the gemini runtime")
+    async def _forbid_claude_exec(*args, **kwargs):
+        claude_exec_calls.append(args)
+        raise AssertionError("claude bespoke subprocess must never start on the gemini runtime")
 
-    monkeypatch.setattr(agents_mod.asyncio, "create_subprocess_exec", _record_exec)
+    monkeypatch.setattr(agents_mod.asyncio, "create_subprocess_exec", _forbid_claude_exec)
 
-    with patch("services.agentfile_parser._find_any_agentfile", return_value=None):
+    with patch("services.gemini_cli_provider._find_gemini_binary", return_value=None):
         resp = await _post_spawn(
             {
                 "name": "t2945-gemini-block",
@@ -185,19 +187,70 @@ async def test_gemini_setting_spawn_endpoint_refuses_in_plain_language(monkeypat
             }
         )
 
-    # →2988: Gemini + no agentfile now returns 400 (missing agentfile, not a
-    # missing capability) rather than 501 "not yet supported". Gemini does
-    # support agents via agentfiles; the right message names what is missing.
-    assert resp.status_code == 400, resp.text
+    assert resp.status_code == 501, resp.text
     detail = str(resp.json().get("detail", ""))
-    assert "agentfile" in detail.lower(), (
-        f"error must mention 'agentfile' so the user knows what to create; got: {detail!r}"
-    )
-    assert "Gemini" in detail, (
-        f"error must name the runtime so the user knows which setting to change; got: {detail!r}"
-    )
-    assert exec_calls == [], "the claude spawn path ran despite the gemini setting"
+    assert "Gemini" in detail
+    assert "Settings" in detail
+    assert claude_exec_calls == [], "the claude spawn path ran despite the gemini setting"
     assert "t2945-gemini-block" not in agents_mod.agent_metadata
+
+
+@pytest.mark.asyncio
+async def test_gemini_setting_spawns_gemini_subprocess_not_claude(tmp_path, monkeypatch):
+    import routers.agents as agents_mod
+    from services.gemini_cli_provider import GeminiCliRuntimeProvider
+    from services.runtime_provider import SpawnRequest, SpawnResult
+
+    monkeypatch.setenv("YOUROS_HOME", str(tmp_path / "yh"))
+    monkeypatch.delenv("YOUROS_RUNTIME", raising=False)
+    _patch_saved_runtime(monkeypatch, "gemini")
+
+    claude_calls = []
+
+    async def claude_internals(req: SpawnRequest) -> SpawnResult:
+        claude_calls.append(req)
+        return SpawnResult(name=req.name)
+
+    class _DummyStream:
+        async def readline(self) -> bytes:
+            return b""
+
+        async def read(self, n: int = -1) -> bytes:
+            return b""
+
+    class _DummyGemProc:
+        pid = 91827
+        returncode = 0
+        stdout = _DummyStream()
+        stderr = _DummyStream()
+
+        async def wait(self) -> int:
+            return 0
+
+    spawned_argv: list[list[str]] = []
+
+    async def _fake_gem_exec(*args, **kwargs):
+        spawned_argv.append(list(args))
+        return _DummyGemProc()
+
+    provider = GeminiCliRuntimeProvider(spawn_fn=claude_internals)
+    with (
+        patch("services.gemini_cli_provider._find_gemini_binary", return_value="/usr/local/bin/gemini"),
+        patch("services.gemini_cli_provider.asyncio.create_subprocess_exec", side_effect=_fake_gem_exec),
+    ):
+        res = await provider.spawn_subagent(
+            SpawnRequest(
+                name="t2945-gemini-spawn",
+                prompt="inspect logs",
+                isolation="none",
+            )
+        )
+
+    assert claude_calls == [], "gemini provider must NEVER call injected claude_internals"
+    assert len(spawned_argv) == 1
+    assert spawned_argv[0][0] == "/usr/local/bin/gemini"
+    assert res.pid == 91827
+    assert agents_mod.agent_metadata["t2945-gemini-spawn"]["runtime"] == "gemini"
 
 
 # ---------------------------------------------------------------------------
