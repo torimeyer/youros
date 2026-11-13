@@ -146,15 +146,31 @@ fi
 
 cd "$PRIMARY"
 
-# →2963: the agent workspace root is configurable. Default: .claude/worktrees
-# relative to the primary checkout (unchanged historical layout). An absolute
-# YOUROS_WORKTREES_DIR is used as-is; a relative value resolves against the
-# primary checkout. Mirrors services/spawn_isolation.py:worktrees_root().
-_WORKTREES_DIR="${YOUROS_WORKTREES_DIR:-.claude/worktrees}"
-case "$_WORKTREES_DIR" in
-  /*) WORKTREE_BASE="$_WORKTREES_DIR" ;;
-  *)  WORKTREE_BASE="$PRIMARY/$_WORKTREES_DIR" ;;
-esac
+# ->2963 / ->3091: the agent workspace root is configurable. When
+# YOUROS_WORKTREES_DIR is unset, scan BOTH .claude/worktrees and
+# .youros/worktrees relative to the primary checkout. An explicit
+# YOUROS_WORKTREES_DIR overrides the scan root (absolute as-is, relative
+# against the primary checkout), matching services/spawn_isolation.py.
+if [ -n "${YOUROS_WORKTREES_DIR:-}" ]; then
+  case "$YOUROS_WORKTREES_DIR" in
+    /*) WORKTREE_BASE="$YOUROS_WORKTREES_DIR" ;;
+    *)  WORKTREE_BASE="$PRIMARY/$YOUROS_WORKTREES_DIR" ;;
+  esac
+  WORKTREE_BASES=("$WORKTREE_BASE")
+else
+  WORKTREE_BASE="$PRIMARY/.claude/worktrees"
+  WORKTREE_BASES=("$PRIMARY/.claude/worktrees" "$PRIMARY/.youros/worktrees")
+fi
+
+_is_agent_worktree_path() {
+  local p="$1" b
+  for b in "${WORKTREE_BASES[@]}"; do
+    case "$p" in
+      "$b"/agent-*) return 0 ;;
+    esac
+  done
+  return 1
+}
 
 # ------------------------------------------------------------------
 # Live-agent guards (→2608)
@@ -235,8 +251,7 @@ while IFS= read -r line; do
     branch\ refs/heads/*)
       wt_branch="${line#branch refs/heads/}"
       # We have a path + branch. Decide whether to process.
-      case "$wt_path" in
-        "$WORKTREE_BASE"/agent-*)
+      if _is_agent_worktree_path "$wt_path"; then
           case "$wt_branch" in
             worktree-agent-*)
               # eligible
@@ -371,8 +386,7 @@ while IFS= read -r line; do
               fi
               ;;
           esac
-          ;;
-      esac
+      fi
       ;;
   esac
 done < <(git worktree list --porcelain)
@@ -591,32 +605,34 @@ orphan_removed=0
 orphan_skipped=0
 orphan_fail=0
 
-for _orphan_dir in "$WORKTREE_BASE"/agent-*/; do
-  # Strip trailing slash for consistent comparison.
-  _orphan_dir="${_orphan_dir%/}"
-  [ -d "$_orphan_dir" ] || continue
+for _wt_base in "${WORKTREE_BASES[@]}"; do
+  [ -d "$_wt_base" ] || continue
+  for _orphan_dir in "$_wt_base"/agent-*/; do
+    # Strip trailing slash for consistent comparison.
+    _orphan_dir="${_orphan_dir%/}"
+    [ -d "$_orphan_dir" ] || continue
 
-  # Skip if this dir IS in git worktree list (handled by phase 1).
-  _is_registered=0
-  while IFS= read -r _rp; do
-    if [ "$_rp" = "$_orphan_dir" ]; then
-      _is_registered=1
-      break
+    # Skip if this dir IS in git worktree list (handled by phase 1).
+    _is_registered=0
+    while IFS= read -r _rp; do
+      if [ "$_rp" = "$_orphan_dir" ]; then
+        _is_registered=1
+        break
+      fi
+    done <<< "$_registered_paths"
+    [ "$_is_registered" -eq 1 ] && continue
+
+    orphan_count=$((orphan_count + 1))
+    _orphan_agent_name="${_orphan_dir##*/agent-}"
+
+    if [ "$APPLY" -eq 0 ]; then
+      echo "  orphan (dry-run): $_orphan_dir"
+      continue
     fi
-  done <<< "$_registered_paths"
-  [ "$_is_registered" -eq 1 ] && continue
 
-  orphan_count=$((orphan_count + 1))
-  _orphan_agent_name="${_orphan_dir##*/agent-}"
-
-  if [ "$APPLY" -eq 0 ]; then
-    echo "  orphan (dry-run): $_orphan_dir"
-    continue
-  fi
-
-  # Active-agent guard: never remove an orphan whose agent is still running.
-  if [ "$_ACTIVE_NAMES_LOADED" -eq 1 ] && [ -n "$ACTIVE_AGENT_NAMES" ]; then
-    _orphan_is_protected=$(python3 - "$_orphan_agent_name" "$ACTIVE_AGENT_NAMES" <<'PYEOF'
+    # Active-agent guard: never remove an orphan whose agent is still running.
+    if [ "$_ACTIVE_NAMES_LOADED" -eq 1 ] && [ -n "$ACTIVE_AGENT_NAMES" ]; then
+      _orphan_is_protected=$(python3 - "$_orphan_agent_name" "$ACTIVE_AGENT_NAMES" <<'PYEOF'
 import hashlib, sys
 
 wt_id = sys.argv[1]
@@ -636,38 +652,39 @@ for name in (n for n in active_csv.split(",") if n):
 print("unprotected")
 PYEOF
 )
-    if [ "${_orphan_is_protected:-}" = "protected" ]; then
-      echo "  orphan protected (agent '$_orphan_agent_name' still active): $_orphan_dir"
-      orphan_skipped=$((orphan_skipped + 1))
-      continue
+      if [ "${_orphan_is_protected:-}" = "protected" ]; then
+        echo "  orphan protected (agent '$_orphan_agent_name' still active): $_orphan_dir"
+        orphan_skipped=$((orphan_skipped + 1))
+        continue
+      fi
     fi
-  fi
 
-  # Safety: skip orphans that have uncommitted tracked changes.
-  # Orphan dirs have no git registration, so we cannot use `git diff`
-  # from the repo root. Instead check whether the dir contains a
-  # .git file (worktree gitdir pointer) and if so whether there are
-  # staged or unstaged tracked changes.
-  if [ -f "$_orphan_dir/.git" ]; then
-    _orphan_unstaged=0
-    _orphan_staged=0
-    git -C "$_orphan_dir" diff --quiet 2>/dev/null || _orphan_unstaged=1
-    git -C "$_orphan_dir" diff --cached --quiet 2>/dev/null || _orphan_staged=1
-    if [ "$_orphan_unstaged" -eq 1 ] || [ "$_orphan_staged" -eq 1 ]; then
-      echo "  orphan skipped (has uncommitted tracked changes): $_orphan_dir" >&2
-      orphan_skipped=$((orphan_skipped + 1))
-      continue
+    # Safety: skip orphans that have uncommitted tracked changes.
+    # Orphan dirs have no git registration, so we cannot use `git diff`
+    # from the repo root. Instead check whether the dir contains a
+    # .git file (worktree gitdir pointer) and if so whether there are
+    # staged or unstaged tracked changes.
+    if [ -f "$_orphan_dir/.git" ]; then
+      _orphan_unstaged=0
+      _orphan_staged=0
+      git -C "$_orphan_dir" diff --quiet 2>/dev/null || _orphan_unstaged=1
+      git -C "$_orphan_dir" diff --cached --quiet 2>/dev/null || _orphan_staged=1
+      if [ "$_orphan_unstaged" -eq 1 ] || [ "$_orphan_staged" -eq 1 ]; then
+        echo "  orphan skipped (has uncommitted tracked changes): $_orphan_dir" >&2
+        orphan_skipped=$((orphan_skipped + 1))
+        continue
+      fi
     fi
-  fi
 
-  # Remove the orphan dir. No git worktree remove needed (it has no registration).
-  if rm -rf "$_orphan_dir" 2>/dev/null; then
-    echo "  orphan removed: $_orphan_dir"
-    orphan_removed=$((orphan_removed + 1))
-  else
-    echo "  error: failed to remove orphan dir $_orphan_dir" >&2
-    orphan_fail=$((orphan_fail + 1))
-  fi
+    # Remove the orphan dir. No git worktree remove needed (it has no registration).
+    if rm -rf "$_orphan_dir" 2>/dev/null; then
+      echo "  orphan removed: $_orphan_dir"
+      orphan_removed=$((orphan_removed + 1))
+    else
+      echo "  error: failed to remove orphan dir $_orphan_dir" >&2
+      orphan_fail=$((orphan_fail + 1))
+    fi
+  done
 done
 
 if [ "$APPLY" -eq 0 ]; then

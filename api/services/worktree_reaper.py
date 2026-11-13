@@ -37,6 +37,39 @@ logger = logging.getLogger(__name__)
 
 REAPER_INTERVAL_SECONDS = 900  # 15 minutes
 
+WORKTREE_SCAN_SUBDIRS: tuple[str, ...] = (
+    ".claude/worktrees",
+    ".youros/worktrees",
+)
+
+
+def worktree_scan_roots(repo_root: Path) -> list[Path]:
+    """Return workspace root directories scanned for agent-* worktrees (->3091).
+
+    Honors YOUROS_WORKTREES_DIR when explicitly set; otherwise returns both
+    the legacy .claude/worktrees and runtime-neutral .youros/worktrees roots.
+    """
+    root = Path(repo_root)
+    raw = os.environ.get("YOUROS_WORKTREES_DIR", "").strip()
+    if raw:
+        override = Path(raw).expanduser()
+        return [override if override.is_absolute() else root / override]
+    return [root / sub for sub in WORKTREE_SCAN_SUBDIRS]
+
+
+def discover_agent_worktrees(repo_root: Path) -> list[Path]:
+    """Discover existing agent-* worktree directories across all scan roots."""
+    found: list[Path] = []
+    seen: set[Path] = set()
+    for wt_root in worktree_scan_roots(repo_root):
+        if not wt_root.is_dir():
+            continue
+        for entry in sorted(wt_root.glob("agent-*")):
+            if entry.is_dir() and entry not in seen:
+                seen.add(entry)
+                found.append(entry)
+    return found
+
 # Statuses that mean "the agent is still doing work and must not be reaped".
 # Unknown statuses are treated as active by _active_agent_names (fail-safe)
 # so a future status value never causes an accidental removal.

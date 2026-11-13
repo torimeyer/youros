@@ -106,6 +106,8 @@ class SpawnRequest:
     task: Optional[str] = None
     isolation: Optional[str] = None  # "worktree" | "none" | None (auto)
     token_limit: Optional[int] = None
+    repo_path: Optional[str] = None
+    base_sha: Optional[str] = None
     # Free-form extras for fields a specific runtime cares about without
     # widening the core contract (e.g. needle id, spec path, workflow run).
     extra: dict = field(default_factory=dict)
@@ -120,6 +122,9 @@ class SpawnResult:
     status: str = "running"
     worktree_path: Optional[str] = None
     transcript_path: Optional[str] = None
+    branch_name: Optional[str] = None
+    base_sha: Optional[str] = None
+    repo_path: Optional[str] = None
     detail: dict = field(default_factory=dict)
 
 
