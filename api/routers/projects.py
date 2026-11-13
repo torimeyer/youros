@@ -13,13 +13,61 @@ from services.youros_paths import youros_home
 
 router = APIRouter(tags=["projects"])
 
-from config import PROJECT_ROOT
+from config import PROJECT_ROOT, get_active_repo_path
+from services import settings_store as settings_store_mod
 
 # The working directory where the OS lives.
 TORIOS_DIR = PROJECT_ROOT
 
 # Hidden directories and known non-project entries to skip.
 SKIP = {".git", ".ostk", ".vite", ".claude", ".DS_Store", "node_modules", "__pycache__"}
+
+
+def _is_git_repo(path: Path) -> bool:
+    """Return True when path is an existing directory containing a .git dir or worktree file."""
+    try:
+        if not path.is_dir():
+            return False
+        git_marker = path / ".git"
+        return git_marker.is_dir() or git_marker.is_file()
+    except OSError:
+        return False
+
+
+def _read_git_branch(repo_path: Path) -> Optional[str]:
+    """Read the checked-out git branch directly from .git/HEAD without subprocesses."""
+    git_marker = repo_path / ".git"
+    try:
+        if git_marker.is_dir():
+            head_path = git_marker / "HEAD"
+        elif git_marker.is_file():
+            marker_text = git_marker.read_text(encoding="utf-8", errors="replace")
+            gitdir_raw = ""
+            for line in marker_text.splitlines():
+                stripped = line.strip()
+                if stripped.lower().startswith("gitdir:"):
+                    gitdir_raw = stripped.split(":", 1)[1].strip()
+                    break
+            if not gitdir_raw:
+                return None
+            gitdir_path = Path(gitdir_raw)
+            if not gitdir_path.is_absolute():
+                gitdir_path = (repo_path / gitdir_path).resolve()
+            head_path = gitdir_path / "HEAD"
+        else:
+            return None
+
+        head_raw = head_path.read_text(encoding="utf-8", errors="replace").strip()
+    except OSError:
+        return None
+
+    if not head_raw:
+        return None
+    if head_raw.startswith("ref: refs/heads/"):
+        return head_raw[len("ref: refs/heads/"):]
+    if head_raw.startswith("ref: "):
+        return head_raw[len("ref: "):]
+    return head_raw[:7]
 
 
 def _projects_root() -> Path:
@@ -78,6 +126,7 @@ def _resolve_readable_path(path_str: str) -> Path:
         raise HTTPException(status_code=400, detail="Path is required.")
 
     workspace_root = TORIOS_DIR.resolve()
+    active_repo_root = get_active_repo_path().resolve()
     myos_files_root = (youros_home() / "files").resolve()
     myos_projects_root = (youros_home() / "projects").resolve()
     myos_root = (Path.home() / "myos").resolve()
@@ -87,8 +136,18 @@ def _resolve_readable_path(path_str: str) -> Path:
         resolved = incoming.resolve()
     else:
         resolved = (TORIOS_DIR / incoming).resolve()
+        if not resolved.exists() and active_repo_root != workspace_root:
+            alt = (active_repo_root / incoming).resolve()
+            if alt.exists():
+                resolved = alt
 
-    allowed_roots = [workspace_root, myos_files_root, myos_projects_root, myos_root]
+    allowed_roots = [
+        workspace_root,
+        active_repo_root,
+        myos_files_root,
+        myos_projects_root,
+        myos_root,
+    ]
     in_allowed_root = any(
         resolved == root or str(resolved).startswith(str(root) + os.sep)
         for root in allowed_roots
@@ -188,6 +247,116 @@ async def list_projects():
         })
 
     return {"projects": projects}
+
+
+class ActiveRepoRequest(BaseModel):
+    path: Optional[str] = None
+
+
+@router.get("/projects/repos")
+async def list_git_repos():
+    """Discover local git repositories across standard workspace roots."""
+    active_path = get_active_repo_path()
+    try:
+        active_resolved = active_path.resolve()
+    except OSError:
+        active_resolved = active_path
+
+    candidates: list[Path] = [TORIOS_DIR]
+    scan_roots = [
+        TORIOS_DIR,
+        Path.home() / "claude",
+        Path.home() / "myos",
+        Path.home() / "code",
+        youros_home() / "projects",
+    ]
+    for root in scan_roots:
+        try:
+            if not root.is_dir():
+                continue
+            for entry in sorted(root.iterdir(), key=lambda p: p.name.lower()):
+                if entry.name.startswith(".") or entry.name in SKIP:
+                    continue
+                candidates.append(entry)
+        except OSError:
+            continue
+
+    saved_active = settings_store_mod.load_settings().get("active_repo_path")
+    if isinstance(saved_active, str) and saved_active.strip():
+        candidates.append(Path(saved_active.strip()).expanduser())
+    candidates.append(active_path)
+
+    seen_paths: set[str] = set()
+    repos: list[dict] = []
+    torios_resolved_str = str(TORIOS_DIR.resolve())
+
+    for candidate in candidates:
+        try:
+            resolved = candidate.resolve()
+        except OSError:
+            continue
+        resolved_str = str(resolved)
+        if resolved_str in seen_paths:
+            continue
+        if not _is_git_repo(resolved):
+            continue
+        seen_paths.add(resolved_str)
+        repos.append({
+            "name": resolved.name,
+            "path": resolved_str,
+            "is_active": resolved == active_resolved,
+            "branch": _read_git_branch(resolved),
+        })
+
+    repos.sort(
+        key=lambda r: (0 if r["path"] == torios_resolved_str else 1, r["name"].lower())
+    )
+    return {
+        "repos": repos,
+        "active_repo_path": str(active_path),
+    }
+
+
+@router.post("/projects/active-repo")
+async def set_active_repo(body: ActiveRepoRequest):
+    """Select an active git repository or reset back to PROJECT_ROOT when path is empty/null."""
+    from routers import sessions as sessions_router
+    from services.ostk import invalidate_ttl_cache
+
+    raw_path = (body.path or "").strip() if body.path is not None else ""
+    if not raw_path:
+        settings_store_mod.save_settings({"active_repo_path": None})
+        invalidate_ttl_cache()
+        sessions_router.reset_session_caches()
+        effective = get_active_repo_path()
+        return {
+            "active_repo_path": str(effective),
+            "name": effective.name,
+        }
+
+    try:
+        resolved = Path(raw_path).expanduser().resolve()
+    except OSError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid repository path: {exc}")
+
+    if not resolved.exists():
+        raise HTTPException(status_code=400, detail=f"Repository path does not exist: {resolved}")
+    if not resolved.is_dir():
+        raise HTTPException(status_code=400, detail=f"Repository path is not a directory: {resolved}")
+    if not _is_git_repo(resolved):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Directory is not a git repository (missing .git): {resolved}",
+        )
+
+    settings_store_mod.save_settings({"active_repo_path": str(resolved)})
+    invalidate_ttl_cache()
+    sessions_router.reset_session_caches()
+    effective = get_active_repo_path()
+    return {
+        "active_repo_path": str(effective),
+        "name": resolved.name,
+    }
 
 
 class ProjectPillarUpdate(BaseModel):

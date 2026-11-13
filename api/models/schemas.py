@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Dict, List, Optional
 
 
@@ -190,6 +190,18 @@ class Settings(BaseModel):
         "check_in_seconds": 30,
         "focus_mode": False,
     }
+    # Optional path to the currently selected git repository for multi-repo
+    # workflows. None falls back to PROJECT_ROOT.
+    active_repo_path: Optional[str] = None
+
+
+SettingsResponse = Settings
+
+
+class SettingsUpdate(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    active_repo_path: Optional[str] = None
 
 
 class MCPServer(BaseModel):

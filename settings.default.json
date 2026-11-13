@@ -7,6 +7,7 @@
   "default_model": "@claude",
   "use_ostk_terms": false,
   "enterprise_enabled": false,
+  "active_repo_path": null,
   "features": {
     "Chat": true,
     "Tasks": true,

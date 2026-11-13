@@ -1163,3 +1163,39 @@ describe('enterpriseEnabled store flag (Phase 1)', () => {
     expect((useAppStore.getState() as unknown as { enterpriseEnabled: boolean }).enterpriseEnabled).toBe(true)
   })
 })
+
+describe('activeRepoPath store slice (Phase 2A)', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    vi.clearAllMocks()
+    useAppStore.setState({ activeRepoPath: null } as never)
+  })
+
+  it('defaults activeRepoPath to null', () => {
+    expect(useAppStore.getState().activeRepoPath).toBeNull()
+  })
+
+  it('setActiveRepoPath updates activeRepoPath and clears back to null', () => {
+    useAppStore.getState().setActiveRepoPath('/Users/dev/claude/ext-repo')
+    expect(useAppStore.getState().activeRepoPath).toBe('/Users/dev/claude/ext-repo')
+
+    useAppStore.getState().setActiveRepoPath(null)
+    expect(useAppStore.getState().activeRepoPath).toBeNull()
+  })
+
+  it('hydrates activeRepoPath from settings.active_repo_path via hydrateFromServer and loadSettings', async () => {
+    vi.mocked(api.get).mockResolvedValueOnce({
+      onboarded: true,
+      active_repo_path: '/Users/dev/claude/service-a',
+    })
+    await useAppStore.getState().loadSettings()
+    expect(useAppStore.getState().activeRepoPath).toBe('/Users/dev/claude/service-a')
+
+    vi.mocked(api.get).mockResolvedValueOnce({
+      onboarded: true,
+      active_repo_path: null,
+    })
+    await useAppStore.getState().hydrateFromServer()
+    expect(useAppStore.getState().activeRepoPath).toBeNull()
+  })
+})

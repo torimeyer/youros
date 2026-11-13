@@ -190,8 +190,31 @@ class SettingsStore:
         _deep_update(current, partial)
         self.save(current)
 
+    def load_settings(self) -> dict:
+        return self.load()
+
+    def save_settings(self, partial: dict) -> None:
+        self.update(partial)
+
 
 settings_store = SettingsStore()
+
+
+def load_settings() -> dict:
+    """Load merged user settings dictionary from disk with schema defaults."""
+    return settings_store.load()
+
+
+def save_settings(partial: dict) -> None:
+    """Persist a partial settings update safely without clobbering sibling keys."""
+    settings_store.update(partial)
+
+
+def get_active_repo_path() -> Path:
+    """Re-export config.get_active_repo_path for callers importing from settings_store."""
+    import config as _config
+
+    return _config.get_active_repo_path()
 
 
 def is_enterprise_enabled() -> bool:

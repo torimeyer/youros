@@ -234,6 +234,9 @@ interface AppState {
   setPowerUserMode: (v: boolean) => void
   enterpriseEnabled: boolean
   setEnterpriseEnabled: (v: boolean) => void
+  activeRepoPath: string | null
+  setActiveRepoPath: (path: string | null) => void
+  loadSettings: () => Promise<void>
   whatsNewLastSeen: string
   setWhatsNewLastSeen: (v: string) => void
   agentsLastViewed: string
@@ -304,6 +307,7 @@ const LS_KEYS = {
   tourComplete: 'myos-tour-complete',
   powerUserMode: 'myos-power-user-mode',
   enterpriseEnabled: 'myos-enterprise-enabled',
+  activeRepoPath: 'myos-active-repo-path',
   whatsNewLastSeen: 'myos-whats-new-last-seen',
   agentsLastViewed: 'myos-agents-last-viewed',
   gmailUnreadAtTop: 'myos-gmail-unread-at-top',
@@ -410,6 +414,15 @@ function lsSet(key: string, value: string): void {
   }
 }
 
+function lsRemove(key: string): void {
+  try {
+    if (typeof localStorage === 'undefined') return
+    localStorage.removeItem(key)
+  } catch {
+    // ignore storage access errors
+  }
+}
+
 // Fire and forget server patch. We never want to throw from a setter.
 function patchServer(body: Record<string, unknown>): void {
   api.patch('/settings', body)?.catch(() => {
@@ -468,6 +481,7 @@ const initialSideBySideEnabled = lsGet(LS_KEYS.sideBySideEnabled) === 'true'
 const initialUseOstkTerms = lsGet(LS_KEYS.useOstkTerms) === 'true'
 const initialTourComplete = lsGet(LS_KEYS.tourComplete) === 'true'
 const initialEnterpriseEnabled = lsGet(LS_KEYS.enterpriseEnabled) === 'true'
+const initialActiveRepoPath = lsGet(LS_KEYS.activeRepoPath) || null
 const initialWhatsNewLastSeen = lsGet(LS_KEYS.whatsNewLastSeen) || ''
 const initialAgentsLastViewed = lsGet(LS_KEYS.agentsLastViewed) || ''
 const initialGmailUnreadAtTop = lsGet(LS_KEYS.gmailUnreadAtTop) !== 'false'
@@ -716,6 +730,18 @@ export const useAppStore = create<AppState>((set, get) => ({
     lsSet(LS_KEYS.enterpriseEnabled, String(enterpriseEnabled))
     set({ enterpriseEnabled })
     patchServer({ enterprise_enabled: enterpriseEnabled })
+  },
+  activeRepoPath: initialActiveRepoPath,
+  setActiveRepoPath: (activeRepoPath) => {
+    if (activeRepoPath) {
+      lsSet(LS_KEYS.activeRepoPath, activeRepoPath)
+    } else {
+      lsRemove(LS_KEYS.activeRepoPath)
+    }
+    set({ activeRepoPath })
+  },
+  loadSettings: async () => {
+    await get().hydrateFromServer()
   },
   whatsNewLastSeen: initialWhatsNewLastSeen,
   setWhatsNewLastSeen: (whatsNewLastSeen) => {
@@ -1067,6 +1093,18 @@ export const useAppStore = create<AppState>((set, get) => ({
       lsSet(LS_KEYS.enterpriseEnabled, String(v))
     } else if (state.enterpriseEnabled) {
       backfill.enterprise_enabled = state.enterpriseEnabled
+    }
+
+    // active_repo_path
+    const nextActiveRepo =
+      typeof server.active_repo_path === 'string' && server.active_repo_path.length > 0
+        ? server.active_repo_path
+        : null
+    updates.activeRepoPath = nextActiveRepo
+    if (nextActiveRepo) {
+      lsSet(LS_KEYS.activeRepoPath, nextActiveRepo)
+    } else {
+      lsRemove(LS_KEYS.activeRepoPath)
     }
 
     // whats_new_last_seen
