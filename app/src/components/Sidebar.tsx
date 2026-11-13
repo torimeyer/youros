@@ -18,6 +18,7 @@ import { CSS } from '@dnd-kit/utilities'
 import Icon from './Icon'
 import WhatsNew from './WhatsNew'
 import ConfirmModal from './ConfirmModal'
+import RepoSwitcher from './RepoSwitcher'
 import { useAppStore, TEAM_MODE_VISIBLE } from '../stores/app'
 import AdminSection from './AdminSection'
 import { api } from '../lib/api'
@@ -801,6 +802,9 @@ export function Sidebar() {
             Start or join a team →
           </Link>
         )}
+        <div className="mt-3">
+          <RepoSwitcher compact={sidebarWidth < 180} onNavigate={() => setMobileOpen(false)} />
+        </div>
       </div>
 
       <nav className="flex flex-col gap-0.5 px-3 flex-1 overflow-y-auto" data-testid="primary-nav">

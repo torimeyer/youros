@@ -18,11 +18,20 @@ from typing import Optional
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from config import OSTK_DIR
+from services.ostk import get_effective_root
 from services.session_events import bus as _session_events_bus
 
 router = APIRouter(tags=["sessions"])
 
-SESSIONS_DIR = OSTK_DIR / "sessions"
+_DEFAULT_SESSIONS_DIR = OSTK_DIR / "sessions"
+SESSIONS_DIR = _DEFAULT_SESSIONS_DIR
+
+
+def _effective_sessions_dir() -> Path:
+    """Return SESSIONS_DIR when explicitly patched by tests, else <effective_root>/.ostk/sessions."""
+    if SESSIONS_DIR != _DEFAULT_SESSIONS_DIR:
+        return SESSIONS_DIR
+    return get_effective_root() / ".ostk" / "sessions"
 
 # Thresholds
 ACTIVE_CUTOFF_MINUTES = 5
@@ -277,14 +286,15 @@ def _detect_file_conflicts(
 
 
 def _get_sessions() -> list[dict]:
-    if not SESSIONS_DIR.is_dir():
+    sessions_dir = _effective_sessions_dir()
+    if not sessions_dir.is_dir():
         return []
 
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(minutes=IDLE_CUTOFF_MINUTES)
     results = []
 
-    for entry in SESSIONS_DIR.iterdir():
+    for entry in sessions_dir.iterdir():
         if not entry.is_dir():
             continue
         events_file = entry / "events.jsonl"
@@ -371,8 +381,7 @@ def _claude_code_transcript_sessions() -> list[dict]:
     # Match the current repo's cwd so we only report sessions that are
     # actually editing this project. Claude Code encodes cwd as "-" for
     # each path separator.
-    from config import PROJECT_ROOT
-    cwd_tag = str(PROJECT_ROOT).replace("/", "-")
+    cwd_tag = str(get_effective_root()).replace("/", "-")
     project_dir = projects_root / cwd_tag
     if not project_dir.is_dir():
         return []
@@ -456,11 +465,12 @@ def cleanup_stale_backend_sessions() -> int:
     Returns the number of session directories swept. Safe to call even
     when the sessions directory does not exist.
     """
-    if not SESSIONS_DIR.is_dir():
+    sessions_dir = _effective_sessions_dir()
+    if not sessions_dir.is_dir():
         return 0
 
     backend_dirs = [
-        entry for entry in SESSIONS_DIR.iterdir()
+        entry for entry in sessions_dir.iterdir()
         if entry.is_dir() and _is_backend_self_session(entry.name)
     ]
     if len(backend_dirs) <= 1:
@@ -575,7 +585,7 @@ def _gather_sessions_and_events_sync(
     all_events.sort(key=lambda e: e.get("timestamp", ""), reverse=True)
     events = all_events[:20]
 
-    conflicts = _detect_file_conflicts(SESSIONS_DIR, now=now_utc)
+    conflicts = _detect_file_conflicts(_effective_sessions_dir(), now=now_utc)
     return sessions, events, conflicts
 
 
@@ -926,7 +936,7 @@ async def get_session_digest() -> dict:
         # Enrich session list with agent labels from in-memory metadata
         from routers.agents import agent_metadata
 
-        raw_sessions = await asyncio.to_thread(_build_digest_sync, SESSIONS_DIR)
+        raw_sessions = await asyncio.to_thread(_build_digest_sync, _effective_sessions_dir())
 
         # Enrich label with agent task name where available
         meta_snap = dict(agent_metadata)
@@ -947,6 +957,15 @@ async def get_session_digest() -> dict:
         _digest_cache = result
         _digest_cache_ts = time.monotonic()
         return result
+
+
+def reset_session_caches() -> None:
+    """Clear short-lived coordination and digest caches when active_repo_path changes."""
+    global _coord_cache, _coord_cache_ts, _digest_cache, _digest_cache_ts
+    _coord_cache = None
+    _coord_cache_ts = 0.0
+    _digest_cache = None
+    _digest_cache_ts = 0.0
 
 
 @router.get("/sessions/digest")

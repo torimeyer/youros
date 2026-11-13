@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, within, act } from '@testing-library/react'
 import { BrowserRouter, MemoryRouter } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
 import { useAppStore } from '../stores/app'
@@ -1845,5 +1845,38 @@ describe('Take the tour starts the walkthrough from the sidebar (→2971)', () =
     const button = screen.getByTestId('take-the-tour-button')
     expect(button.tagName).toBe('BUTTON')
     expect(button.closest('a')).toBeNull()
+  })
+})
+
+describe('Sidebar RepoSwitcher (Phase 2A)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+    _resetSidebarBus()
+    useRunningAgentsStore.setState({ count: 0, agents: [], connected: false, lastUpdatedAt: null })
+    useAppStore.setState({
+      osName: 'yourOS',
+      features: DEFAULT_FEATURES,
+      enterpriseEnabled: false,
+      activeRepoPath: null,
+    })
+    mockedApiGet.mockImplementation((url: string) => {
+      if (url.startsWith('/agents')) return Promise.resolve({ agents: [] })
+      if (url === '/tasks/counts') return Promise.resolve({ open: 0 })
+      if (url === '/specs/counts') return Promise.resolve({ unfinished: 0, total: 0 })
+      return Promise.resolve({ authenticated: false, unread_count: 0 })
+    })
+  })
+
+  it('mounts RepoSwitcher inside the expanded sidebar and updates basename when activeRepoPath changes', () => {
+    renderSidebar()
+    const switcher = screen.getByTestId('repo-switcher')
+    expect(switcher).toBeInTheDocument()
+    expect(switcher.textContent).toContain('torios')
+
+    act(() => {
+      useAppStore.setState({ activeRepoPath: '/Users/dev/claude/platform-core' })
+    })
+    expect(screen.getByTestId('repo-switcher').textContent).toContain('platform-core')
   })
 })

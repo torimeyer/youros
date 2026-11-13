@@ -22,6 +22,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["specs"])
 
 
+def _effective_repo_root() -> Path:
+    """Return the active repository root (falling back to config.PROJECT_ROOT)."""
+    return ostk_module.get_effective_root()
+
+
 # Model used for acceptance-criteria drafting. Haiku produces the same
 # shape of output (3 short checklist items plus a 2-3 sentence "What we
 # want" paragraph) as Sonnet but lands in roughly half the wall time:
@@ -81,7 +86,7 @@ def _resolve_spec_journey_id(spec_path: str) -> str:
     if jid:
         return jid
     try:
-        full = Path(config.PROJECT_ROOT) / os.path.expanduser(spec_path)
+        full = _effective_repo_root() / os.path.expanduser(spec_path)
         if full.exists():
             return _read_frontmatter_value(full.read_text(), "journey_id")
     except OSError:
@@ -582,7 +587,7 @@ def _read_umbrella_fields(path_str: str) -> dict:
     elif raw.startswith("/"):
         abs_path = Path(raw)
     else:
-        abs_path = Path(config.PROJECT_ROOT) / raw
+        abs_path = _effective_repo_root() / raw
     try:
         text = abs_path.read_text()
     except OSError:
@@ -735,7 +740,7 @@ async def list_specs(clear_to_build: Optional[bool] = None):
                     except Exception:
                         surviving.append(d)
                         continue
-                    shipped = compute_shipped(abs_path, _SPEC_REPO_ROOT, needle_statuses)
+                    shipped = compute_shipped(abs_path, _effective_repo_root(), needle_statuses)
                     if shipped.is_shipped and abs_path.exists():
                         # Move to archive
                         archive_dir.mkdir(parents=True, exist_ok=True)
@@ -769,7 +774,7 @@ async def list_specs(clear_to_build: Optional[bool] = None):
                     _needle_status = needle_statuses.get(_nid, "open")
                     if _needle_status in ("open",):
                         continue
-                    _abs_sn = Path(config.PROJECT_ROOT) / _sn_path
+                    _abs_sn = _effective_repo_root() / _sn_path
                     try:
                         if _abs_sn.exists():
                             _abs_sn.unlink()
@@ -789,7 +794,7 @@ async def list_specs(clear_to_build: Optional[bool] = None):
                     raw_path = d.get("path", "")
                     abs_path = (
                         raw_path if raw_path.startswith("/") or raw_path.startswith("~")
-                        else str(_Path(config.PROJECT_ROOT) / raw_path)
+                        else str(_effective_repo_root() / raw_path)
                     )
                     r = compute_spec_readiness(abs_path)
                     d["clear_to_build"] = r.ready
@@ -1350,7 +1355,7 @@ async def export_spec(spec_path: str, format: str = "speckit"):
     # 404 (not 400) so a husk's presence is never even revealed.
     if spec_path.startswith("docs/draft/") or spec_path.startswith("docs/spec/"):
         raise HTTPException(status_code=404, detail=f"Spec not found: {spec_path}")
-    full_path = (Path(config.PROJECT_ROOT) / spec_path).resolve()
+    full_path = (_effective_repo_root() / spec_path).resolve()
     if not full_path.exists():
         raise HTTPException(status_code=404, detail=f"Spec not found: {spec_path}")
     text = full_path.read_text()
@@ -1428,7 +1433,7 @@ async def promote_draft(body: SpecPromote):
     _readiness_payload: dict = {}
     try:
         from services.gemini_ready import compute_spec_readiness
-        abs_path = str(Path(config.PROJECT_ROOT) / body.path)
+        abs_path = str(_effective_repo_root() / body.path)
         r = compute_spec_readiness(abs_path)
         _readiness_payload = {
             "clear_to_build": r.ready,
@@ -1453,7 +1458,7 @@ async def promote_draft(body: SpecPromote):
         "References": "<!-- Related specs, needles (→NNN), or files -->",
     }
     try:
-        _promote_path = Path(config.PROJECT_ROOT) / body.path
+        _promote_path = _effective_repo_root() / body.path
         if _promote_path.exists():
             _text = _promote_path.read_text(encoding="utf-8", errors="replace")
             _heading_re = re.compile(r"^#{1,3}\s+(.+)$", re.MULTILINE)
@@ -1503,7 +1508,7 @@ async def patch_spec_clarity(spec_path: str, body: SpecClarityFix):
     abs_path = (
         spec_path
         if spec_path.startswith("/") or spec_path.startswith("~")
-        else str(Path(config.PROJECT_ROOT) / spec_path)
+        else str(_effective_repo_root() / spec_path)
     )
     abs_path = str(Path(os.path.expanduser(abs_path)).resolve())
 
@@ -1537,7 +1542,7 @@ async def patch_spec_body(spec_path: str, body: SpecBodyUpdate):
     abs_path = (
         spec_path
         if spec_path.startswith("/") or spec_path.startswith("~")
-        else str(Path(config.PROJECT_ROOT) / spec_path)
+        else str(_effective_repo_root() / spec_path)
     )
     abs_path = str(Path(os.path.expanduser(abs_path)).resolve())
 
@@ -1574,7 +1579,7 @@ async def patch_spec_no_ac_needed(spec_path: str, body: SpecNoAcNeededUpdate):
     abs_path = (
         spec_path
         if spec_path.startswith("/") or spec_path.startswith("~")
-        else str(Path(config.PROJECT_ROOT) / spec_path)
+        else str(_effective_repo_root() / spec_path)
     )
     abs_path = str(Path(os.path.expanduser(abs_path)).resolve())
 
@@ -1650,7 +1655,7 @@ async def patch_spec_criterion(spec_path: str, body: SpecCriterionUpdate):
     abs_path = (
         spec_path
         if spec_path.startswith("/") or spec_path.startswith("~")
-        else str(Path(config.PROJECT_ROOT) / spec_path)
+        else str(_effective_repo_root() / spec_path)
     )
     abs_path = str(Path(os.path.expanduser(abs_path)).resolve())
 
@@ -1694,7 +1699,7 @@ async def patch_spec_title(spec_path: str, body: SpecTitleUpdate):
     abs_path = (
         spec_path
         if spec_path.startswith("/") or spec_path.startswith("~")
-        else str(Path(config.PROJECT_ROOT) / spec_path)
+        else str(_effective_repo_root() / spec_path)
     )
     abs_path = str(Path(os.path.expanduser(abs_path)).resolve())
 
@@ -1744,7 +1749,7 @@ async def spec_clarity_suggest(spec_path: str, body: SpecClarifySuggestBody):
     abs_path = (
         spec_path
         if spec_path.startswith("/") or spec_path.startswith("~")
-        else str(Path(config.PROJECT_ROOT) / spec_path)
+        else str(_effective_repo_root() / spec_path)
     )
     abs_path = str(Path(os.path.expanduser(abs_path)).resolve())
 
@@ -1805,11 +1810,11 @@ async def unlock_spec(spec_path: str):
         target = ostk_module.USER_DRAFTS_DIR / source.name
         target_rel = str(target)
     else:
-        source = (Path(config.PROJECT_ROOT) / spec_path).resolve()
+        source = (_effective_repo_root() / spec_path).resolve()
         target_rel = spec_path.replace("docs/spec/", "docs/draft/", 1)
-        target = (Path(config.PROJECT_ROOT) / target_rel).resolve()
+        target = (_effective_repo_root() / target_rel).resolve()
         # Safety: legacy target must live under docs/draft/
-        draft_root = (Path(config.PROJECT_ROOT) / "docs" / "draft").resolve()
+        draft_root = (_effective_repo_root() / "docs" / "draft").resolve()
         if not target.is_relative_to(draft_root):
             raise HTTPException(status_code=400, detail="Invalid target path")
 
@@ -2149,7 +2154,7 @@ async def claim_spec(spec_path: str, body: _ClaimBody):
     See spec-auto-status.md §4 for the active-claim paths (→1422).
     """
     _validate_doc_path(spec_path)
-    spec_full_path = Path(config.PROJECT_ROOT) / spec_path
+    spec_full_path = _effective_repo_root() / spec_path
     if not spec_full_path.exists():
         raise HTTPException(status_code=404, detail=f"Spec not found: {spec_path}")
 
@@ -2283,7 +2288,7 @@ def _fire_spec_complete_notification(spec_path: str) -> None:
         try:
             candidate = (
                 _Path(spec_path) if _Path(spec_path).is_absolute()
-                else _Path(config.PROJECT_ROOT) / os.path.expanduser(spec_path)
+                else _effective_repo_root() / os.path.expanduser(spec_path)
             )
             if not candidate.exists():
                 # Also try user specs dir (tilde paths like ~/.youros/specs/...)
@@ -2354,7 +2359,7 @@ async def _fresh_verify_spec(spec_path: str) -> dict:
     Informational only, never blocks, never fires completion notifications.
     """
     candidate_roots = [
-        Path(config.PROJECT_ROOT) / spec_path,
+        _effective_repo_root() / spec_path,
         youros_home() / "specs" / spec_path,
         youros_home() / "drafts" / spec_path,
     ]
@@ -2448,7 +2453,7 @@ def _collect_test_context_for_fresh(spec_text: str) -> str:
         return ""
     parts = []
     for tp in sorted(test_paths):
-        full = Path(config.PROJECT_ROOT) / tp
+        full = _effective_repo_root() / tp
         if full.exists():
             try:
                 content = full.read_text(encoding="utf-8", errors="replace")
@@ -2550,7 +2555,7 @@ async def _build_fallback_from_acceptance_criteria(
     ``ostk.spec_build`` emits so the existing spawn loop can consume
     them unchanged.
     """
-    full = Path(config.PROJECT_ROOT) / spec_path
+    full = _effective_repo_root() / spec_path
     if not full.exists():
         return []
 
@@ -2781,7 +2786,7 @@ async def _advance_spec_status_if_all_builder_tasks_closed_async(
     # Use expanduser so tilde-prefixed user-local paths (e.g. ~/.youros/specs/foo.md)
     # resolve correctly. Joining an absolute path onto PROJECT_ROOT yields the
     # absolute path unchanged, so repo-relative paths still work.
-    full = Path(config.PROJECT_ROOT) / os.path.expanduser(spec_path)
+    full = _effective_repo_root() / os.path.expanduser(spec_path)
     if not full.exists():
         return None
     try:
@@ -2890,7 +2895,7 @@ def _set_spec_status(spec_path: str, new_status: str) -> Optional[str]:
     case; joining an absolute path onto PROJECT_ROOT yields the absolute path,
     so all three forms resolve correctly.
     """
-    full = Path(config.PROJECT_ROOT) / os.path.expanduser(spec_path)
+    full = _effective_repo_root() / os.path.expanduser(spec_path)
     if not full.exists():
         return None
     try:
@@ -3074,7 +3079,7 @@ async def review_spec(spec_path: str):
     Informational only; never blocks.
     """
     _validate_doc_path(spec_path)
-    full = Path(config.PROJECT_ROOT) / spec_path
+    full = _effective_repo_root() / spec_path
     if not full.exists():
         raise HTTPException(status_code=404, detail=f"Spec not found: {spec_path}")
     from services.gemini_ready import compute_spec_readiness
@@ -3127,7 +3132,7 @@ async def patch_spec_github_pr(spec_path: str, body: SpecGithubPrUpdate):
     abs_path = (
         spec_path
         if spec_path.startswith("/") or spec_path.startswith("~")
-        else str(Path(config.PROJECT_ROOT) / spec_path)
+        else str(_effective_repo_root() / spec_path)
     )
     abs_path = str(Path(os.path.expanduser(abs_path)).resolve())
     if not Path(abs_path).exists():
@@ -3161,7 +3166,7 @@ async def reconcile_spec_drift(spec_path: str):
     Returns the updated drift result so the panel can refresh.
     """
     _validate_doc_path(spec_path)
-    full = Path(config.PROJECT_ROOT) / spec_path
+    full = _effective_repo_root() / spec_path
     if not full.exists():
         raise HTTPException(status_code=404, detail=f"Spec not found: {spec_path}")
     import re as _re
@@ -3183,7 +3188,7 @@ async def ack_spec_drift(spec_path: str):
     The review panel reads this flag and suppresses the drift warning.
     """
     _validate_doc_path(spec_path)
-    full = Path(config.PROJECT_ROOT) / spec_path
+    full = _effective_repo_root() / spec_path
     if not full.exists():
         raise HTTPException(status_code=404, detail=f"Spec not found: {spec_path}")
     text = full.read_text(encoding="utf-8")
@@ -3226,7 +3231,7 @@ async def build_spec(spec_path: str, model: Optional[str] = None, preview: bool 
     # the AC fallback before it has a chance to run. We detect the
     # missing-file case via a direct fs check instead of relying on
     # ostk's error text.
-    spec_full_path = Path(config.PROJECT_ROOT) / spec_path
+    spec_full_path = _effective_repo_root() / spec_path
     if not spec_full_path.exists():
         raise HTTPException(
             status_code=404, detail=f"Spec not found: {spec_path}"
@@ -3532,7 +3537,7 @@ async def delete_orphan_plan_drafts():
     import re as _re
 
     _plan_re = _re.compile(r"^plan-(\d+)\.md$")
-    transcripts_dir = Path(config.PROJECT_ROOT) / "transcripts"
+    transcripts_dir = _effective_repo_root() / "transcripts"
     deleted: list[str] = []
 
     if not transcripts_dir.is_dir():
@@ -3597,8 +3602,8 @@ async def delete_spec(doc_path: str):
         if not doc_path.startswith("docs/"):
             doc_path = "docs/" + doc_path
         _validate_doc_path(doc_path)
-        docs_dir = Path(config.PROJECT_ROOT) / "docs"
-        target = (Path(config.PROJECT_ROOT) / doc_path).resolve()
+        docs_dir = _effective_repo_root() / "docs"
+        target = (_effective_repo_root() / doc_path).resolve()
         # Safety: directory-boundary check (is_relative_to avoids prefix substring false positives)
         if not (
             target.is_relative_to((docs_dir / "draft").resolve())
@@ -3661,11 +3666,11 @@ async def cleanup_test_artifact_specs():
             continue
         if not _is_test_artifact_spec(path, title):
             continue
-        target = (Path(config.PROJECT_ROOT) / path).resolve()
+        target = (_effective_repo_root() / path).resolve()
         # Defense in depth: only delete files inside docs/draft/ or
         # docs/spec/ even if the listing somehow returned a path
         # outside those dirs.
-        docs_dir = (Path(config.PROJECT_ROOT) / "docs").resolve()
+        docs_dir = (_effective_repo_root() / "docs").resolve()
         if not (
             target.is_relative_to((docs_dir / "draft").resolve())
             or target.is_relative_to((docs_dir / "spec").resolve())
@@ -4186,7 +4191,7 @@ async def patch_spec_status(spec_path: str, body: SpecStatusUpdate):
         # →2231 →2234: marking done with unchecked criteria always succeeds;
         # the unchecked list rides along as information, never a refusal.
         # The status flip above already happened unconditionally.
-        full = Path(config.PROJECT_ROOT) / os.path.expanduser(spec_path)
+        full = _effective_repo_root() / os.path.expanduser(spec_path)
         try:
             spec_text = full.read_text()
         except OSError:

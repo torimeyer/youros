@@ -69,9 +69,9 @@ def get_effective_root() -> Path:
     """Return the effective project root for the current execution context.
 
     Worktree agents have OSTK_PROJECT_ROOT injected into their environment by
-    the spawn endpoint before launching the claude-code subprocess.  Using
-    this function (rather than PROJECT_ROOT directly) ensures path resolution
-    in OstkService operates against the worktree, not the main repo.
+    the spawn endpoint before launching the claude-code subprocess. When no
+    environment override is present, delegates to config.get_active_repo_path()
+    which checks settings.active_repo_path and falls back to PROJECT_ROOT.
     """
     root = os.environ.get("OSTK_PROJECT_ROOT") or os.environ.get("OSTK_ROOT")
     if root:
@@ -79,7 +79,7 @@ def get_effective_root() -> Path:
         if p.exists():
             return p
     import config as _config
-    return Path(_config.PROJECT_ROOT)
+    return _config.get_active_repo_path()
 
 
 # Shared parse cache for .ostk/audit.jsonl. The file is ~400 KB and was
@@ -539,11 +539,24 @@ class OstkService:
     _SOCKET_RETRY_SECONDS = 60.0
 
     def __init__(self, cwd: str = None):
-        self.cwd = cwd if cwd is not None else str(get_effective_root())
+        self.__dict__["cwd"] = cwd
         # Tri-state: None = unknown, True = working, False = unavailable
         self._socket_available: Optional[bool] = None
         # time.monotonic() of the last socket-transport failure.
         self._socket_failed_at: float = 0.0
+
+    @property
+    def cwd(self) -> str:
+        import config as _config
+
+        explicit = self.__dict__.get("cwd")
+        if explicit is None or explicit == str(_config.PROJECT_ROOT):
+            return str(get_effective_root())
+        return explicit
+
+    @cwd.setter
+    def cwd(self, value: Optional[str]) -> None:
+        self.__dict__["cwd"] = value
 
     def _resolve_socket_tool(self, args: tuple) -> Optional[tuple]:
         """Map CLI argument tuples to MCP tool names and arguments.
@@ -646,7 +659,13 @@ class OstkService:
         Unknown or healthy: always try. After a failure: try again once
         the retry cooldown has elapsed, so a transient daemon hiccup does
         not permanently degrade every call to the subprocess path (→2887).
+        Skip socket transport when the effective root points to an external
+        repository or worktree distinct from PROJECT_ROOT.
         """
+        import config as _config
+
+        if get_effective_root().resolve() != Path(_config.PROJECT_ROOT).resolve():
+            return False
         if self._socket_available is not False:
             return True
         return (time.monotonic() - self._socket_failed_at) >= self._SOCKET_RETRY_SECONDS
