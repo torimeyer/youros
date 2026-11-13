@@ -1223,6 +1223,13 @@ print(s.get('features',{}).get('Specs', True))
             phase_fail "journey: specs user journey failed (see /tmp/e2e_specs_journey.log)"
         fi
 
+        # --- Journey: Five core v6 user journeys (J1..J5 automated gate) ---
+        if bash "${REPO_DIR}/scripts/e2e_five_journeys.sh" > /tmp/e2e_five_journeys.log 2>&1; then
+            phase_pass "journey: five core v6 user journeys (J1..J5 automated gate)"
+        else
+            phase_fail "journey: five core v6 user journeys failed (see /tmp/e2e_five_journeys.log)"
+        fi
+
         # --- Journey: Integration auth status checks ---
         gmail_auth=$(curl -sS $CURL_OPTS "${API_BASE}/api/gmail/auth/status" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('authenticated','missing'))" 2>/dev/null)
         if [ "$gmail_auth" = "True" ] || [ "$gmail_auth" = "False" ]; then
