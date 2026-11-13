@@ -3,6 +3,22 @@ import { api } from '../lib/api'
 
 export type RuntimeKind = 'claude' | 'gemini'
 
+export interface OstkContextPage {
+  name: string
+  tier: 'hot' | 'warm' | 'cold' | string
+  tokens: number
+  owner: string | null
+  pinned: boolean
+}
+
+interface OstkContextPagesResponse {
+  available?: boolean
+  pages?: OstkContextPage[]
+  total_pages?: number
+  total_tokens?: number
+  hot_tokens?: number
+}
+
 export interface HandoffRuntimeModalProps {
   isOpen: boolean
   onClose: () => void
@@ -49,6 +65,17 @@ export function inferOppositeTarget(currentModel?: string): {
   return { runtime: 'gemini', model: 'gemini-3.1-pro' }
 }
 
+function getTierBadgeClasses(tier: string): string {
+  const norm = tier.toLowerCase()
+  if (norm === 'hot') {
+    return 'bg-orange-500/15 text-orange-600 dark:text-orange-400 border-orange-500/30'
+  }
+  if (norm === 'warm') {
+    return 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30'
+  }
+  return 'bg-slate-500/15 text-slate-600 dark:text-slate-400 border-slate-500/30'
+}
+
 export function HandoffRuntimeModal({
   isOpen,
   onClose,
@@ -63,6 +90,9 @@ export function HandoffRuntimeModal({
   const [transitionNote, setTransitionNote] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [contextPages, setContextPages] = useState<OstkContextPage[]>([])
+  const [selectedPages, setSelectedPages] = useState<Set<string>>(new Set())
+  const [busyPageAction, setBusyPageAction] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
     if (!isOpen) return
@@ -72,6 +102,30 @@ export function HandoffRuntimeModal({
     setTransitionNote('')
     setError(null)
     setSubmitting(false)
+    setContextPages([])
+    setSelectedPages(new Set())
+    setBusyPageAction({})
+
+    let cancelled = false
+    if (typeof api.get === 'function') {
+      Promise.resolve(api.get<OstkContextPagesResponse>('/ostk/context-pages'))
+        .then((data) => {
+          if (cancelled || !data || !Array.isArray(data.pages) || data.pages.length === 0) {
+            return
+          }
+          setContextPages(data.pages)
+          const defaultHot = new Set(
+            data.pages.filter((p) => p.tier === 'hot').map((p) => p.name)
+          )
+          setSelectedPages(defaultHot)
+        })
+        .catch(() => {
+          // Degrade gracefully when ostk context pages are unavailable.
+        })
+    }
+    return () => {
+      cancelled = true
+    }
   }, [isOpen, currentModel, agentName, taskId])
 
   useEffect(() => {
@@ -101,6 +155,67 @@ export function HandoffRuntimeModal({
     }
   }
 
+  const handleTogglePage = (name: string) => {
+    setSelectedPages((prev) => {
+      const next = new Set(prev)
+      if (next.has(name)) {
+        next.delete(name)
+      } else {
+        next.add(name)
+      }
+      return next
+    })
+  }
+
+  const handleRestorePage = async (page: OstkContextPage) => {
+    const key = `restore:${page.name}`
+    if (busyPageAction[key]) return
+    setBusyPageAction((prev) => ({ ...prev, [key]: true }))
+    try {
+      const res = (await api.post(
+        `/ostk/context-pages/${encodeURIComponent(page.name)}/restore`,
+        {}
+      )) as { ok?: boolean } | undefined
+      if (!res || res.ok !== false) {
+        setContextPages((prev) =>
+          prev.map((p) => (p.name === page.name ? { ...p, tier: 'hot' } : p))
+        )
+        setSelectedPages((prev) => {
+          const next = new Set(prev)
+          next.add(page.name)
+          return next
+        })
+      }
+    } catch {
+      // Non-blocking inline action.
+    } finally {
+      setBusyPageAction((prev) => ({ ...prev, [key]: false }))
+    }
+  }
+
+  const handlePinPage = async (page: OstkContextPage) => {
+    const key = `pin:${page.name}`
+    if (busyPageAction[key]) return
+    const unpin = Boolean(page.pinned)
+    setBusyPageAction((prev) => ({ ...prev, [key]: true }))
+    try {
+      const res = (await api.post(
+        `/ostk/context-pages/${encodeURIComponent(page.name)}/pin`,
+        { unpin }
+      )) as { ok?: boolean; pinned?: boolean } | undefined
+      if (!res || res.ok !== false) {
+        const nextPinned = typeof res?.pinned === 'boolean' ? res.pinned : !unpin
+        setContextPages((prev) =>
+          prev.map((p) => (p.name === page.name ? { ...p, pinned: nextPinned } : p))
+        )
+      }
+    } catch {
+      // Non-blocking inline action.
+    } finally {
+      setBusyPageAction((prev) => ({ ...prev, [key]: false }))
+    }
+  }
+
   const handleConfirm = async () => {
     if (submitting) return
     if (!agentName && !taskId) {
@@ -110,21 +225,48 @@ export function HandoffRuntimeModal({
     setSubmitting(true)
     setError(null)
     const note = transitionNote.trim()
+    const selectedList = contextPages
+      .filter((p) => selectedPages.has(p.name))
+      .map((p) => p.name)
+
+    let composedNote = note
+    if (selectedList.length > 0) {
+      const pointerBlock = [
+        'Pinned ostk context pages (load via ostk context-load <name>):',
+        ...selectedList.map((name) => `- ostk context-load ${name}`),
+      ].join('\n')
+      composedNote = note ? `${note}\n\n${pointerBlock}` : pointerBlock
+    }
+
     try {
       let res: unknown
       if (agentName) {
-        res = await api.post(`/agents/${encodeURIComponent(agentName)}/handoff-runtime`, {
+        const payload: Record<string, unknown> = {
           target_runtime: targetRuntime,
           target_model: targetModel,
           task_id: taskId,
-          transition_note: note,
-        })
+          transition_note: composedNote,
+        }
+        if (selectedList.length > 0) {
+          payload.context_pages = selectedList
+        }
+        res = await api.post(
+          `/agents/${encodeURIComponent(agentName)}/handoff-runtime`,
+          payload
+        )
       } else {
-        res = await api.post(`/tasks/${encodeURIComponent(taskId!)}/handoff-runtime`, {
+        const payload: Record<string, unknown> = {
           target_runtime: targetRuntime,
           target_model: targetModel,
-          transition_note: note,
-        })
+          transition_note: composedNote,
+        }
+        if (selectedList.length > 0) {
+          payload.context_pages = selectedList
+        }
+        res = await api.post(
+          `/tasks/${encodeURIComponent(taskId!)}/handoff-runtime`,
+          payload
+        )
       }
       onHandedOff?.(res)
       onClose()
@@ -148,6 +290,9 @@ export function HandoffRuntimeModal({
     >
       <div
         className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl w-full max-w-md p-6 shadow-2xl space-y-4"
+        style={{
+          borderColor: 'var(--color-border, var(--theme-border))',
+        }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3">
@@ -220,6 +365,94 @@ export function HandoffRuntimeModal({
               ))}
             </select>
           </div>
+
+          {contextPages.length > 0 && (
+            <div
+              data-testid="handoff-context-pages-section"
+              className="rounded-lg border border-slate-200 dark:border-slate-700 p-3 space-y-2"
+              style={{
+                backgroundColor: 'var(--color-surface, var(--theme-surface))',
+                borderColor: 'var(--color-border, var(--theme-border))',
+              }}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
+                  Context Pages (hot / warm / cold)
+                </span>
+                <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                  {selectedPages.size} selected
+                </span>
+              </div>
+
+              <div className="max-h-40 overflow-y-auto space-y-1.5 pr-0.5">
+                {contextPages.map((page) => {
+                  const checked = selectedPages.has(page.name)
+                  const restoreBusy = Boolean(busyPageAction[`restore:${page.name}`])
+                  const pinBusy = Boolean(busyPageAction[`pin:${page.name}`])
+                  return (
+                    <div
+                      key={page.name}
+                      className="flex items-center justify-between gap-2 rounded-md border border-slate-200/80 dark:border-slate-700/80 bg-white/70 dark:bg-slate-900/60 px-2.5 py-1.5 text-xs"
+                    >
+                      <label className="flex items-center gap-2 min-w-0 flex-1 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          data-testid={`context-page-checkbox-${page.name}`}
+                          checked={checked}
+                          disabled={submitting}
+                          onChange={() => handleTogglePage(page.name)}
+                          style={{ accentColor: 'var(--color-accent)' }}
+                          className="rounded border-slate-300 dark:border-slate-600"
+                        />
+                        <span
+                          className="font-mono text-xs text-slate-800 dark:text-slate-200 truncate"
+                          title={page.name}
+                        >
+                          {page.name}
+                        </span>
+                      </label>
+
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <span
+                          data-testid={`context-page-tier-${page.name}`}
+                          className={`px-1.5 py-0.5 rounded border text-[10px] font-medium uppercase tracking-wide ${getTierBadgeClasses(page.tier)}`}
+                        >
+                          {page.tier}
+                        </span>
+                        <span className="text-[11px] text-slate-500 dark:text-slate-400 tabular-nums">
+                          {page.tokens.toLocaleString()} tok
+                        </span>
+                        {page.tier !== 'hot' && (
+                          <button
+                            type="button"
+                            data-testid={`context-page-restore-${page.name}`}
+                            disabled={submitting || restoreBusy}
+                            onClick={() => handleRestorePage(page)}
+                            className="px-1.5 py-0.5 rounded border border-slate-300 dark:border-slate-600 text-[10px] font-medium text-slate-700 dark:text-slate-200 hover:border-[var(--color-accent)] transition-colors disabled:opacity-50"
+                          >
+                            Restore to hot
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          data-testid={`context-page-pin-${page.name}`}
+                          disabled={submitting || pinBusy}
+                          onClick={() => handlePinPage(page)}
+                          className={`px-1.5 py-0.5 rounded border text-[10px] font-medium transition-colors disabled:opacity-50 ${
+                            page.pinned
+                              ? 'border-[var(--color-accent)] text-[var(--color-accent)]'
+                              : 'border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:border-[var(--color-accent)]'
+                          }`}
+                        >
+                          {page.pinned ? 'Pinned' : 'Pin'}
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
 
           <div>
             <label

@@ -46,6 +46,36 @@ _TEST_CMD_RE = re.compile(
     r"(?:\bpytest\b|\bvitest\b|run-vitest\.sh|\bnpm\s+(?:run\s+)?test\b|\btsc\s+-b\b|\bcargo\s+test\b|\bgo\s+test\b)"
 )
 
+_CONTEXT_LOAD_POINTER_RE = re.compile(r"\bostk\s+context-load\s+([a-zA-Z0-9_.:/-]+)")
+
+
+def _normalize_context_pages(
+    context_pages: Optional[list[str]],
+    transition_note: Optional[str] = None,
+) -> list[str]:
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for raw_name in context_pages or []:
+        if not isinstance(raw_name, str):
+            raise ValueError("Context page names must be strings.")
+        cleaned = raw_name.strip()
+        if not cleaned:
+            continue
+        if cleaned.startswith("-") or any(ch.isspace() or ord(ch) < 32 for ch in cleaned):
+            raise ValueError(f"Invalid context page name: {raw_name!r}")
+        if cleaned not in seen:
+            seen.add(cleaned)
+            ordered.append(cleaned)
+
+    if transition_note and "ostk context-load" in transition_note:
+        for match in _CONTEXT_LOAD_POINTER_RE.finditer(transition_note):
+            cand = match.group(1).strip().strip("`'\",.;)")
+            if cand and not cand.startswith("-") and cand != "<name>" and cand not in seen:
+                seen.add(cand)
+                ordered.append(cand)
+
+    return ordered
+
 
 def _normalize_task_num(raw_task_id: Optional[str]) -> str:
     if not raw_task_id:
@@ -334,6 +364,7 @@ def _compose_handoff_prompt(
     latest_failing_test: str,
     pinned_decisions: list[str],
     prior_prompt: str,
+    context_pages: Optional[list[str]] = None,
 ) -> str:
     sections: list[str] = [
         f"[CROSS-RUNTIME HANDOFF -> {target_runtime.upper()}]",
@@ -354,6 +385,15 @@ def _compose_handoff_prompt(
         sections.append(f"Task ID: {task_id}")
     if transition_note:
         sections.append(f"Transition Instructions:\n{transition_note.strip()}")
+    if context_pages and (
+        not transition_note
+        or "Pinned ostk context pages (load via ostk context-load <name>):" not in transition_note
+    ):
+        pointer_lines = [f"- ostk context-load {page}" for page in context_pages]
+        sections.append(
+            "Pinned ostk context pages (load via ostk context-load <name>):\n"
+            + "\n".join(pointer_lines)
+        )
     if git_log:
         sections.append(f"Existing Commits Ahead of Base:\n{git_log}")
     if work_activate_info.get("briefing"):
@@ -554,6 +594,7 @@ async def execute_runtime_handoff(
     worktree_path: Optional[str] = None,
     branch_name: Optional[str] = None,
     base_sha: Optional[str] = None,
+    context_pages: Optional[list[str]] = None,
 ) -> dict[str, Any]:
     """Execute a cross-runtime handoff preserving worktree, commits, and ostk state."""
     import routers.agents as agents_mod
@@ -563,6 +604,8 @@ async def execute_runtime_handoff(
         raise ValueError(
             f"Unsupported target_runtime {target_runtime!r}; expected 'gemini' or 'claude'."
         )
+
+    effective_context_pages = _normalize_context_pages(context_pages, transition_note)
 
     source_agent: Optional[str] = None
     source_meta: Optional[dict[str, Any]] = None
@@ -627,6 +670,20 @@ async def execute_runtime_handoff(
         asyncio.to_thread(_run_ostk_work_activate, target_cwd, task_num),
     )
 
+    if effective_context_pages:
+        from services import ostk_context_pages
+
+        for page_name in effective_context_pages:
+            try:
+                await ostk_context_pages.pin_context_page(page_name, cwd=target_cwd)
+                await ostk_context_pages.restore_context_page(page_name, cwd=target_cwd)
+            except Exception as exc:
+                logger.debug(
+                    "ostk_handoff.context_page_degraded page=%s err=%s",
+                    page_name,
+                    exc,
+                )
+
     head_sha, git_log = await asyncio.to_thread(
         _collect_worktree_git_log,
         target_cwd,
@@ -658,6 +715,7 @@ async def execute_runtime_handoff(
         latest_failing_test=latest_failing_test,
         pinned_decisions=pinned_decisions,
         prior_prompt=prior_prompt,
+        context_pages=effective_context_pages,
     )
 
     default_model_for_runtime = (
@@ -732,6 +790,7 @@ async def execute_runtime_handoff(
         "base_sha": effective_base_sha,
         "head_sha": head_sha,
         "transition_note": transition_note,
+        "context_pages": effective_context_pages,
         "ostk_handoff": ostk_handoff_info,
         "ostk_work_activate": work_activate_info,
         "pid": spawn_res.pid,
@@ -756,6 +815,7 @@ async def execute_runtime_handoff(
         "pid": spawn_res.pid,
         "status": spawn_res.status,
         "transcript_path": spawn_res.transcript_path,
+        "context_pages": effective_context_pages,
         "ostk_handoff": ostk_handoff_info,
         "ostk_work_activate": work_activate_info,
         "handoffs_path": str(handoffs_path),
