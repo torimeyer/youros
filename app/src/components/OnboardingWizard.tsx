@@ -3,7 +3,6 @@ import { useAppStore, TEAM_MODE_VISIBLE } from '../stores/app'
 import Icon from './Icon'
 import { api, ApiError } from '../lib/api'
 import { reportError } from '../lib/reportError'
-import { AGENT_MARKETPLACE, PERSONA_ICONS, type MarketplaceCategory } from '../data/agentMarketplace'
 import { GoogleAccountSetupCard } from './GoogleWorkspaceSetupCard'
 import {
   OrgNameStep,
@@ -15,8 +14,8 @@ import {
   type TeamOnboardingData,
 } from './TeamOnboardingSteps'
 
-const PERSONAL_STEPS = ['Fork', 'Welcome', 'You', 'Name', 'Profile', 'Customize', 'Theme', 'Tracking', 'Connect', 'Ready'] as const
-const PERSONAL_STEPS_NO_FORK = ['Welcome', 'You', 'Name', 'Profile', 'Customize', 'Theme', 'Tracking', 'Connect', 'Ready'] as const
+const PERSONAL_STEPS = ['Fork', 'Connect', 'Tracking', 'Personalize'] as const
+const PERSONAL_STEPS_NO_FORK = ['Connect', 'Tracking', 'Personalize'] as const
 
 const TEAM_STEPS = ['Fork', 'OrgName', 'AdminEmail', 'InviteTeam', 'Guardrails', 'Theme', 'Connect', 'TeamReady'] as const
 type OnboardingMode = 'undecided' | 'personal' | 'team'
@@ -40,22 +39,20 @@ export default function OnboardingWizard() {
   const toggleDarkMode = useAppStore((s) => s.toggleDarkMode)
   const setOnboarded = useAppStore((s) => s.setOnboarded)
   const setDefaultChatModel = useAppStore((s) => s.setDefaultChatModel)
-  const setCustomAgentTemplates = useAppStore((s) => s.setCustomAgentTemplates)
   const setInstanceMode = useAppStore((s) => s.setInstanceMode)
   const setOrgName = useAppStore((s) => s.setOrgName)
   const setAgentsLastViewed = useAppStore((s) => s.setAgentsLastViewed)
 
   // Local state
-  const [userName, setUserName] = useState('')
   const [selectedProvider, setSelectedProvider] = useState('Anthropic')
   const [apiKey, setApiKey] = useState('')
   const [keySaved, setKeySaved] = useState(false)
   const [detectedProvider, setDetectedProvider] = useState<string | null>(null)
   const [vertexAiSignedIn, setVertexAiSignedIn] = useState(false)
+  const [humanfileValid, setHumanfileValid] = useState<boolean | null>(null)
+  const [humanfileWarning, setHumanfileWarning] = useState<string | null>(null)
   const [detectLoading, setDetectLoading] = useState(true)
   const [detectError, setDetectError] = useState(false)
-  const [selectedPersonaId, setSelectedPersonaId] = useState<string | null>(null)
-  const [otherSelected, setOtherSelected] = useState(false)
   const [oauthError, setOauthError] = useState<string | null>(null)
   const [trackingOption, setTrackingOption] = useState<'everywhere' | 'repo' | 'myos-only' | null>(null)
   const [trackingRepoPath, setTrackingRepoPath] = useState('')
@@ -85,7 +82,18 @@ export default function OnboardingWizard() {
   const runProviderDetect = useCallback(() => {
     setDetectLoading(true)
     setDetectError(false)
-    api.get<{ claude_code?: boolean; anthropic_key?: boolean; gemini_key?: boolean; gemini_cli?: boolean; vertex_ai?: boolean; bedrock?: boolean; vertex_ai_signed_in?: boolean }>('/providers/detect')
+    api.get<{
+      claude_code?: boolean
+      anthropic_key?: boolean
+      gemini_key?: boolean
+      gemini_cli?: boolean
+      vertex_ai?: boolean
+      bedrock?: boolean
+      vertex_ai_signed_in?: boolean
+      ostk_available?: boolean
+      humanfile_valid?: boolean
+      humanfile_warning?: string | null
+    }>('/providers/detect')
       .then((data) => {
         if (data.claude_code) setDetectedProvider('Claude Code')
         else if (data.anthropic_key) setDetectedProvider('Anthropic')
@@ -95,6 +103,8 @@ export default function OnboardingWizard() {
         else if (data.bedrock) setDetectedProvider('AWS Bedrock')
         else setDetectedProvider(null)
         setVertexAiSignedIn(data.vertex_ai_signed_in ?? false)
+        setHumanfileValid(typeof data.humanfile_valid === 'boolean' ? data.humanfile_valid : null)
+        setHumanfileWarning(data.humanfile_warning ?? null)
       })
       .catch((e) => {
         reportError('provider detection failed', e)
@@ -107,9 +117,14 @@ export default function OnboardingWizard() {
     runProviderDetect()
   }, [runProviderDetect])
 
+  // Capture initial URL query params during parent render before any child
+  // setup card (e.g. GoogleAccountSetupCard on Step 0) clears window.location.search
+  // in its child mount effect.
+  const initialSearchRef = useRef(window.location.search)
+
   // Restore step after any OAuth redirect
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
+    const params = new URLSearchParams(initialSearchRef.current)
 
     const errorMsg = params.get('error') || params.get('auth_error')
     if (errorMsg) {
@@ -174,10 +189,6 @@ export default function OnboardingWizard() {
     localStorage.setItem('myos.onboarding.state', state)
   }, [stepIndex, step, onboardingMode, mounted])
 
-  // Profile (HUMANFILE) step state
-  const [profileRole, setProfileRole] = useState('')
-  const [profileStyle, setProfileStyle] = useState<'brief' | 'detailed' | ''>('')
-
   // Team onboarding state
   const [teamOrgName, setTeamOrgName] = useState('')
   const [teamAdminEmail, setTeamAdminEmail] = useState('')
@@ -195,26 +206,6 @@ export default function OnboardingWizard() {
 
   const next = () => setStepIndex((i) => Math.min(i + 1, STEPS.length - 1))
   const back = () => setStepIndex((i) => Math.max(i - 1, 0))
-
-  const handlePersonaPick = (category: MarketplaceCategory) => {
-    setSelectedPersonaId(category.id)
-    setProfileRole(category.category)
-    setOtherSelected(false)
-    setCustomAgentTemplates([])
-  }
-
-  const handleOtherPick = () => {
-    setSelectedPersonaId(null)
-    setOtherSelected(true)
-    setProfileRole('')
-  }
-
-  const handleProfileNext = () => {
-    if (selectedPersonaId) {
-      api.post('/agents/pm-templates/install-persona', { persona_id: selectedPersonaId }).catch((e) => reportError('persona install failed', e))
-    }
-    next()
-  }
 
   const dismissWizard = () => {
     localStorage.setItem('myos.onboarding.dismissed', 'true')
@@ -271,14 +262,10 @@ export default function OnboardingWizard() {
     const settings: Record<string, unknown> = {
       os_name: osName,
       instance_name: instanceName || 'yourOS',
-      user_name: userName,
       dark_mode: pickedDarkRef.current,
       provider: selectedProvider,
       instance_mode: 'personal',
     }
-    if (selectedPersonaId) settings.persona = selectedPersonaId
-    if (profileRole) settings.user_role = profileRole
-    if (profileStyle) settings.communication_style = profileStyle
     // Sync the store with what the user picked in the wizard
     if (pickedDarkRef.current !== darkMode) toggleDarkMode()
     api.patch('/settings', settings).catch((e) => reportError('settings patch failed', e))
@@ -325,11 +312,8 @@ export default function OnboardingWizard() {
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'BUTTON' || target.contentEditable === 'true') return
     // Fork step: no action (user must click a card)
     if (step === 'Fork') return
-    // TeamReady and Ready both finish.
-    if (step === 'TeamReady') { finish(); return }
-    if (step === 'Ready') { finish(); return }
-    // Profile fires persona install on advance.
-    if (step === 'Profile') { handleProfileNext(); return }
+    // TeamReady and Personalize both finish.
+    if (step === 'TeamReady' || step === 'Personalize') { finish(); return }
     next()
   }
   useEffect(() => {
@@ -340,7 +324,7 @@ export default function OnboardingWizard() {
 
   // Theme: purely local state. Zero store interaction during the wizard.
   // The store is synced ONLY when the user finishes onboarding.
-  const themeIdx = (STEPS as readonly string[]).indexOf('Theme')
+  const themeIdx = (STEPS as readonly string[]).findIndex((s) => s === 'Theme' || s === 'Personalize')
   const [pickedDark, setPickedDark] = useState(darkMode)
   const effectiveDark = themeIdx >= 0 && stepIndex >= themeIdx ? pickedDark : false
   const pickedDarkRef = useRef(darkMode)
@@ -444,138 +428,6 @@ export default function OnboardingWizard() {
         {/* Step content */}
         <div className="min-h-[320px]">
           {step === 'Fork' && <ForkStep onChoose={handleForkChoice} subtextCls={subtextCls} cardCls={cardCls} darkMode={effectiveDark} />}
-          {step === 'Welcome' && <WelcomeStep />}
-          {step === 'You' && (
-            <YouStep
-              userName={userName}
-              setUserName={setUserName}
-              onNext={next}
-              inputCls={inputCls}
-              subtextCls={subtextCls}
-            />
-          )}
-          {step === 'Name' && (
-            <NameStep
-              osName={osName}
-              setOsName={setOsName}
-              onNext={next}
-              userName={userName}
-              inputCls={inputCls}
-              subtextCls={subtextCls}
-            />
-          )}
-          {step === 'Profile' && (
-            <div data-testid="step-profile">
-              <h2 className="text-2xl font-bold mb-2">Tell {osName || 'your OS'} about you</h2>
-              <p className={`mb-2 ${subtextCls}`}>
-                This creates your profile so {osName} knows how to help you. Think of it as a quick intro so your AI knows who it's working for.
-              </p>
-              <p className={`mb-6 text-xs ${subtextCls}`}>
-                Your profile stays on your machine. It's never shared or uploaded.
-              </p>
-              <div className="space-y-4">
-                <div>
-                  <label className={`block text-sm font-medium mb-2 ${subtextCls}`}>What best describes you?</label>
-                  <div className="space-y-1.5">
-                    {AGENT_MARKETPLACE.map((cat) => {
-                      const isPicked = selectedPersonaId === cat.id
-                      return (
-                        <button
-                          key={cat.id}
-                          onClick={() => handlePersonaPick(cat)}
-                          data-testid={`persona-card-${cat.id}`}
-                          className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg border text-left transition-colors ${
-                            isPicked
-                              ? 'bg-blue-500/20 border-blue-500'
-                              : `${cardCls} ${effectiveDark ? 'hover:border-slate-600' : 'hover:border-gray-400'}`
-                          }`}
-                        >
-                          <div className={`w-7 h-7 rounded-md flex items-center justify-center shrink-0 ${
-                            isPicked ? 'bg-blue-500/30 text-blue-300' : effectiveDark ? 'bg-slate-800 text-slate-400' : 'bg-gray-100 text-slate-500'
-                          }`}>
-                            <Icon name={PERSONA_ICONS[cat.id] || 'person'} size={16} />
-                          </div>
-                          <span className="text-sm font-medium">{cat.category}</span>
-                          {isPicked && <Icon name="check_circle" className="text-blue-400 ml-auto" size={16} />}
-                        </button>
-                      )
-                    })}
-                    <button
-                      onClick={handleOtherPick}
-                      data-testid="persona-card-other"
-                      className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg border text-left transition-colors ${
-                        otherSelected
-                          ? 'bg-blue-500/20 border-blue-500'
-                          : `${cardCls} ${effectiveDark ? 'hover:border-slate-600' : 'hover:border-gray-400'}`
-                      }`}
-                    >
-                      <div className={`w-7 h-7 rounded-md flex items-center justify-center shrink-0 ${
-                        otherSelected ? 'bg-blue-500/30 text-blue-300' : effectiveDark ? 'bg-slate-800 text-slate-400' : 'bg-gray-100 text-slate-500'
-                      }`}>
-                        <Icon name="edit" size={16} />
-                      </div>
-                      <span className="text-sm font-medium">Other</span>
-                      {otherSelected && <Icon name="check_circle" className="text-blue-400 ml-auto" size={16} />}
-                    </button>
-                    {otherSelected && (
-                      <input
-                        type="text"
-                        value={profileRole}
-                        onChange={(e) => setProfileRole(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === 'Enter') next() }}
-                        placeholder="e.g. Founder, Student, Designer"
-                        data-testid="other-role-input"
-                        className={`w-full border rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
-                        autoFocus
-                      />
-                    )}
-                  </div>
-                </div>
-                <div>
-                  <label className={`block text-sm font-medium mb-1 ${subtextCls}`}>How should {osName} communicate with you?</label>
-                  <div className="grid grid-cols-2 gap-3">
-                    {([
-                      { id: 'brief', label: 'Keep it short', desc: 'Quick answers, no fluff' },
-                      { id: 'detailed', label: 'Give me detail', desc: 'Thorough explanations' },
-                    ] as const).map((opt) => (
-                      <button
-                        key={opt.id}
-                        onClick={() => setProfileStyle(opt.id)}
-                        className={`text-left p-3 rounded-lg border transition-colors ${
-                          profileStyle === opt.id
-                            ? 'border-blue-500 bg-blue-500/10'
-                            : `border-slate-300 dark:border-slate-700 ${inputCls}`
-                        }`}
-                      >
-                        <p className="text-sm font-medium">{opt.label}</p>
-                        <p className={`text-xs mt-0.5 ${subtextCls}`}>{opt.desc}</p>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-          {step === 'Customize' && (
-            <CustomizeStep
-              selectedPersonaId={selectedPersonaId}
-              subtextCls={subtextCls}
-              cardCls={cardCls}
-            />
-          )}
-          {step === 'Theme' && (
-            <ThemeStep darkMode={pickedDark} onChoose={handleDarkModeChoice} subtextCls={subtextCls} />
-          )}
-          {step === 'Tracking' && (
-            <TrackingStep
-              selectedOption={trackingOption}
-              onSelect={setTrackingOption}
-              repoPath={trackingRepoPath}
-              onRepoPath={setTrackingRepoPath}
-              subtextCls={subtextCls}
-              cardCls={cardCls}
-            />
-          )}
           {step === 'Connect' && (
             <ConnectStep
               selectedProvider={selectedProvider}
@@ -593,19 +445,37 @@ export default function OnboardingWizard() {
               detectLoading={detectLoading}
               detectError={detectError}
               vertexAiSignedIn={vertexAiSignedIn}
+              humanfileValid={humanfileValid}
+              humanfileWarning={humanfileWarning}
               onRecheck={runProviderDetect}
             />
           )}
-          {step === 'Ready' && (
-            <ReadyStep
-              userName={userName}
-              osName={osName}
-              darkMode={effectiveDark}
-              provider={selectedProvider}
+          {step === 'Tracking' && (
+            <TrackingStep
+              selectedOption={trackingOption}
+              onSelect={setTrackingOption}
+              repoPath={trackingRepoPath}
+              onRepoPath={setTrackingRepoPath}
               subtextCls={subtextCls}
               cardCls={cardCls}
-              detectedProvider={detectedProvider}
             />
+          )}
+          {step === 'Personalize' && (
+            <PersonalizeStep
+              osName={osName}
+              setOsName={setOsName}
+              darkMode={pickedDark}
+              onChooseDarkMode={handleDarkModeChoice}
+              provider={selectedProvider}
+              detectedProvider={detectedProvider}
+              onFinish={finish}
+              inputCls={inputCls}
+              subtextCls={subtextCls}
+              cardCls={cardCls}
+            />
+          )}
+          {step === 'Theme' && (
+            <ThemeStep darkMode={pickedDark} onChoose={handleDarkModeChoice} subtextCls={subtextCls} />
           )}
           {/* Team steps */}
           {step === 'OrgName' && (
@@ -635,7 +505,7 @@ export default function OnboardingWizard() {
         {/* Navigation buttons */}
         <div className="flex items-center justify-between mt-8">
           <div>
-            {stepIndex > 0 && step !== 'Ready' && step !== 'TeamReady' && step !== 'Fork' && (
+            {stepIndex > 0 && step !== 'TeamReady' && step !== 'Fork' && (
               <button
                 onClick={back}
                 className={`px-4 py-2 text-sm transition-colors ${navBtnCls}`}
@@ -647,7 +517,7 @@ export default function OnboardingWizard() {
           </div>
 
           <div className="flex items-center gap-3">
-            {step !== 'Welcome' && step !== 'Ready' && step !== 'Fork' && step !== 'TeamReady' && (
+            {step !== 'Personalize' && step !== 'Fork' && step !== 'TeamReady' && (
               <button
                 onClick={skip}
                 className={`px-4 py-2 text-sm transition-colors ${navBtnCls}`}
@@ -657,15 +527,7 @@ export default function OnboardingWizard() {
               </button>
             )}
 
-            {step === 'Fork' ? null : step === 'TeamReady' ? (
-              <button
-                onClick={finish}
-                className="px-6 py-2.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium text-white transition-colors"
-                data-testid="finish-button"
-              >
-                Get started
-              </button>
-            ) : step === 'Ready' ? (
+            {step === 'Fork' ? null : (step === 'TeamReady' || step === 'Personalize') ? (
               <button
                 onClick={finish}
                 className="px-6 py-2.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium text-white transition-colors"
@@ -675,7 +537,7 @@ export default function OnboardingWizard() {
               </button>
             ) : (
               <button
-                onClick={step === 'Profile' ? handleProfileNext : next}
+                onClick={next}
                 className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-semibold text-white transition-colors"
                 data-testid="next-button"
               >
@@ -902,89 +764,153 @@ export function CustomizeStep({
   )
 }
 
-function WelcomeStep() {
-  return (
-    <div className="text-center" data-testid="step-welcome">
-      <div className="mb-6">
-        <img src="/youros-logo-hero.png" alt="yourOS" className="mx-auto h-auto w-[368px]" />
-      </div>
-      <p className="text-xl italic font-medium text-center tracking-wide whitespace-nowrap text-slate-700 dark:text-slate-300">an operating system for how <span className="font-bold bg-gradient-to-r from-pink-500 via-purple-500 to-orange-500 bg-clip-text text-transparent">you</span> operate.</p>
-      <p className="text-[28px] italic font-bold text-center mb-6 bg-gradient-to-r from-pink-500 via-purple-500 to-orange-500 bg-clip-text text-transparent">this is your OS.</p>
-      <p className="text-[15px] text-slate-600 dark:text-slate-300 leading-relaxed mt-2 mb-3" data-testid="welcome-positioning">
-        yourOS adds a persistent workspace on top of Claude Code. Your tasks, agents, and chat history carry across sessions, and your connected tools work together in one conversation.
-      </p>
-      <p className="text-[13px] italic text-slate-500 dark:text-slate-400 leading-relaxed">
-        Let's get you set up. It takes about two minutes, and you can change anything later.
-      </p>
-    </div>
-  )
-}
-
-function YouStep({
-  userName,
-  setUserName,
-  onNext,
-  inputCls,
-  subtextCls,
-}: {
-  userName: string
-  setUserName: (name: string) => void
-  onNext: () => void
-  inputCls: string
-  subtextCls: string
-}) {
-  return (
-    <div data-testid="step-you">
-      <h2 className="text-2xl font-bold mb-2">What's your name?</h2>
-      <p className={`${subtextCls} mb-6`}>
-        Your AI assistant will use this to personalize your experience.
-      </p>
-      <input
-        type="text"
-        value={userName}
-        onChange={(e) => setUserName(e.target.value)}
-        onKeyDown={(e) => { if (e.key === "Enter") onNext(); }}
-        placeholder="Your name"
-        className={`w-full border rounded-lg px-4 py-3 text-lg focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
-        data-testid="user-name-input"
-        autoFocus
-      />
-    </div>
-  )
-}
-
-function NameStep({
+function PersonalizeStep({
   osName,
   setOsName,
-  onNext,
-  userName,
+  darkMode,
+  onChooseDarkMode,
+  provider,
+  detectedProvider,
+  onFinish,
   inputCls,
   subtextCls,
+  cardCls,
 }: {
   osName: string
   setOsName: (name: string) => void
-  onNext: () => void
-  userName: string
+  darkMode: boolean
+  onChooseDarkMode: (wantDark: boolean) => void
+  provider: string
+  detectedProvider?: string | null
+  onFinish: () => void
   inputCls: string
   subtextCls: string
+  cardCls: string
 }) {
-  const example = userName ? `${userName}OS` : 'YourOS'
   return (
-    <div data-testid="step-name">
-      <h2 className="text-2xl font-bold mb-2">Name your OS</h2>
-      <p className={`${subtextCls} mb-6`}>
-        Give your personal OS a name. This shows up in the sidebar and title bar.
-      </p>
-      <input
-        type="text"
-        value={osName}
-        onChange={(e) => setOsName(e.target.value)}
-        onKeyDown={(e) => { if (e.key === "Enter") onNext(); }}
-        placeholder={`e.g. ${example}`}
-        className={`w-full border rounded-lg px-4 py-3 text-lg focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
-        data-testid="os-name-input"
-        autoFocus
-      />
+    <div data-testid="step-personalize" className="space-y-6">
+      <div>
+        <h2 className="text-2xl font-bold mb-2">Name your OS</h2>
+        <p className={`${subtextCls} mb-4`}>
+          Give your personal OS a name. This shows up in the sidebar and title bar.
+        </p>
+        <input
+          type="text"
+          value={osName}
+          onChange={(e) => setOsName(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') onFinish() }}
+          placeholder="e.g. YourOS"
+          className={`w-full border rounded-lg px-4 py-3 text-lg focus:outline-none focus:border-blue-500 transition-colors ${inputCls}`}
+          data-testid="os-name-input"
+          autoFocus
+        />
+      </div>
+
+      <div>
+        <h3 className="text-lg font-semibold mb-1">Pick your theme</h3>
+        <p className={`${subtextCls} text-sm mb-3`}>
+          Choose how you want things to look. You can change this anytime.
+        </p>
+        <div className="grid grid-cols-2 gap-4">
+          <button
+            onClick={() => onChooseDarkMode(false)}
+            className="p-4 rounded-xl border-2 transition-all"
+            style={{
+              borderColor: !darkMode ? '#3b82f6' : '#334155',
+              backgroundColor: !darkMode ? 'rgba(59,130,246,0.1)' : 'rgba(30,41,59,0.3)',
+            }}
+            data-testid="theme-light"
+          >
+            <div className="w-full rounded-lg bg-gray-100 p-3 mb-3 overflow-hidden">
+              <div className="flex gap-2">
+                <div className="w-10 bg-white rounded p-1.5 flex flex-col gap-1">
+                  <div className="w-full h-1 bg-gray-300 rounded" />
+                  <div className="w-full h-1 bg-gray-300 rounded" />
+                  <div className="w-full h-1 bg-gray-300 rounded" />
+                  <div className="w-full h-1 bg-gray-300 rounded" />
+                </div>
+                <div className="flex-1 flex flex-col gap-1.5">
+                  <div className="h-2 bg-gray-400 rounded w-3/4" />
+                  <div className="flex gap-1.5">
+                    <div className="flex-1 h-8 bg-white rounded border border-gray-200" />
+                    <div className="flex-1 h-8 bg-white rounded border border-gray-200" />
+                  </div>
+                  <div className="flex gap-1.5">
+                    <div className="flex-1 h-6 bg-white rounded border border-gray-200" />
+                    <div className="flex-1 h-6 bg-white rounded border border-gray-200" />
+                    <div className="flex-1 h-6 bg-white rounded border border-gray-200" />
+                  </div>
+                </div>
+              </div>
+            </div>
+            <p className="text-sm font-medium">Light</p>
+          </button>
+          <button
+            onClick={() => onChooseDarkMode(true)}
+            className="p-4 rounded-xl border-2 transition-all"
+            style={{
+              borderColor: darkMode ? '#3b82f6' : '#334155',
+              backgroundColor: darkMode ? 'rgba(59,130,246,0.1)' : 'rgba(30,41,59,0.3)',
+            }}
+            data-testid="theme-dark"
+          >
+            <div
+              className="w-full rounded-lg p-3 mb-3 overflow-hidden"
+              style={{ backgroundColor: '#020617' }}
+              data-testid="theme-dark-preview"
+            >
+              <div className="flex gap-2">
+                <div className="w-10 rounded p-1.5 flex flex-col gap-1" style={{ backgroundColor: '#0f172a' }}>
+                  <div className="w-full h-1 rounded" style={{ backgroundColor: '#334155' }} />
+                  <div className="w-full h-1 rounded" style={{ backgroundColor: '#334155' }} />
+                  <div className="w-full h-1 rounded" style={{ backgroundColor: '#334155' }} />
+                  <div className="w-full h-1 rounded" style={{ backgroundColor: '#334155' }} />
+                </div>
+                <div className="flex-1 flex flex-col gap-1.5">
+                  <div className="h-2 rounded w-3/4" style={{ backgroundColor: '#64748b' }} />
+                  <div className="flex gap-1.5">
+                    <div className="flex-1 h-8 rounded border" style={{ backgroundColor: '#1e293b', borderColor: '#334155' }} />
+                    <div className="flex-1 h-8 rounded border" style={{ backgroundColor: '#1e293b', borderColor: '#334155' }} />
+                  </div>
+                  <div className="flex gap-1.5">
+                    <div className="flex-1 h-6 rounded border" style={{ backgroundColor: '#1e293b', borderColor: '#334155' }} />
+                    <div className="flex-1 h-6 rounded border" style={{ backgroundColor: '#1e293b', borderColor: '#334155' }} />
+                    <div className="flex-1 h-6 rounded border" style={{ backgroundColor: '#1e293b', borderColor: '#334155' }} />
+                  </div>
+                </div>
+              </div>
+            </div>
+            <p className="text-sm font-medium">Dark</p>
+          </button>
+        </div>
+      </div>
+
+      <div className={`border rounded-xl p-4 text-left space-y-2 ${cardCls}`}>
+        <div className="flex items-center justify-between">
+          <span className={`text-xs ${subtextCls}`}>OS Name</span>
+          <span className="text-xs font-medium" data-testid="summary-os-name">
+            {osName || 'yourOS'}
+          </span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className={`text-xs ${subtextCls}`}>Theme</span>
+          <span className="text-xs font-medium" data-testid="summary-theme">
+            {darkMode ? 'Dark' : 'Light'}
+          </span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className={`text-xs ${subtextCls}`}>AI Provider</span>
+          <span className="text-xs font-medium" data-testid="summary-provider">
+            {provider}
+          </span>
+        </div>
+        {detectedProvider && (
+          <div className="flex items-center justify-between">
+            <span className={`text-xs ${subtextCls}`}>Connected via</span>
+            <span className="text-xs font-medium" data-testid="summary-connected-via">{detectedProvider}</span>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -1173,6 +1099,8 @@ function ConnectStep({
   detectLoading,
   detectError,
   vertexAiSignedIn,
+  humanfileValid,
+  humanfileWarning,
   onRecheck,
 }: {
   selectedProvider: string
@@ -1190,6 +1118,8 @@ function ConnectStep({
   detectLoading?: boolean
   detectError?: boolean
   vertexAiSignedIn?: boolean
+  humanfileValid?: boolean | null
+  humanfileWarning?: string | null
   onRecheck?: () => void
 }) {
   const [googleOAuthAvailable, setGoogleOAuthAvailable] = useState(false)
@@ -1244,6 +1174,35 @@ function ConnectStep({
           data-testid="already-connected-badge"
         >
           <span>Already connected: {detectedProvider}</span>
+        </div>
+      )}
+      {humanfileValid === false && (
+        <div
+          className="mb-4 p-3 rounded-lg border border-amber-500/40 bg-amber-500/10 text-left"
+          data-testid="humanfile-trust-warning"
+        >
+          <div className="flex items-start gap-2">
+            <Icon name="warning" size={18} className="text-amber-500 shrink-0 mt-0.5" />
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-semibold text-amber-600 dark:text-amber-400 mb-1">
+                HUMANFILE signature needs refresh
+              </p>
+              <p className={`text-xs mb-2 ${subtextCls}`}>
+                {humanfileWarning || 'Your HUMANFILE has been modified since signing, so ostk has paused secret injection until you re-sign it.'}
+              </p>
+              <p className={`text-xs font-mono mb-2 ${subtextCls}`}>
+                ostk trust sign --humanfile
+              </p>
+              <button
+                type="button"
+                onClick={() => onRecheck?.()}
+                className="px-3 py-1 rounded-md text-xs font-medium bg-amber-600 hover:bg-amber-500 text-white transition-colors"
+                data-testid="recheck-humanfile-trust"
+              >
+                Re-check signature
+              </button>
+            </div>
+          </div>
         </div>
       )}
       <p className={`${subtextCls} mb-3`}>
@@ -2009,68 +1968,5 @@ export function GithubSetupCard({
   )
 }
 
-function ReadyStep({
-  userName,
-  osName,
-  darkMode,
-  provider,
-  subtextCls,
-  cardCls,
-  detectedProvider,
-}: {
-  userName: string
-  osName: string
-  darkMode: boolean
-  provider: string
-  subtextCls: string
-  cardCls: string
-  detectedProvider?: string | null
-}) {
-  return (
-    <div className="text-center" data-testid="step-ready">
-      <div className="mb-6">
-        <Icon name="check_circle" size={48} className="text-green-400" />
-      </div>
-      <h2 className="text-2xl font-bold mb-4">You're all set!</h2>
-      <p className={`${subtextCls} mb-8`}>
-        Here's a summary of what you chose. You can change any of this later in
-        Settings.
-      </p>
-
-      <div className={`border rounded-xl p-6 text-left space-y-4 ${cardCls}`}>
-        {userName && (
-          <div className="flex items-center justify-between">
-            <span className={`text-sm ${subtextCls}`}>Your Name</span>
-            <span className="text-sm font-medium">{userName}</span>
-          </div>
-        )}
-        <div className="flex items-center justify-between">
-          <span className={`text-sm ${subtextCls}`}>OS Name</span>
-          <span className="text-sm font-medium" data-testid="summary-os-name">
-            {osName || 'yourOS'}
-          </span>
-        </div>
-        <div className="flex items-center justify-between">
-          <span className={`text-sm ${subtextCls}`}>Theme</span>
-          <span className="text-sm font-medium" data-testid="summary-theme">
-            {darkMode ? 'Dark' : 'Light'}
-          </span>
-        </div>
-        <div className="flex items-center justify-between">
-          <span className={`text-sm ${subtextCls}`}>AI Provider</span>
-          <span className="text-sm font-medium" data-testid="summary-provider">
-            {provider}
-          </span>
-        </div>
-        {detectedProvider && (
-          <div className="flex items-center justify-between">
-            <span className={`text-sm ${subtextCls}`}>Connected via</span>
-            <span className="text-sm font-medium" data-testid="summary-connected-via">{detectedProvider}</span>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
 
 

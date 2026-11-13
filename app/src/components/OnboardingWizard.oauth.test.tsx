@@ -111,8 +111,9 @@ describe('GithubSetupCard OAuth branching', () => {
 })
 
 // Connect step index in PERSONAL_STEPS_NO_FORK (TEAM_MODE_VISIBLE=false):
-// ['Welcome', 'You', 'Name', 'Profile', 'Customize', 'Theme', 'Tracking', 'Connect', 'Ready']
-const CONNECT_STEP_IDX = 7
+// ['Connect', 'Tracking', 'Personalize']
+const CONNECT_STEP_IDX = 0
+const PERSONALIZE_STEP_IDX = 2
 
 function setupWizardStore() {
   useAppStore.setState({
@@ -156,8 +157,10 @@ describe('OnboardingWizard restore-step after OAuth', () => {
     await waitFor(() => {
       expect(screen.getByTestId('step-connect')).toBeTruthy()
     })
-    expect(screen.queryByTestId('step-welcome')).toBeNull()
-    expect(vi.mocked(api.patch)).toHaveBeenCalledWith('/settings', { onboarding_step: null })
+    expect(screen.queryByTestId('step-tracking')).toBeNull()
+    await waitFor(() => {
+      expect(vi.mocked(api.patch)).toHaveBeenCalledWith('/settings', { onboarding_step: null })
+    })
   })
 
   it('shows error banner on ?error=token_exchange_failed and clears saved step', async () => {
@@ -173,17 +176,17 @@ describe('OnboardingWizard restore-step after OAuth', () => {
     expect(vi.mocked(api.patch)).toHaveBeenCalledWith('/settings', { onboarding_step: null })
   })
 
-  it('restores to the Ready step from backend settings on OAuth return', async () => {
-    // index 8 = 'Ready' (last step) in PERSONAL_STEPS_NO_FORK (0-indexed)
-    mockGetResponses['/settings'] = { onboarding_step: 8 }
+  it('restores to the Personalize step from backend settings on OAuth return', async () => {
+    // index 2 = 'Personalize' (last step) in PERSONAL_STEPS_NO_FORK (0-indexed)
+    mockGetResponses['/settings'] = { onboarding_step: PERSONALIZE_STEP_IDX }
     window.history.pushState({}, '', '/?connected=true')
 
     render(<OnboardingWizard />)
 
     await waitFor(() => {
-      expect(screen.getByTestId('step-ready')).toBeTruthy()
+      expect(screen.getByTestId('step-personalize')).toBeTruthy()
     })
-    expect(screen.queryByTestId('step-welcome')).toBeNull()
+    expect(screen.queryByTestId('step-connect')).toBeNull()
     expect(vi.mocked(api.patch)).toHaveBeenCalledWith('/settings', { onboarding_step: null })
   })
 
@@ -194,9 +197,9 @@ describe('OnboardingWizard restore-step after OAuth', () => {
     render(<OnboardingWizard />)
 
     await waitFor(() => {
-      expect(screen.getByTestId('step-welcome')).toBeTruthy()
+      expect(screen.getByTestId('step-connect')).toBeTruthy()
     })
-    expect(screen.queryByTestId('step-connect')).toBeNull()
+    expect(screen.queryByTestId('step-personalize')).toBeNull()
     expect(vi.mocked(api.patch)).not.toHaveBeenCalledWith('/settings', { onboarding_step: null })
   })
 })
