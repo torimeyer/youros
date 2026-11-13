@@ -6,7 +6,7 @@ import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Iterable, Optional
-from fastapi import APIRouter, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Body, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
 from models.schemas import AgentSpawn, AgentNudge, AgentNudgeReply, GrantApprove, GrantDeny
@@ -6380,12 +6380,17 @@ async def spawn_agent(body: AgentSpawn, request: Request = None, response: Respo
         body.locks = req.extra.get("locks")
         
         legacy_result = await _legacy_bespoke_spawn(body, request, response, _brief_warning)
+        _meta_row = agent_metadata.get(legacy_result.get("name", req.name)) or {}
 
         return SpawnResult(
             name=legacy_result.get("name", req.name),
             pid=legacy_result.get("pid"),
             status=legacy_result.get("status", "running"),
+            worktree_path=_meta_row.get("worktree_path"),
             transcript_path=legacy_result.get("transcript"),
+            branch_name=_meta_row.get("branch_name") or _meta_row.get("worktree_branch"),
+            base_sha=_meta_row.get("base_sha"),
+            repo_path=_meta_row.get("repo_path"),
             detail=legacy_result,
         )
 
@@ -6398,6 +6403,7 @@ async def spawn_agent(body: AgentSpawn, request: Request = None, response: Respo
         task=body.task,
         isolation=body.isolation,
         token_limit=body.token_limit,
+        repo_path=getattr(body, "repo_path", None),
         extra={
             "description": body.description,
             "task_id": body.task_id,
@@ -6623,6 +6629,8 @@ def _compose_spawn_meta(
     transcript_path: "Optional[str]" = None,
     worktree_path: "Optional[str]" = None,
     worktree_branch: "Optional[str]" = None,
+    repo_path: "Optional[str]" = None,
+    base_sha: "Optional[str]" = None,
 ) -> dict:
     """Build the agent_metadata row for a fresh spawn (→2944, shared).
 
@@ -6699,7 +6707,33 @@ def _compose_spawn_meta(
     if body.isolation == "worktree" and worktree_path:
         spawn_meta["worktree_path"] = worktree_path
         spawn_meta["worktree_branch"] = worktree_branch
+        if worktree_branch:
+            spawn_meta["branch_name"] = worktree_branch
         spawn_meta["isolation"] = "worktree"
+        try:
+            import subprocess as _sp_sha
+            from services.spawn_pipeline import resolve_target_repo as _resolve_target_repo
+
+            _resolved_repo = repo_path or str(
+                _resolve_target_repo(getattr(body, "repo_path", None))
+            )
+            spawn_meta["repo_path"] = _resolved_repo
+            if base_sha:
+                spawn_meta["base_sha"] = base_sha
+            else:
+                _sha_cwd = worktree_path if Path(worktree_path).is_dir() else _resolved_repo
+                if Path(_sha_cwd).is_dir():
+                    _sha_proc = _sp_sha.run(
+                        ["git", "-C", str(_sha_cwd), "rev-parse", "HEAD"],
+                        capture_output=True,
+                        text=True,
+                        timeout=3.0,
+                        check=False,
+                    )
+                    if _sha_proc.returncode == 0 and _sha_proc.stdout.strip():
+                        spawn_meta["base_sha"] = _sha_proc.stdout.strip()
+        except Exception:
+            pass
     else:
         spawn_meta["isolation"] = body.isolation or "none"
     # Always stamp a real source so the audit-log "source=audit"
@@ -8386,7 +8420,14 @@ async def register_agent(body: AgentSpawn, request: Request = None):
     # mailbox boot. Without this block the fresh record dict overwrites
     # those fields with nothing, making worktree_path null in /api/agents
     # even though the worktree was created successfully.
-    for wt_field in ("worktree_path", "worktree_branch", "isolation"):
+    for wt_field in (
+        "worktree_path",
+        "worktree_branch",
+        "isolation",
+        "repo_path",
+        "branch_name",
+        "base_sha",
+    ):
         if existing.get(wt_field) and wt_field not in record:
             record[wt_field] = existing[wt_field]
     # Preserve PID from spawn: the spawn endpoint stores proc.pid in metadata
@@ -12500,6 +12541,163 @@ async def team_idle_check(team_id: str, agent_name: str = ""):
         }
     result = _teams_svc.teammate_idle_check(team_id, agent_name, open_ids)
     return {"team_id": team_id, "agent_name": agent_name, **result}
+
+
+# ---------------------------------------------------------------------------
+# Runtime-neutral spawn_pipeline endpoints (->3091): Merge-and-Reap,
+# Reset Save Point, and Pin Decision.
+# ---------------------------------------------------------------------------
+
+
+class _AgentMergeAndReapRequest(BaseModel):
+    repo_path: Optional[str] = None
+    branch_name: Optional[str] = None
+    worktree_path: Optional[str] = None
+    target_branch: Optional[str] = None
+
+
+class _AgentResetSavePointRequest(BaseModel):
+    worktree_path: Optional[str] = None
+    base_sha: Optional[str] = None
+    repo_path: Optional[str] = None
+
+
+class _AgentPinDecisionRequest(BaseModel):
+    key: str
+    value: str
+    reason: Optional[str] = None
+    repo_path: Optional[str] = None
+
+
+@router.post("/agents/{name}/merge-and-reap")
+async def merge_and_reap_agent_endpoint(
+    name: str,
+    body: Optional[_AgentMergeAndReapRequest] = Body(default=None),
+):
+    from services.spawn_pipeline import (
+        BranchNotFoundError,
+        MergeConflictError,
+        merge_and_reap_worktree,
+        resolve_target_repo,
+    )
+
+    canonical = _resolve_agent_name(name)
+    meta = agent_metadata.get(canonical)
+    if meta is None and (body is None or not body.branch_name):
+        raise HTTPException(status_code=404, detail=f"Agent {name!r} not found")
+
+    explicit_repo = (body.repo_path if body else None) or (meta or {}).get("repo_path")
+    repo_root = resolve_target_repo(explicit_repo)
+
+    branch_name = (
+        (body.branch_name if body else None)
+        or (meta or {}).get("branch_name")
+        or (meta or {}).get("worktree_branch")
+    )
+    if not branch_name:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Agent {name!r} has no worktree branch recorded to merge",
+        )
+
+    wt_raw = (body.worktree_path if body else None) or (meta or {}).get("worktree_path")
+    wt_path = Path(wt_raw) if wt_raw else None
+    target_branch = body.target_branch if body else None
+
+    try:
+        result = await asyncio.to_thread(
+            merge_and_reap_worktree,
+            repo_root=repo_root,
+            branch_name=branch_name,
+            worktree_path=wt_path,
+            target_branch=target_branch,
+        )
+    except MergeConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except BranchNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    merged_at = datetime.now(timezone.utc).isoformat()
+    if meta is not None:
+        meta["merged_at"] = merged_at
+        meta["merged_sha"] = result.get("merged_sha")
+        await _save_agent_state_async()
+
+    return {"agent": canonical, "merged_at": merged_at, **result}
+
+
+@router.post("/agents/{name}/reset-save-point")
+async def reset_agent_save_point_endpoint(
+    name: str,
+    body: Optional[_AgentResetSavePointRequest] = Body(default=None),
+):
+    from services.spawn_pipeline import reset_to_save_point
+
+    canonical = _resolve_agent_name(name)
+    meta = agent_metadata.get(canonical)
+    if meta is None and (body is None or not (body.worktree_path and body.base_sha)):
+        raise HTTPException(status_code=404, detail=f"Agent {name!r} not found")
+
+    wt_raw = (body.worktree_path if body else None) or (meta or {}).get("worktree_path")
+    if not wt_raw:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Agent {name!r} has no worktree_path recorded",
+        )
+
+    base_sha = (body.base_sha if body else None) or (meta or {}).get("base_sha")
+    if not base_sha:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Agent {name!r} has no base_sha save point recorded",
+        )
+
+    repo_raw = (body.repo_path if body else None) or (meta or {}).get("repo_path")
+    repo_root = Path(repo_raw) if repo_raw else None
+
+    try:
+        result = await asyncio.to_thread(
+            reset_to_save_point,
+            worktree_path=Path(wt_raw),
+            base_sha=base_sha,
+            repo_root=repo_root,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if meta is not None:
+        meta["last_reset_at"] = datetime.now(timezone.utc).isoformat()
+        await _save_agent_state_async()
+
+    return {"agent": canonical, **result}
+
+
+@router.post("/agents/{name}/pin-decision")
+async def pin_agent_decision_endpoint(
+    name: str,
+    body: _AgentPinDecisionRequest,
+):
+    from services.spawn_pipeline import pin_decision, resolve_target_repo
+
+    canonical = _resolve_agent_name(name)
+    meta = agent_metadata.get(canonical)
+    explicit_repo = body.repo_path or (meta or {}).get("repo_path")
+    repo_root = resolve_target_repo(explicit_repo)
+
+    try:
+        result = await asyncio.to_thread(
+            pin_decision,
+            repo_root=repo_root,
+            key=body.key,
+            value=body.value,
+            reason=body.reason,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return {"agent": canonical, **result}
 
 
 # ---------------------------------------------------------------------------
