@@ -32,17 +32,17 @@ logger = logging.getLogger(__name__)
 # Tier → model id map.  Edit here when Anthropic ships a new generation.
 # ---------------------------------------------------------------------------
 TIER_MODEL_MAP: dict[str, str] = {
-    "sonnet": "claude-sonnet-4-6",
-    "opus":   "claude-opus-4-7",
-    "haiku":  "claude-haiku-4-5-20251001",
+    "sonnet": "claude-sonnet-5-5",
+    "opus":   "claude-opus-5-5",
+    "haiku":  "claude-haiku-5-5",
 }
 
 # Retired model IDs that must be silently remapped to their current equivalent.
 # Used by resolve_model() so stale hardcodes or saved settings are healed at
 # call time rather than reaching the Anthropic API as a 404.
 RETIRED_MODELS: dict[str, str] = {
-    "claude-sonnet-4-20250514": "claude-sonnet-4-6",
-    "claude-sonnet-4-5":        "claude-sonnet-4-6",
+    "claude-sonnet-4-20250514": "claude-sonnet-5-5",
+    "claude-sonnet-4-5":        "claude-sonnet-5-5",
     "claude-haiku-4-5":         "claude-haiku-4-5-20251001",
 }
 

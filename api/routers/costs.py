@@ -21,6 +21,13 @@ from services.ostk import ostk, read_audit_entries
 _MODEL_PRICES: dict[str, tuple[float, float, float, float]] = {
     # (input $/M, output $/M, cache_creation $/M, cache_read $/M)
     # Explicit version IDs listed first so longest-prefix matching hits them before the family prefix.
+    "claude-opus-5-5":      (15.00, 75.00, 18.75, 1.50),
+    "claude-fable-5-2":     (15.00, 75.00, 18.75, 1.50),
+    "claude-sonnet-5-5":    (3.00,  15.00,  3.75, 0.30),
+    "claude-haiku-5-5":     (0.80,   4.00,  1.00, 0.08),
+    "claude-opus-5":        (15.00, 75.00, 18.75, 1.50),
+    "claude-sonnet-5":      (3.00,  15.00,  3.75, 0.30),
+    "claude-haiku-5":       (0.80,   4.00,  1.00, 0.08),
     "claude-opus-4-7":      (15.00, 75.00, 18.75, 1.50),
     "claude-sonnet-4-6":    (3.00,  15.00,  3.75, 0.30),
     "claude-haiku-4-5":     (0.80,   4.00,  1.00, 0.08),

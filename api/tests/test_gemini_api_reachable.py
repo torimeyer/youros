@@ -16,17 +16,15 @@ async def test_api_reachable_false_when_list_models_raises():
     fake_creds.service_account_email = None
     fake_creds.id_token = None
 
+    fake_client = MagicMock()
+    fake_client.models.list.side_effect = Exception(
+        "serviceusage.services.use permission denied on project my-project"
+    )
     with patch("google.auth.default", return_value=(fake_creds, "my-project")):
         with patch("google.auth.transport.requests.Request", return_value=MagicMock()):
             with patch.object(fake_creds, "refresh"):
-                with patch("google.generativeai.configure"):
-                    with patch(
-                        "google.generativeai.list_models",
-                        side_effect=Exception(
-                            "serviceusage.services.use permission denied on project my-project"
-                        ),
-                    ):
-                        result = _detect_gemini_sync()
+                with patch("google.genai.Client", return_value=fake_client):
+                    result = _detect_gemini_sync()
 
     assert result["api_reachable"] is False, (
         f"Expected api_reachable=False but got {result['api_reachable']!r}. "
@@ -48,15 +46,13 @@ async def test_api_reachable_true_when_list_models_succeeds():
     fake_creds.service_account_email = "svc@project.iam.gserviceaccount.com"
     fake_creds.id_token = None
 
+    fake_client = MagicMock()
+    fake_client.models.list.return_value = iter([MagicMock(name="models/gemini-3.1-pro")])
     with patch("google.auth.default", return_value=(fake_creds, "my-project")):
         with patch("google.auth.transport.requests.Request", return_value=MagicMock()):
             with patch.object(fake_creds, "refresh"):
-                with patch("google.generativeai.configure"):
-                    with patch(
-                        "google.generativeai.list_models",
-                        return_value=iter([MagicMock(name="models/gemini-pro")]),
-                    ):
-                        result = _detect_gemini_sync()
+                with patch("google.genai.Client", return_value=fake_client):
+                    result = _detect_gemini_sync()
 
     assert result["api_reachable"] is True
     assert result["api_error"] is None

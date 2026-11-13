@@ -24,47 +24,50 @@ import pytest
 
 def test_resolve_sonnet_tier():
     from services.model_routing import resolve_model
-    assert resolve_model("sonnet") == "claude-sonnet-4-6"
+    assert resolve_model("sonnet") == "claude-sonnet-5-5"
 
 
 def test_resolve_opus_tier():
     from services.model_routing import resolve_model
-    assert resolve_model("opus") == "claude-opus-4-7"
+    assert resolve_model("opus") == "claude-opus-5-5"
 
 
 def test_resolve_haiku_tier():
     from services.model_routing import resolve_model
-    assert resolve_model("haiku") == "claude-haiku-4-5-20251001"
+    assert resolve_model("haiku") == "claude-haiku-5-5"
 
 
 def test_resolve_none_defaults_to_sonnet():
     from services.model_routing import DEFAULT_MODEL, resolve_model
-    assert resolve_model(None) == "claude-sonnet-4-6"
+    assert resolve_model(None) == "claude-sonnet-5-5"
     assert resolve_model(None) == DEFAULT_MODEL
 
 
 def test_resolve_empty_string_defaults_to_sonnet():
     from services.model_routing import resolve_model
-    assert resolve_model("") == "claude-sonnet-4-6"
+    assert resolve_model("") == "claude-sonnet-5-5"
 
 
 def test_resolve_full_model_id_passthrough():
     """A caller that already has a full model id should get it back unchanged."""
     from services.model_routing import resolve_model
+    assert resolve_model("claude-opus-5-5") == "claude-opus-5-5"
+    assert resolve_model("claude-fable-5-2") == "claude-fable-5-2"
+    assert resolve_model("claude-sonnet-5-5") == "claude-sonnet-5-5"
     assert resolve_model("claude-opus-4-7") == "claude-opus-4-7"
     assert resolve_model("claude-sonnet-4-6") == "claude-sonnet-4-6"
 
 
 def test_resolve_unknown_tier_falls_back_to_sonnet():
     from services.model_routing import resolve_model
-    assert resolve_model("gpt-99") == "claude-sonnet-4-6"
+    assert resolve_model("gpt-99") == "claude-sonnet-5-5"
 
 
 def test_default_tier_is_sonnet():
     from services.model_routing import DEFAULT_TIER, DEFAULT_MODEL, TIER_MODEL_MAP
     assert DEFAULT_TIER == "sonnet"
     assert DEFAULT_MODEL == TIER_MODEL_MAP["sonnet"]
-    assert DEFAULT_MODEL == "claude-sonnet-4-6"
+    assert DEFAULT_MODEL == "claude-sonnet-5-5"
 
 
 # ---------------------------------------------------------------------------
@@ -91,7 +94,7 @@ def test_escalate_to_opus_returns_opus_model():
     from services.model_routing import escalate_to_opus, TIER_MODEL_MAP
     result = escalate_to_opus("test-agent", "exit_code=1")
     assert result == TIER_MODEL_MAP["opus"]
-    assert result == "claude-opus-4-7"
+    assert result == "claude-opus-5-5"
 
 
 def test_escalate_to_opus_writes_log(tmp_path, monkeypatch):
@@ -112,7 +115,7 @@ def test_escalate_to_opus_writes_log(tmp_path, monkeypatch):
     assert len(lines) == 2
     event = json.loads(lines[0])
     assert event["agent"] == "my-agent"
-    assert event["escalated_to"] == "claude-opus-4-7"
+    assert event["escalated_to"] == "claude-opus-5-5"
     assert "ts" in event
 
 
@@ -131,20 +134,20 @@ async def test_spawn_endpoint_default_tier_is_sonnet(client):
     assert body.model == "sonnet"
     assert body.model_tier is None
 
-    # The MODEL_MAP in agents.py must resolve "sonnet" to claude-sonnet-4-6.
-    assert _agents_mod.MODEL_MAP["sonnet"] == "claude-sonnet-4-6"
+    # The MODEL_MAP in agents.py must resolve "sonnet" to claude-sonnet-5-5.
+    assert _agents_mod.MODEL_MAP["sonnet"] == "claude-sonnet-5-5"
     # resolve_model agrees.
-    assert resolve_model(body.model) == "claude-sonnet-4-6"
+    assert resolve_model(body.model) == "claude-sonnet-5-5"
 
 
 @pytest.mark.asyncio
 async def test_spawn_schema_accepts_opus_tier():
-    """model_tier='opus' in the spawn schema resolves to claude-opus-4-7."""
+    """model_tier='opus' in the spawn schema resolves to claude-opus-5-5."""
     from models.schemas import AgentSpawn
     from services.model_routing import resolve_model
     body = AgentSpawn(name="hard-task", prompt="complex reasoning", model_tier="opus")
     assert body.model_tier == "opus"
-    assert resolve_model(body.model_tier) == "claude-opus-4-7"
+    assert resolve_model(body.model_tier) == "claude-opus-5-5"
 
 
 @pytest.mark.asyncio
@@ -166,7 +169,7 @@ async def test_full_escalation_flow():
     # Step 2: escalate — get Opus id
     opus_id = escalate_to_opus("my-complex-agent", "NEEDS_OPUS in output")
     assert opus_id == TIER_MODEL_MAP["opus"]
-    assert opus_id == "claude-opus-4-7"
+    assert opus_id == "claude-opus-5-5"
 
 
 # ---------------------------------------------------------------------------
@@ -176,7 +179,7 @@ async def test_full_escalation_flow():
 def test_resolve_retired_sonnet_maps_to_current():
     """Retired claude-sonnet-4-20250514 must resolve to the current Sonnet."""
     from services.model_routing import resolve_model
-    assert resolve_model("claude-sonnet-4-20250514") == "claude-sonnet-4-6"
+    assert resolve_model("claude-sonnet-4-20250514") == "claude-sonnet-5-5"
 
 
 def test_resolve_retired_haiku_maps_to_current():
@@ -188,6 +191,10 @@ def test_resolve_retired_haiku_maps_to_current():
 def test_resolve_current_models_still_pass_through():
     """Active model IDs must pass through unchanged."""
     from services.model_routing import resolve_model
+    assert resolve_model("claude-sonnet-5-5") == "claude-sonnet-5-5"
+    assert resolve_model("claude-opus-5-5") == "claude-opus-5-5"
+    assert resolve_model("claude-haiku-5-5") == "claude-haiku-5-5"
+    assert resolve_model("claude-fable-5-2") == "claude-fable-5-2"
     assert resolve_model("claude-sonnet-4-6") == "claude-sonnet-4-6"
     assert resolve_model("claude-opus-4-7") == "claude-opus-4-7"
     assert resolve_model("claude-haiku-4-5-20251001") == "claude-haiku-4-5-20251001"
@@ -197,4 +204,4 @@ def test_retired_models_constant_exists():
     """RETIRED_MODELS must be importable and contain the known-bad ID."""
     from services.model_routing import RETIRED_MODELS
     assert "claude-sonnet-4-20250514" in RETIRED_MODELS
-    assert RETIRED_MODELS["claude-sonnet-4-20250514"] == "claude-sonnet-4-6"
+    assert RETIRED_MODELS["claude-sonnet-4-20250514"] == "claude-sonnet-5-5"

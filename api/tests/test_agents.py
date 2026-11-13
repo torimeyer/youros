@@ -2172,7 +2172,7 @@ async def test_register_endpoint_stores_metadata():
             assert "cc-new-agent" in agent_metadata
             meta = agent_metadata["cc-new-agent"]
             assert meta["source"] == "claude-code"
-            assert meta["model"] == "claude-opus-4-7"
+            assert meta["model"] == "claude-opus-5-5"
             assert meta["budget"] == "2.0"
         finally:
             agent_metadata.pop("cc-new-agent", None)

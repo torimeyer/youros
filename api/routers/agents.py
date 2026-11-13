@@ -2327,6 +2327,11 @@ async def _schedule_ghost_retry(name: str) -> None:
 # Approximate cost per 1M tokens by model family. Used to estimate cost from
 # token counts. These are rough averages of input+output pricing.
 _COST_PER_MILLION_TOKENS = {
+    "claude-opus-5-5": 30.0,
+    "claude-fable-5-2": 30.0,
+    "claude-sonnet-5-5": 6.0,
+    "claude-haiku-5-5": 2.0,
+    "claude-opus-4-7": 30.0,
     "claude-opus-4-6": 30.0,
     "claude-sonnet-4-6": 6.0,
     "claude-haiku-4-5": 2.0,
@@ -5523,9 +5528,9 @@ import shutil
 CLAUDE_BIN = shutil.which("claude") or "claude"
 
 MODEL_MAP = {
-    "sonnet": "claude-sonnet-4-6",
-    "opus": "claude-opus-4-7",
-    "haiku": "claude-haiku-4-5-20251001",
+    "sonnet": "claude-sonnet-5-5",
+    "opus": "claude-opus-5-5",
+    "haiku": "claude-haiku-5-5",
 }
 
 

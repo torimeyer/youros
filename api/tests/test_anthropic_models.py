@@ -21,6 +21,12 @@ async def test_anthropic_models_endpoint_returns_current_list(client):
     assert "default" in data
 
     ids = [m["id"] for m in data["models"]]
+    assert "claude-opus-5-5" in ids
+    assert "claude-fable-5-2" in ids
+    assert "claude-sonnet-5-5" in ids
+    assert "claude-haiku-5-5" in ids
+    # 4.x models remain available for saved settings and backwards compatibility.
+    assert "claude-opus-4-7" in ids
     assert "claude-opus-4-6" in ids
     assert "claude-sonnet-4-6" in ids
     assert "claude-haiku-4-5-20251001" in ids
@@ -38,6 +44,11 @@ async def test_anthropic_models_endpoint_returns_plain_language_labels(client):
     assert resp.status_code == 200
 
     labels = {m["id"]: m["label"] for m in resp.json()["models"]}
+    assert labels["claude-opus-5-5"] == "Opus 5.5"
+    assert labels["claude-fable-5-2"] == "Fable 5.2"
+    assert labels["claude-sonnet-5-5"] == "Sonnet 5.5"
+    assert labels["claude-haiku-5-5"] == "Haiku 5.5"
+    assert labels["claude-opus-4-7"] == "Opus 4.7"
     assert labels["claude-opus-4-6"] == "Opus 4.6"
     assert labels["claude-sonnet-4-6"] == "Sonnet 4.6"
     assert labels["claude-haiku-4-5-20251001"] == "Haiku 4.5"
@@ -50,6 +61,10 @@ async def test_anthropic_models_endpoint_marks_each_tier(client):
     assert resp.status_code == 200
 
     tiers = {m["id"]: m["tier"] for m in resp.json()["models"]}
+    assert tiers["claude-opus-5-5"] == "opus"
+    assert tiers["claude-fable-5-2"] == "opus"
+    assert tiers["claude-sonnet-5-5"] == "sonnet"
+    assert tiers["claude-haiku-5-5"] == "haiku"
     assert tiers["claude-opus-4-6"] == "opus"
     assert tiers["claude-sonnet-4-6"] == "sonnet"
     assert tiers["claude-haiku-4-5-20251001"] == "haiku"
@@ -64,7 +79,7 @@ async def test_settings_default_model_is_current_sonnet(client):
     """
     resp = await client.get("/api/models/anthropic")
     assert resp.status_code == 200
-    assert resp.json()["default"] == "claude-sonnet-4-6"
+    assert resp.json()["default"] == "claude-sonnet-5-5"
 
 
 def test_service_module_is_single_source_of_truth():
@@ -83,16 +98,22 @@ def test_service_module_is_single_source_of_truth():
 
     ids = model_ids()
     assert ids == [
+        "claude-opus-5-5",
+        "claude-fable-5-2",
+        "claude-sonnet-5-5",
+        "claude-haiku-5-5",
         "claude-opus-4-7",
         "claude-opus-4-6",
         "claude-sonnet-4-6",
         "claude-haiku-4-5-20251001",
     ]
-    assert DEFAULT_ANTHROPIC_MODEL == "claude-sonnet-4-6"
+    assert DEFAULT_ANTHROPIC_MODEL == "claude-sonnet-5-5"
+    assert is_valid_model("claude-sonnet-5-5") is True
+    assert is_valid_model("claude-fable-5-2") is True
     assert is_valid_model("claude-sonnet-4-6") is True
     assert is_valid_model("claude-opus-4-20250514") is False
 
     # list_models() must return a fresh copy so callers cannot mutate the module.
     copy = list_models()
     copy[0]["id"] = "tampered"
-    assert ANTHROPIC_MODELS[0]["id"] == "claude-opus-4-7"
+    assert ANTHROPIC_MODELS[0]["id"] == "claude-opus-5-5"

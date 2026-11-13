@@ -17,13 +17,27 @@ async def test_detect_gemini_returns_unavailable_when_no_credentials():
 
 @pytest.mark.asyncio
 async def test_detect_gemini_available_with_api_key_only():
+    from unittest.mock import MagicMock
+
+    fake_client = MagicMock()
+    fake_client.models.list.return_value = iter([])
     with patch("google.auth.default", side_effect=Exception("no credentials")):
         with patch("services.ostk_secrets.get_gemini_key", return_value="test-key"):
-            with patch("google.generativeai.list_models", return_value=[]):
+            with patch("google.genai.Client", return_value=fake_client) as mock_client_cls:
                 result = await _detect_gemini()
+    mock_client_cls.assert_called_once_with(api_key="test-key")
     assert result["available"] is True
     assert result["authenticated"] is True
     assert result["email"] == "Configured via API Key"
+    assert result["api_reachable"] is True
+
+
+def test_gemini_router_has_zero_deprecated_google_generativeai_references():
+    import inspect
+    import routers.gemini as mod
+
+    source = inspect.getsource(mod)
+    assert "google.generativeai" not in source
 
 
 @pytest.mark.asyncio

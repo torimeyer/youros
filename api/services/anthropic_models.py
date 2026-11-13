@@ -25,6 +25,26 @@ from typing import Dict, List
 
 ANTHROPIC_MODELS: List[Dict[str, str]] = [
     {
+        "id": "claude-opus-5-5",
+        "label": "Opus 5.5",
+        "tier": "opus",
+    },
+    {
+        "id": "claude-fable-5-2",
+        "label": "Fable 5.2",
+        "tier": "opus",
+    },
+    {
+        "id": "claude-sonnet-5-5",
+        "label": "Sonnet 5.5",
+        "tier": "sonnet",
+    },
+    {
+        "id": "claude-haiku-5-5",
+        "label": "Haiku 5.5",
+        "tier": "haiku",
+    },
+    {
         "id": "claude-opus-4-7",
         "label": "Opus 4.7",
         "tier": "opus",
@@ -48,9 +68,9 @@ ANTHROPIC_MODELS: List[Dict[str, str]] = [
 
 
 # The default model the backend picks when a caller does not specify one.
-# Sonnet 4.6 is the everyday default: capable enough for routine work,
+# Sonnet 5.5 is the everyday default: capable enough for routine work,
 # much cheaper than Opus. Opus is reserved for hard reasoning tasks.
-DEFAULT_ANTHROPIC_MODEL: str = "claude-sonnet-4-6"
+DEFAULT_ANTHROPIC_MODEL: str = "claude-sonnet-5-5"
 
 
 def list_models() -> List[Dict[str, str]]:

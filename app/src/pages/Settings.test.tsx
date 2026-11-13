@@ -475,12 +475,16 @@ describe('Settings', () => {
       })
     })
 
-    it('shows current Claude models (Opus 4.6, Sonnet 4.6, Haiku 4.5)', async () => {
+    it('shows current Claude models (Opus 5.5, Fable 5.2, Sonnet 5.5, Haiku 5.5)', async () => {
       renderSettings()
       const dropdown = await screen.findByTestId('anthropic-model-dropdown')
       const options = dropdown.querySelectorAll('option')
       const labels = Array.from(options).map((o) => o.textContent?.trim())
       // Labels should be plain-language, not raw ids.
+      expect(labels).toContain('Opus 5.5')
+      expect(labels).toContain('Fable 5.2')
+      expect(labels).toContain('Sonnet 5.5')
+      expect(labels).toContain('Haiku 5.5')
       expect(labels).toContain('Opus 4.6')
       expect(labels).toContain('Sonnet 4.6')
       expect(labels).toContain('Haiku 4.5')

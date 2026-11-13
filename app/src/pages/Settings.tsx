@@ -90,11 +90,16 @@ export default function Settings() {
   const [recheckingGemini, setRecheckingGemini] = useState(false);
   const [apiKeys, setApiKeys] = useState<Record<string, string>>({ Anthropic: '', 'Google Gemini': '' });
   const [apiKeyVisible, setApiKeyVisible] = useState(false);
-  const [selectedModel, setSelectedModel] = useState('claude-sonnet-4-6');
+  const [selectedModel, setSelectedModel] = useState('claude-sonnet-5-5');
   // Model list and default come from the backend so there's a single source
   // of truth. When Anthropic ships a new model we edit one file on the
   // server and the dropdown updates everywhere.
   const [anthropicModels, setAnthropicModels] = useState<{ id: string; label: string; tier: string }[]>([
+    { id: 'claude-opus-5-5', label: 'Opus 5.5', tier: 'opus' },
+    { id: 'claude-fable-5-2', label: 'Fable 5.2', tier: 'opus' },
+    { id: 'claude-sonnet-5-5', label: 'Sonnet 5.5', tier: 'sonnet' },
+    { id: 'claude-haiku-5-5', label: 'Haiku 5.5', tier: 'haiku' },
+    { id: 'claude-opus-4-7', label: 'Opus 4.7', tier: 'opus' },
     { id: 'claude-opus-4-6', label: 'Opus 4.6', tier: 'opus' },
     { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', tier: 'sonnet' },
     { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5', tier: 'haiku' },

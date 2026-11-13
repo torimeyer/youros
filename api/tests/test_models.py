@@ -58,3 +58,32 @@ def test_models_router_exports_constants():
     assert hasattr(models_module, "ANTHROPIC_MODELS")
     assert hasattr(models_module, "DEFAULT_ANTHROPIC_MODEL")
     assert hasattr(models_module, "router")
+
+
+@pytest.mark.asyncio
+async def test_models_gemini_returns_cli_verified_catalog():
+    """GET /api/models/gemini returns Gemini CLI 0.57.0 model ids and aliases."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/models/gemini")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "models" in data
+    assert "aliases" in data
+    assert "default" in data
+
+    ids = [m["id"] for m in data["models"]]
+    assert ids == [
+        "gemini-3.1-pro",
+        "gemini-3.5-flash",
+        "gemini-3.1-flash-lite",
+        "gemini-2.5-pro",
+        "gemini-2.5-flash",
+    ]
+    assert data["aliases"] == ["auto", "pro", "flash", "flash-lite"]
+    assert data["default"] == "gemini-3.1-pro"
+
+    # Antigravity IDE-only names fail Gemini CLI validation and must never appear.
+    combined = " ".join(ids + data["aliases"] + [m["label"].lower() for m in data["models"]])
+    for forbidden in ("carbon", "argon", "hydrogen"):
+        assert forbidden not in combined.lower()

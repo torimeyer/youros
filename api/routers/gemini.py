@@ -1,6 +1,7 @@
 """Gemini Enterprise provider detection and status."""
 import asyncio
 import logging
+import os
 import time
 from typing import Optional
 
@@ -14,6 +15,41 @@ _gemini_status_cache: Optional[dict] = None
 _gemini_cache_ts: float = 0.0
 _CACHE_TTL = 600.0
 _DETECT_TIMEOUT = 5.0
+
+
+def _verify_gemini_models_reachable(
+    *,
+    credentials=None,
+    project: Optional[str] = None,
+    api_key: Optional[str] = None,
+) -> None:
+    """Verify Gemini API reachability via the supported google.genai SDK."""
+    from google import genai
+
+    if api_key:
+        client = genai.Client(api_key=api_key)
+        next(iter(client.models.list()), None)
+        return
+
+    if project:
+        location = os.environ.get("GOOGLE_CLOUD_LOCATION", "us-central1")
+        client = genai.Client(
+            vertexai=True,
+            credentials=credentials,
+            project=project,
+            location=location,
+        )
+        next(iter(client.models.list()), None)
+        return
+
+    import google.auth.transport.requests
+
+    session = google.auth.transport.requests.AuthorizedSession(credentials)
+    resp = session.get(
+        "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1",
+        timeout=4,
+    )
+    resp.raise_for_status()
 
 
 def _detect_gemini_sync() -> dict:
@@ -50,10 +86,7 @@ def _detect_gemini_sync() -> dict:
         api_reachable = False
         api_error = None
         try:
-            import google.generativeai as genai
-
-            genai.configure(credentials=credentials)
-            list(genai.list_models())
+            _verify_gemini_models_reachable(credentials=credentials, project=_project)
             api_reachable = True
         except Exception as api_exc:
             api_error = str(api_exc)[:300]
@@ -112,9 +145,7 @@ async def _detect_gemini() -> dict:
             api_reachable = False
             api_error = None
             try:
-                import google.generativeai as genai
-                genai.configure(api_key=key)
-                await asyncio.to_thread(lambda: list(genai.list_models()))
+                await asyncio.to_thread(_verify_gemini_models_reachable, api_key=key)
                 api_reachable = True
             except Exception as api_exc:
                 api_error = str(api_exc)[:300]
