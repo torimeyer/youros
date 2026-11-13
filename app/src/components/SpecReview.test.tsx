@@ -248,3 +248,98 @@ describe('SpecReview github_pr badge', () => {
     expect(screen.queryByTestId('spec-pr-badge')).not.toBeInTheDocument()
   })
 })
+
+describe('SpecReview cross-model spec critique', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('calls POST /specs/{path}/cross-critique with Gemini 3.1 Pro by default and renders audit matches and findings', async () => {
+    mockedGet.mockResolvedValueOnce(readyResponse)
+    mockedPost.mockResolvedValueOnce({
+      summary: 'Spec lists an existing component under Create instead of Existing (reuse).',
+      audit_clear: false,
+      matched_files: ['app/src/components/ReceiptPanel.tsx'],
+      findings: [
+        'Change ReceiptPanel.tsx from Create: to Existing (reuse):',
+        'Specify error fallback behavior when backend returns 404.',
+      ],
+    })
+
+    render(<SpecReview specPath="docs/spec/foo.md" />)
+
+    await waitFor(() => expect(screen.getByTestId('cross-model-critique-btn')).toBeInTheDocument())
+
+    const selector = screen.getByTestId('cross-critique-runtime-select') as HTMLSelectElement
+    expect(selector.value).toBe('gemini')
+
+    fireEvent.click(screen.getByTestId('cross-model-critique-btn'))
+
+    await waitFor(() => {
+      expect(mockedPost).toHaveBeenCalledWith('/specs/docs/spec/foo.md/cross-critique', {
+        reviewer_runtime: 'gemini',
+        reviewer_model: 'gemini-3.1-pro',
+      })
+    })
+
+    expect(screen.getByTestId('cross-critique-summary')).toHaveTextContent(
+      'Spec lists an existing component under Create instead of Existing (reuse).'
+    )
+    expect(screen.getByTestId('cross-critique-audit-status')).toHaveTextContent(/Existing \(reuse\)/i)
+    expect(screen.getByTestId('cross-critique-audit-matches')).toHaveTextContent(
+      'app/src/components/ReceiptPanel.tsx'
+    )
+    expect(screen.getByTestId('cross-critique-findings')).toHaveTextContent(
+      'Change ReceiptPanel.tsx from Create: to Existing (reuse):'
+    )
+    expect(screen.getByTestId('cross-critique-findings')).toHaveTextContent(
+      'Specify error fallback behavior when backend returns 404.'
+    )
+  })
+
+  it('allows switching runtime to Claude Opus 5.5 and renders clear audit status', async () => {
+    mockedGet.mockResolvedValueOnce(readyResponse)
+    mockedPost.mockResolvedValueOnce({
+      summary: 'No structural issues detected.',
+      audit_clear: true,
+      matched_files: [],
+      findings: ['Consider adding a timeout edge-case test.'],
+    })
+
+    render(<SpecReview specPath="docs/spec/foo.md" />)
+
+    await waitFor(() => expect(screen.getByTestId('cross-model-critique-btn')).toBeInTheDocument())
+
+    fireEvent.change(screen.getByTestId('cross-critique-runtime-select'), {
+      target: { value: 'claude' },
+    })
+    fireEvent.click(screen.getByTestId('cross-model-critique-btn'))
+
+    await waitFor(() => {
+      expect(mockedPost).toHaveBeenCalledWith('/specs/docs/spec/foo.md/cross-critique', {
+        reviewer_runtime: 'claude',
+        reviewer_model: 'claude-opus-5-5',
+      })
+    })
+
+    expect(screen.getByTestId('cross-critique-audit-status')).toHaveTextContent(/audit clear/i)
+    expect(screen.getByTestId('cross-critique-findings')).toHaveTextContent(
+      'Consider adding a timeout edge-case test.'
+    )
+  })
+
+  it('surfaces inline error cleanly without crashing when cross-critique returns 404 or fails', async () => {
+    mockedGet.mockResolvedValueOnce(readyResponse)
+    mockedPost.mockRejectedValueOnce(new Error('HTTP 404: cross-critique endpoint unavailable'))
+
+    render(<SpecReview specPath="docs/spec/foo.md" />)
+
+    await waitFor(() => expect(screen.getByTestId('cross-model-critique-btn')).toBeInTheDocument())
+    fireEvent.click(screen.getByTestId('cross-model-critique-btn'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('cross-critique-error')).toHaveTextContent(
+        'HTTP 404: cross-critique endpoint unavailable'
+      )
+    })
+  })
+})
+

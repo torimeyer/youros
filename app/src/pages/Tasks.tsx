@@ -45,6 +45,7 @@ import ConfirmModal from "../components/ConfirmModal";
 import { ComprehensiveBuildPill } from "../components/ComprehensiveBuild";
 import { NeedsClarityChip, type ReadinessCheck } from "../components/NeedsClarityChip";
 import ReceiptPanel from "../components/ReceiptPanel";
+import HandoffRuntimeModal from "../components/HandoffRuntimeModal";
 import { useRunningAgentsStore } from "../stores/runningAgents";
 
 interface Task {
@@ -297,6 +298,7 @@ export default function Tasks() {
   const [loading, setLoading] = useState<boolean>(() => readTasksCache().length === 0);
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [handoffTask, setHandoffTask] = useState<Task | null>(null);
   const [detailTab, setDetailTab] = useState<"context" | "history" | "related">("context");
   const [briefing, setBriefing] = useState<TaskBriefing | null>(null);
   const [briefingLoading, setBriefingLoading] = useState(false);
@@ -3033,6 +3035,18 @@ export default function Tasks() {
                         </div>
                       )}
 
+                      <div className="mt-3 flex items-center justify-end">
+                        <button
+                          type="button"
+                          data-testid={`handoff-task-${task.id}`}
+                          onClick={() => setHandoffTask(task)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-500/15 text-blue-600 dark:text-blue-400 hover:bg-blue-500/25 transition-colors"
+                        >
+                          <Icon name="swap_horiz" className="text-sm" />
+                          Hand Off Runtime
+                        </button>
+                      </div>
+
                       <ReceiptPanel
                         taskId={task.id}
                         onActionComplete={() => {
@@ -3175,6 +3189,18 @@ export default function Tasks() {
         danger
         onConfirm={executeDeleteAll}
         onCancel={() => setDeleteAllConfirmOpen(false)}
+      />
+
+      <HandoffRuntimeModal
+        isOpen={handoffTask !== null}
+        onClose={() => setHandoffTask(null)}
+        taskId={handoffTask?.id}
+        onHandedOff={() => {
+          fetchTasks();
+          if (handoffTask) {
+            fetchTrace(handoffTask.id);
+          }
+        }}
       />
 
       {/* Undo delete toast */}
