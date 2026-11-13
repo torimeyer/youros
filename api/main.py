@@ -65,6 +65,7 @@ from routers import primitives as primitives_router
 from routers import parked_tasks as parked_tasks_router
 from routers import turn_audit as turn_audit_router
 from routers import cross_search as cross_search_router
+from routers import dogfood_telemetry as dogfood_telemetry_router
 from services.settings_store import is_enterprise_enabled
 
 
@@ -281,6 +282,7 @@ app.include_router(coordination_router.router, prefix="/api")
 app.include_router(reminders_router.router, prefix="/api")
 app.include_router(cross_search_router.router, prefix="/api")
 app.include_router(theme_rollup.router, prefix="/api")
+app.include_router(dogfood_telemetry_router.router, prefix="/api")
 
 _ENTERPRISE_ROUTERS_MOUNTED: set[int] = set()
 
