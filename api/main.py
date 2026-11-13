@@ -66,6 +66,7 @@ from routers import parked_tasks as parked_tasks_router
 from routers import turn_audit as turn_audit_router
 from routers import cross_search as cross_search_router
 from routers import dogfood_telemetry as dogfood_telemetry_router
+from routers import spec_critique as spec_critique_router
 from services.settings_store import is_enterprise_enabled
 
 
@@ -223,6 +224,7 @@ app.include_router(threads.router, prefix="/api")
 app.include_router(secrets.router, prefix="/api")
 app.include_router(activity.router, prefix="/api")
 app.include_router(trace.router, prefix="/api")
+app.include_router(spec_critique_router.router, prefix="/api")
 app.include_router(specs.router, prefix="/api")
 app.include_router(specs._compat, prefix="/api")
 app.include_router(spec_drive.router, prefix="/api")
