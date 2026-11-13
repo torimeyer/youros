@@ -38,6 +38,123 @@ class OstkError(Exception):
 # plus promoted_at/spec_id even when the draft had no frontmatter at all.
 _SPEC_MARKER_KEYS = ("status", "spec_id", "promoted_at")
 
+# →3107: canonical set of completed spec statuses across user and repo history.
+COMPLETED_SPEC_STATUSES: frozenset[str] = frozenset({
+    "complete",
+    "completed",
+    "done",
+    "shipped",
+    "implemented",
+    "closed",
+    "archived",
+})
+
+_ARCHIVE_TS_PREFIX_RE = re.compile(r"^(?:\d{4}-\d{2}-\d{2}|\d{8})T\d{6}Z-")
+_INLINE_STATUS_RE = re.compile(
+    r"^\s*(?:[-*]\s*)?\*{0,2}status\*{0,2}\s*:\s*\*{0,2}\s*([a-zA-Z_-]+)",
+    re.IGNORECASE | re.MULTILINE,
+)
+_SPEC_STRUCTURE_RE = re.compile(
+    r"^\s*(?:#\s+spec\b|##+\s+(?:problem|objective|goals?|acceptance\s+criteria|solution|context|summary)\b|-\s+\[[ xX]\])",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def canonical_spec_filename(filename: str) -> str:
+    """Strip any leading archive UTC timestamp prefix from a spec filename."""
+    return _ARCHIVE_TS_PREFIX_RE.sub("", filename or "")
+
+
+def is_historical_spec_shaped(text: str) -> bool:
+    """True when an archived or repo-historical markdown file is a real spec.
+
+    Accepts standard YAML-frontmatter specs (is_spec_shaped) as well as older
+    specs written with an H1 '# Spec:' heading, standard spec sections, or an
+    inline 'Status:' declaration, while rejecting plain notes/digests (→3107).
+    """
+    if is_spec_shaped(text):
+        return True
+    return bool(_SPEC_STRUCTURE_RE.search(text) or _INLINE_STATUS_RE.search(text))
+
+
+_rotated_tasks_cache: dict[str, tuple[tuple, dict[str, str]]] = {}
+_ISSUES_ARCHIVE_FILE_RE = re.compile(r"^issues\.jsonl(?:\.(\d+))?$")
+
+
+def read_rotated_task_statuses(root: Path) -> dict[str, str]:
+    """Read task statuses from active and rotated .ostk/needles/issues.jsonl* files.
+
+    ostk rotates older closed tasks out of issues.jsonl into issues.jsonl.1
+    (and higher suffixes), and list_tasks() suppresses archive-only closed
+    entries (→1694). Specs referencing rotated task IDs need those historical
+    closed statuses so task_summary and completion transitions stay accurate
+    (→3107). Cached by file sizes and mtimes so polling stays O(1).
+    """
+    needles_dir = root / ".ostk" / "needles"
+    if not needles_dir.is_dir():
+        return {}
+    matched_files: list[tuple[int, Path]] = []
+    try:
+        for entry_path in needles_dir.iterdir():
+            m = _ISSUES_ARCHIVE_FILE_RE.match(entry_path.name)
+            if not m or not entry_path.is_file():
+                continue
+            rot_num = int(m.group(1)) if m.group(1) is not None else 0
+            matched_files.append((rot_num, entry_path))
+    except OSError:
+        return {}
+    if not matched_files:
+        return {}
+
+    # Read higher rotation numbers (older) first so newer files override them;
+    # issues.jsonl (rot_num == 0) is applied last.
+    matched_files.sort(key=lambda item: -item[0])
+
+    sig_parts: list[tuple[str, int, int]] = []
+    for _, fp in matched_files:
+        try:
+            st = fp.stat()
+            sig_parts.append((fp.name, st.st_size, st.st_mtime_ns))
+        except OSError:
+            continue
+    sig = tuple(sig_parts)
+    cache_key = str(needles_dir)
+    cached = _rotated_tasks_cache.get(cache_key)
+    if cached is not None and cached[0] == sig:
+        return cached[1]
+
+    statuses: dict[str, str] = {}
+    for _, fp in matched_files:
+        try:
+            raw_text = fp.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for raw_line in raw_text.splitlines():
+            stripped = raw_line.strip()
+            if not stripped:
+                continue
+            try:
+                row = json.loads(stripped)
+            except json.JSONDecodeError:
+                continue
+            raw_id = row.get("id")
+            if raw_id is None or raw_id == "":
+                continue
+            st_val = str(row.get("status") or "open").strip().lower()
+            s_id = str(raw_id).strip()
+            if s_id.startswith("→"):
+                s_id = s_id[1:]
+            elif s_id.startswith("->"):
+                s_id = s_id[2:]
+            if s_id:
+                statuses[s_id] = st_val
+            norm_int = _normalize_id(raw_id)
+            if norm_int:
+                statuses[norm_int] = st_val
+
+    _rotated_tasks_cache[cache_key] = (sig, statuses)
+    return statuses
+
 
 def is_spec_shaped(text: str) -> bool:
     """True when a markdown file has the frontmatter every real spec carries.
@@ -515,9 +632,16 @@ def _spec_audit_enrich_sync(
             except Exception:
                 husk = HuskResult(is_husk=False, reason="")
             stage = compute_stage(doc, husk=husk, shipped=shipped)
-            doc["stage"] = stage
-            doc["husk"] = husk.is_husk
-            doc["husk_reason"] = husk.reason
+            doc_status_norm = str(doc.get("status") or "").strip().lower()
+            if doc_status_norm in COMPLETED_SPEC_STATUSES or doc.get("is_archived"):
+                stage = "complete"
+                doc["stage"] = "complete"
+                doc["husk"] = False
+                doc["husk_reason"] = ""
+            else:
+                doc["stage"] = stage
+                doc["husk"] = husk.is_husk
+                doc["husk_reason"] = husk.reason
             doc["missing_files"] = shipped.missing_files
             doc["open_linked_needles"] = shipped.open_needles
     except Exception:
@@ -2877,24 +3001,17 @@ class OstkService:
         # the loop stays responsive (GIL is released during the os.stat / read
         # syscalls, so to_thread is effective). Mirrors the stage-enrichment
         # offload already added below at _spec_audit_enrich_sync.
-        def _scan_docs_sync() -> list[dict]:
+        def _scan_docs_sync() -> tuple[list[dict], list[dict]]:
             scanned: list[dict] = []
-            # Track by filename so a leftover draft does not double-count a
-            # promoted spec that already covers the same slug.
+            repo_candidates: list[dict] = []
+            # Track by filename/canonical slug so a leftover draft or older
+            # archive snapshot does not double-count a newer promoted spec.
             _seen_names: set[str] = set()
+            _seen_resolved_paths: set[str] = set()
 
-            # SECURITY (UAT item 8): specs and drafts are read ONLY from the
-            # per-user ~/.youros/ store, never from the repo-local docs/draft or
-            # docs/spec directories. Those repo dirs travel with any copied or
-            # shared checkout, so reading them surfaced one user's specs in a
-            # different user/install's app (two pclaude drafts appeared on a
-            # separate work machine). Writes were already locked to ~/.youros/
-            # (→1512/→2104); this locks reads to match so no spec ever leaves
-            # the machine that created it.
-
-            # →2954: only spec-shaped files may list. Anything else in
-            # these dirs (investigation reports, bug notes) is reported
-            # as misfiled — excluded but never silently invisible.
+            # →2954: only spec-shaped files may list in active user dirs.
+            # Anything else in these dirs (investigation reports, bug notes)
+            # is reported as misfiled - excluded but never silently invisible.
             def _misfiled(md: Path) -> bool:
                 try:
                     text = md.read_text(errors="replace")
@@ -2904,7 +3021,7 @@ class OstkService:
                     return False
                 _logger.warning(
                     "specs listing: %s in %s is not a spec "
-                    "(no spec frontmatter) — reported as misfiled",
+                    "(no spec frontmatter) - reported as misfiled",
                     md.name,
                     md.parent,
                 )
@@ -2918,6 +3035,11 @@ class OstkService:
                     if _misfiled(md):
                         continue
                     _seen_names.add(md.name)
+                    _seen_names.add(canonical_spec_filename(md.name))
+                    try:
+                        _seen_resolved_paths.add(str(md.resolve()))
+                    except OSError:
+                        pass
                     doc = self._parse_doc_frontmatter(md, "spec")
                     doc["is_user_local"] = True
                     scanned.append(doc)
@@ -2925,16 +3047,148 @@ class OstkService:
             # 2. User-local drafts (from ~/.youros/drafts/, →2104)
             if USER_DRAFTS_DIR.is_dir():
                 for md in sorted(USER_DRAFTS_DIR.glob("*.md")):
-                    if md.name in _seen_names:
+                    if md.name in _seen_names or canonical_spec_filename(md.name) in _seen_names:
                         continue  # a promoted spec already covers this slug
                     if _misfiled(md):
                         continue
                     _seen_names.add(md.name)
+                    _seen_names.add(canonical_spec_filename(md.name))
+                    try:
+                        _seen_resolved_paths.add(str(md.resolve()))
+                    except OSError:
+                        pass
                     doc = self._parse_doc_frontmatter(md, "draft")
                     doc["is_user_local"] = True
                     scanned.append(doc)
 
-            # 3. Transcripts/plans
+            # 3. Archived user specs (~/.youros/specs/archive/**, →3107).
+            # Iterate newest filenames first so the latest timestamped archive
+            # snapshot wins canonical-slug deduplication over older snapshots.
+            user_archive_dir = USER_SPECS_DIR / "archive"
+            if user_archive_dir.is_dir():
+                for md in sorted(
+                    user_archive_dir.rglob("*.md"),
+                    key=lambda p: p.name,
+                    reverse=True,
+                ):
+                    try:
+                        res_str = str(md.resolve())
+                    except OSError:
+                        continue
+                    if res_str in _seen_resolved_paths:
+                        continue
+                    canon_name = canonical_spec_filename(md.name)
+                    canon_key = (
+                        canon_name
+                        if md.parent == user_archive_dir
+                        else f"{md.parent.name}/{canon_name}"
+                    )
+                    if canon_key in _seen_names:
+                        continue
+                    try:
+                        text = md.read_text(errors="replace")
+                    except OSError:
+                        continue
+                    if not is_historical_spec_shaped(text):
+                        continue
+                    doc = self._parse_doc_frontmatter(md, "complete")
+                    if str(doc.get("status") or "").strip().lower() == "deferred":
+                        continue
+                    doc["status"] = "complete"
+                    doc["is_user_local"] = True
+                    doc["is_archived"] = True
+                    _seen_names.add(canon_key)
+                    _seen_names.add(md.name)
+                    _seen_resolved_paths.add(res_str)
+                    scanned.append(doc)
+
+            # 4. Repo-archived specs and completed repo specs (→3107).
+            # Unfinished repo drafts/specs are never surfaced (preserving UAT
+            # item 8 isolation against repo husks). Only explicitly archived
+            # specs or repo specs that are demonstrably completed surface in
+            # History.
+            for repo_arch_dir in (
+                docs_dir / "archive",
+                docs_dir / "spec" / "archive",
+                docs_dir / "specs" / "archive",
+            ):
+                if not repo_arch_dir.is_dir():
+                    continue
+                try:
+                    if USER_SPECS_DIR.is_dir() and repo_arch_dir.resolve() == (USER_SPECS_DIR / "archive").resolve():
+                        continue
+                except OSError:
+                    pass
+                for md in sorted(
+                    repo_arch_dir.rglob("*.md"),
+                    key=lambda p: p.name,
+                    reverse=True,
+                ):
+                    try:
+                        res_str = str(md.resolve())
+                    except OSError:
+                        continue
+                    if res_str in _seen_resolved_paths:
+                        continue
+                    canon_name = canonical_spec_filename(md.name)
+                    canon_key = (
+                        canon_name
+                        if md.parent == repo_arch_dir
+                        else f"{md.parent.name}/{canon_name}"
+                    )
+                    if canon_key in _seen_names:
+                        continue
+                    try:
+                        text = md.read_text(errors="replace")
+                    except OSError:
+                        continue
+                    if not is_historical_spec_shaped(text):
+                        continue
+                    doc = self._parse_doc_frontmatter(md, "complete")
+                    if str(doc.get("status") or "").strip().lower() == "deferred":
+                        continue
+                    doc["status"] = "complete"
+                    doc["is_archived"] = True
+                    _seen_names.add(canon_key)
+                    _seen_names.add(md.name)
+                    _seen_resolved_paths.add(res_str)
+                    scanned.append(doc)
+
+            for repo_spec_dir in (docs_dir / "spec", docs_dir / "specs"):
+                if not repo_spec_dir.is_dir():
+                    continue
+                try:
+                    resolved_rspec = repo_spec_dir.resolve()
+                    if (
+                        (USER_SPECS_DIR.exists() and resolved_rspec == USER_SPECS_DIR.resolve())
+                        or (USER_DRAFTS_DIR.exists() and resolved_rspec == USER_DRAFTS_DIR.resolve())
+                    ):
+                        continue
+                except OSError:
+                    pass
+                for md in sorted(repo_spec_dir.glob("*.md")):
+                    try:
+                        res_str = str(md.resolve())
+                    except OSError:
+                        continue
+                    if (
+                        res_str in _seen_resolved_paths
+                        or md.name in _seen_names
+                        or canonical_spec_filename(md.name) in _seen_names
+                    ):
+                        continue
+                    try:
+                        text = md.read_text(errors="replace")
+                    except OSError:
+                        continue
+                    if not is_historical_spec_shaped(text):
+                        continue
+                    doc = self._parse_doc_frontmatter(md, "spec")
+                    if str(doc.get("status") or "").strip().lower() == "deferred":
+                        continue
+                    repo_candidates.append(doc)
+
+            # 5. Transcripts/plans
             # These are written by the Plan skill and should surface in Recent
             # Documents alongside specs. They use status="plan" to distinguish
             # them visually in the widget.
@@ -2976,22 +3230,35 @@ class OstkService:
                         "task_ids": [needle_id],
                         "acceptance_criteria": [],
                     })
-            return scanned
+            return scanned, repo_candidates
 
-        results: list[dict] = await asyncio.to_thread(_scan_docs_sync)
+        results, repo_candidates = await asyncio.to_thread(_scan_docs_sync)
 
         # Collect all task IDs referenced by any spec. Spec front matter
         # stores bare numeric IDs ("407") but ostk returns IDs prefixed with
         # an arrow ("→407"). Normalize both sides so the lookup matches.
         all_task_ids: set[str] = set()
-        for doc in results:
+        for doc in results + repo_candidates:
             all_task_ids.update(
                 self._normalize_task_id(t) for t in doc.get("task_ids", [])
             )
 
-        # Fetch task statuses in one batch if any specs reference tasks
+        # Fetch task statuses in one batch if any specs reference tasks.
+        # Seed with rotated historical needle stores (issues.jsonl.1, etc.) so
+        # closed tasks rotated out of active list_tasks() still count as closed,
+        # then overlay active list_tasks() on top (→3107).
         task_status_map: dict[str, str] = {}
         if all_task_ids:
+            rotated_map = await asyncio.to_thread(
+                read_rotated_task_statuses, Path(self.cwd)
+            )
+            for tid in all_task_ids:
+                if tid in rotated_map:
+                    task_status_map[tid] = rotated_map[tid]
+                else:
+                    norm_int = _normalize_id(tid)
+                    if norm_int and norm_int in rotated_map:
+                        task_status_map[tid] = rotated_map[norm_int]
             try:
                 all_tasks = await self.list_tasks()
                 for t in all_tasks:
@@ -3000,6 +3267,21 @@ class OstkService:
                         task_status_map[tid] = t.get("status", "open")
             except OstkError:
                 pass  # graceful degradation if ostk is unavailable
+
+        # Promote repo docs/spec(s) candidates ONLY when their computed status
+        # is complete (frontmatter/inline synonym, all ACs checked, or all
+        # linked tasks closed). Unfinished repo husks stay excluded (UAT item 8).
+        for rdoc in repo_candidates:
+            raw_ids = rdoc.get("task_ids", [])
+            norm_ids = [self._normalize_task_id(t) for t in raw_ids]
+            ac = rdoc.get("acceptance_criteria", [])
+            ac_all_met = bool(ac) and all(c.get("checked") for c in ac)
+            computed = self.compute_spec_status(
+                rdoc["status"], norm_ids, task_status_map, ac_all_met=ac_all_met
+            )
+            if computed == "complete":
+                rdoc["_is_repo_completed"] = True
+                results.append(rdoc)
 
         # Enrich each doc with task_summary and computed status
         for doc in results:
@@ -3015,21 +3297,21 @@ class OstkService:
                 "open": total - closed,
                 "closed": closed,
             }
-            # Include acceptance-criteria progress in the computation so a
-            # spec with all tasks closed flips to "complete" once Verify has
-            # checked every box. Without an explicit Verify run, ACs start
-            # unchecked and the spec stays "in-progress" so the Verify step
-            # is still required in the happy path.
             ac = doc.get("acceptance_criteria", [])
             ac_all_met = bool(ac) and all(c.get("checked") for c in ac)
             prior_status = doc["status"]
             doc["status"] = self.compute_spec_status(
                 prior_status, norm_ids, task_status_map, ac_all_met=ac_all_met
             )
-            # Persist the transition to "complete" so the spec auto-closes
-            # on disk. Without this writeback the frontmatter still says
-            # "building"/"spec" and the spec never durably closes. (→1698)
-            if doc["status"] == "complete" and prior_status not in ("complete", "done"):
+            # Persist the transition to "complete" on active user-local specs so
+            # the spec durably closes on disk (→1698). Skip writeback on
+            # already-completed synonyms, archived files, and repo files.
+            if (
+                doc["status"] == "complete"
+                and str(prior_status or "").strip().lower() not in COMPLETED_SPEC_STATUSES
+                and doc.get("is_user_local")
+                and not doc.get("is_archived")
+            ):
                 doc_path_str = doc.get("path", "")
                 if doc_path_str:
                     try:
@@ -3040,6 +3322,7 @@ class OstkService:
                         self._write_status_to_frontmatter(_spec_path, "complete")
                     except Exception:
                         pass  # best effort; stale state better than a 500
+            doc.pop("_is_repo_completed", None)
 
         # Stage enrichment (→1512 / →1739): compute shipped/husk/stage per doc.
         # compute_shipped() and compute_husk_status() do synchronous filesystem I/O
@@ -3101,10 +3384,17 @@ class OstkService:
         except ValueError:
             display_path = str(path)
 
+        def _unquote(val: str) -> str:
+            v = val.strip()
+            if len(v) >= 2 and v[0] == v[-1] and v[0] in ('"', "'"):
+                return v[1:-1].strip()
+            return v
+
+        clean_stem = _ARCHIVE_TS_PREFIX_RE.sub("", path.stem)
         doc: dict = {
             "path": display_path,
             "filename": path.name,
-            "title": path.stem.replace("-", " "),
+            "title": clean_stem.replace("-", " "),
             "status": fallback_status,
             "created_at": "",
             "promoted_at": "",
@@ -3117,6 +3407,8 @@ class OstkService:
             "release_notes": [],
         }
 
+        has_explicit_title = False
+        has_explicit_status = False
         lines = text.split("\n")
         if lines and lines[0].strip() == "---":
             end = None
@@ -3141,34 +3433,46 @@ class OstkService:
                     if ":" in line:
                         key, _, val = line.partition(":")
                         key = key.strip()
+                        key_lower = key.lower()
                         val = val.strip()
-                        if key == "title":
-                            doc["title"] = val
-                        elif key == "status":
-                            doc["status"] = val
-                        elif key == "no_ac_needed":
-                            doc["no_ac_needed"] = (val.lower() == "true")
-                        elif key == "created_at":
-                            doc["created_at"] = val
-                        elif key == "promoted_at":
-                            doc["promoted_at"] = val
-                        elif key == "spec_id":
-                            doc["spec_id"] = val
-                        elif key == "journey_id":
-                            doc["journey_id"] = val
-                        elif key == "tasks":
-                            # Inline format: tasks: ["407", "408"]
+                        if key_lower == "title":
+                            clean_title = _unquote(val)
+                            if clean_title:
+                                doc["title"] = clean_title
+                                has_explicit_title = True
+                        elif key_lower == "status":
+                            clean_status = _unquote(val)
+                            if clean_status:
+                                doc["status"] = clean_status
+                                has_explicit_status = True
+                        elif key_lower == "no_ac_needed":
+                            doc["no_ac_needed"] = (_unquote(val).lower() == "true")
+                        elif key_lower == "created_at":
+                            doc["created_at"] = _unquote(val)
+                        elif key_lower == "promoted_at":
+                            doc["promoted_at"] = _unquote(val)
+                        elif key_lower == "spec_id":
+                            doc["spec_id"] = _unquote(val)
+                        elif key_lower == "journey_id":
+                            doc["journey_id"] = _unquote(val)
+                        elif key_lower in ("tasks", "task"):
+                            # Inline format: tasks: ["407", "408"] or Task: →1706
                             if val.startswith("["):
                                 import ast
                                 try:
                                     parsed = ast.literal_eval(val)
-                                    doc["task_ids"] = [str(t) for t in parsed]
+                                    doc["task_ids"].extend(str(t) for t in parsed if str(t).strip())
                                 except (ValueError, SyntaxError):
                                     pass
+                            elif val:
+                                for tok in val.split(","):
+                                    cleaned_tok = _unquote(tok)
+                                    if cleaned_tok:
+                                        doc["task_ids"].append(cleaned_tok)
                             else:
                                 # Block format: subsequent lines are list items
                                 in_tasks_list = True
-                        elif key == "release_notes":
+                        elif key_lower == "release_notes":
                             # Inline JSON list: release_notes: ["bullet 1", "bullet 2"]
                             if val.startswith("["):
                                 import ast
@@ -3182,6 +3486,35 @@ class OstkService:
                 doc["body"] = "\n".join(lines[end + 1:]).strip()
         else:
             doc["body"] = text.strip()
+
+        # Fallback title from H1 heading when frontmatter omitted title (→3107)
+        if not has_explicit_title and doc["body"]:
+            for bline in doc["body"].split("\n")[:10]:
+                bstripped = bline.strip()
+                if bstripped.startswith("# ") and not bstripped.startswith("##"):
+                    h1 = bstripped[2:].strip()
+                    if h1:
+                        doc["title"] = h1
+                        break
+
+        # Fallback status from inline '**Status:** Shipped' line when frontmatter
+        # omitted status (→3107)
+        if not has_explicit_status and doc["body"]:
+            header_slice = "\n".join(doc["body"].split("\n")[:25])
+            m_status = _INLINE_STATUS_RE.search(header_slice)
+            if m_status:
+                candidate_status = m_status.group(1).strip().lower()
+                known_statuses = COMPLETED_SPEC_STATUSES | {
+                    "draft",
+                    "ready",
+                    "spec",
+                    "building",
+                    "in-progress",
+                    "in_progress",
+                    "deferred",
+                }
+                if candidate_status in known_statuses:
+                    doc["status"] = candidate_status
 
         # Parse acceptance criteria from markdown checkboxes in the body
         doc["acceptance_criteria"] = self._parse_acceptance_criteria(doc["body"])
@@ -3598,8 +3931,9 @@ class OstkService:
         working, so a shipped spec whose tasks were never formally
         closed still reports ``complete`` (→2148).
         """
-        if base_status in ("draft", "plan"):
-            return base_status
+        base_norm = (base_status or "").strip().lower()
+        if base_norm in ("draft", "plan"):
+            return base_norm
 
         # Determine whether any spec-level tasks are still open.
         statuses = [task_statuses.get(tid, "open") for tid in task_ids]
@@ -3609,7 +3943,7 @@ class OstkService:
         # Determine whether any claims are still active.
         # A claim is active when at least one of its listed task_ids is
         # not yet closed.  An empty task_ids list is active only when
-        # the spec still has open tasks (or no tasks at all) — once
+        # the spec still has open tasks (or no tasks at all) - once
         # every spec-level task is closed, empty-list claims auto-release.
         active_claims: list[dict] = []
         for claim in (claims or []):
@@ -3628,7 +3962,7 @@ class OstkService:
 
         has_active_claim = bool(active_claims)
 
-        # All acceptance criteria confirmed by the verifier → the spec is complete
+        # All acceptance criteria confirmed by the verifier -> the spec is complete
         # regardless of stale open tasks, as long as no build agent is actively
         # working right now. This handles the case where a spec's feature shipped
         # but its tasks were never formally closed (→2148).
@@ -3640,29 +3974,20 @@ class OstkService:
         # even when no tasks are linked yet, to avoid flickering back to
         # the "ready" badge during the narrow window between the status
         # write and the task-frontmatter write. (→1420)
-        if base_status == "building":
+        if base_norm == "building":
             if all_tasks_closed and not has_active_claim:
                 return "complete"
             return "in-progress"
         if not task_ids:
             # No tasks linked yet.
-            if base_status in ("complete", "done"):
+            if base_norm in COMPLETED_SPEC_STATUSES:
                 return "complete"
             if has_active_claim:
                 return "in-progress"
             return "ready"
 
-        # CRITICAL: if the frontmatter says ``complete`` or ``done`` but
-        # at least one linked task is still open, trust the tasks. This
-        # catches the failure mode where the auto-advancer wrote
-        # ``status: complete`` at an instant when a concurrent-close
-        # race had made every task briefly appear closed, and a later
-        # write to issues.jsonl clobbered one of the closes back to
-        # open. Before this check the Specs page banner kept claiming
-        # "Done. Every task closed and the feature is live." with a
-        # still-open task sitting right above it.
-        if base_status in ("complete", "done"):
-            # Absent task IDs mean the task was purged/archived — treat as closed.
+        if base_norm in COMPLETED_SPEC_STATUSES:
+            # Absent task IDs mean the task was purged/archived - treat as closed.
             # Only tasks that are explicitly present in the store with a non-closed
             # status keep this spec in-progress.
             any_present_open = any(

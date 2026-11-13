@@ -111,29 +111,54 @@ interface SpecTasksResponse {
 // lib/spawn (BuildResult). Specs.tsx receives the BuildResult via
 // buildSpec() rather than typing the raw response itself.
 
-// Map legacy "spec" status to "ready" for display
+// →3107: canonical completed status synonyms across user and repo history.
+const COMPLETED_STATUSES = new Set([
+  "complete",
+  "completed",
+  "done",
+  "shipped",
+  "implemented",
+  "closed",
+  "archived",
+]);
+
+function isCompletedStatus(value?: string | null): boolean {
+  if (!value) return false;
+  return COMPLETED_STATUSES.has(value.trim().toLowerCase());
+}
+
+function getSpecSortTimeMs(doc: Spec): number {
+  const promoted = doc.promoted_at ? Date.parse(doc.promoted_at) : NaN;
+  if (Number.isFinite(promoted) && promoted > 0) return promoted;
+  const created = doc.created_at ? Date.parse(doc.created_at) : NaN;
+  if (Number.isFinite(created) && created > 0) return created;
+  return doc.updated_at_ms ?? 0;
+}
+
+// Map legacy "spec" status to "ready" and all completed synonyms to "complete"
 function normalizeStatus(status: string): Spec["status"] {
+  if (isCompletedStatus(status)) return "complete";
   if (status === "spec") return "ready";
   // "building" is written to the spec frontmatter by build_spec() and by
   // spawn_agent when spec_id is set. compute_spec_status maps it to
   // "in-progress" when tasks exist, but normalizeStatus must also handle
   // it directly in case a future path returns "building" from the API. (→1420)
-  if (status === "building") return "in-progress";
-  if (status === "draft" || status === "ready" || status === "in-progress" || status === "complete") {
+  if (status === "building" || status === "in_progress") return "in-progress";
+  if (status === "draft" || status === "ready" || status === "in-progress") {
     return status;
   }
   return "draft";
 }
 
 // Single source of truth for backend-status to user-facing label.
-// Backend uses: draft, spec (legacy), ready, in-progress, building, complete.
+// Backend uses: draft, spec (legacy), ready, in-progress, building, complete
+// (plus completed/done/shipped/implemented/closed/archived synonyms).
 // User-facing labels: Draft, Ready, Building, Done.
-// Any code that needs to show status text MUST call this function
-// instead of repeating the mapping inline. Legacy "spec" is treated
-// as "ready" here too so callers never need to pre-normalize.
 export function displayStatus(backendStatus: string): "Draft" | "Ready" | "Building" | "Done" {
-  if (backendStatus === "complete") return "Done";
-  if (backendStatus === "in-progress") return "Building";
+  if (isCompletedStatus(backendStatus)) return "Done";
+  if (backendStatus === "in-progress" || backendStatus === "in_progress" || backendStatus === "building") {
+    return "Building";
+  }
   if (backendStatus === "ready" || backendStatus === "spec") return "Ready";
   return "Draft";
 }
@@ -143,9 +168,15 @@ export function displayStatus(backendStatus: string): "Draft" | "Ready" | "Build
 type StageFilter = "all" | "draft" | "ready" | "in_progress";
 
 function getDocStage(doc: Spec): string {
+  if (
+    isCompletedStatus(doc.status) ||
+    isCompletedStatus(doc.effective_status) ||
+    isCompletedStatus(doc.stage)
+  ) {
+    return "complete";
+  }
   if (doc.stage) return doc.stage;
   const s = doc.status;
-  if (s === "complete") return "complete";
   if (s === "in-progress") return "in_progress";
   if (s === "ready") return "ready";
   return "draft";
@@ -655,6 +686,7 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
   const [editingPath, setEditingPath] = useState<string | null>(null);
   const [editBody, setEditBody] = useState("");
   const [editSaving, setEditSaving] = useState(false);
+  const [historyQuery, setHistoryQuery] = useState("");
 
   // Release-notes modal moved to a global watcher in Layout
   // (ReleaseNotesWatcher). Keeping the detection in this page meant
@@ -1236,9 +1268,29 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
   // behind the history button, and "All" adds up to Draft + Ready +
   // In Progress, the same set the sidebar badge counts (→2624, →2623).
   const notDoneDocs = docs.filter((d) => getDocStage(d) !== "complete");
-  const doneDocs = docs.filter((d) => getDocStage(d) === "complete");
+  const doneDocs = docs
+    .filter((d) => getDocStage(d) === "complete")
+    .sort((a, b) => {
+      const diff = getSpecSortTimeMs(b) - getSpecSortTimeMs(a);
+      return diff !== 0 ? diff : a.title.localeCompare(b.title);
+    });
+  const normalizedHistoryQuery = historyQuery.trim().toLowerCase();
+  const visibleDoneDocs = normalizedHistoryQuery
+    ? doneDocs.filter((d) => {
+        const haystacks = [
+          d.title,
+          d.spec_id,
+          d.filename,
+          d.path,
+          d.body,
+        ];
+        return haystacks.some(
+          (val) => val && val.toLowerCase().includes(normalizedHistoryQuery)
+        );
+      })
+    : doneDocs;
   const stageFiltered = showHistory
-    ? doneDocs
+    ? visibleDoneDocs
     : stageFilter === "all"
       ? notDoneDocs
       : docs.filter((d) => getDocStage(d) === stageFilter);
@@ -1461,15 +1513,43 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
           </div>
         )}
 
+        {/* History search input (→3107) */}
+        {showHistory && doneDocs.length > 0 && (
+          <div className="mb-4 flex items-center gap-3">
+            <input
+              type="search"
+              data-testid="history-search-input"
+              value={historyQuery}
+              onChange={(e) => setHistoryQuery(e.target.value)}
+              placeholder="Search finished specs..."
+              aria-label="Search finished specs"
+              className="w-full sm:max-w-md px-3.5 py-2 rounded-lg text-sm bg-white/60 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-blue-500"
+            />
+            {normalizedHistoryQuery && (
+              <span className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                {visibleDoneDocs.length} of {doneDocs.length}
+              </span>
+            )}
+          </div>
+        )}
+
         {/* Spec list */}
         {stageFiltered.length === 0 && pendingList.length === 0 ? (
           <EmptyState
             icon="description"
-            title={showHistory ? "No finished specs yet" : "No specs yet"}
+            title={
+              showHistory && doneDocs.length > 0 && normalizedHistoryQuery
+                ? "No matching finished specs"
+                : showHistory
+                  ? "No finished specs yet"
+                  : "No specs yet"
+            }
             description={
-              showHistory
-                ? "Specs you finish will show up here."
-                : "Create a draft to start planning."
+              showHistory && doneDocs.length > 0 && normalizedHistoryQuery
+                ? "Try a different search term."
+                : showHistory
+                  ? "Specs you finish will show up here."
+                  : "Create a draft to start planning."
             }
           />
         ) : stageFiltered.length === 0 ? null : (
