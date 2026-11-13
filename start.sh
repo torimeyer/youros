@@ -21,11 +21,11 @@ YELLOW='\033[1;33m'
 
 echo -e "${BLUE}Starting yourOS...${NC}"
 
-# Migration: .youros -> .youros
-if [ -d "$HOME/.youros" ]; then
-    echo -e "${YELLOW}Migrating configuration from ~/.youros to ~/.youros...${NC}"
-    mkdir -p "$HOME/.youros"
-    rsync -a --ignore-existing "$HOME/.youros/" "$HOME/.youros/"
+# Migration: legacy ~/.myos -> $YDATA (one-time, only if $YDATA does not exist yet)
+if [ -d "$HOME/.myos" ] && [ ! -d "$YDATA" ]; then
+    echo -e "${YELLOW}Migrating configuration from ~/.myos to $YDATA...${NC}"
+    mkdir -p "$YDATA"
+    rsync -a --ignore-existing "$HOME/.myos/" "$YDATA/"
     echo -e "${GREEN}Migration complete.${NC}"
 fi
 
@@ -75,17 +75,18 @@ fi
 # Update ostk if a newer version is available (best-effort, 5s timeout)
 if command -v ostk &> /dev/null; then
     echo "Checking ostk..."
-    OSTK_CURRENT=$(ostk --version 2>/dev/null | head -1 || echo "unknown")
+    OSTK_CURRENT=$(ostk --version 2>/dev/null | awk '{print $2}' | sed 's/^v//' || echo "unknown")
     OSTK_REPO="os-tack/ostk.ai"
-    OSTK_LATEST=$(timeout 5 curl -fsSL "https://api.github.com/repos/${OSTK_REPO}/releases/latest" 2>/dev/null \
+    OSTK_LATEST=$(curl --connect-timeout 3 -m 5 -fsSL "https://api.github.com/repos/${OSTK_REPO}/releases/latest" 2>/dev/null \
         | grep '"tag_name"' | head -1 | cut -d'"' -f4 || echo "")
-    if [ -n "$OSTK_LATEST" ] && [ "$OSTK_LATEST" != "$OSTK_CURRENT" ]; then
+    OSTK_LATEST_NUM="${OSTK_LATEST#v}"
+    if [ -n "$OSTK_LATEST_NUM" ] && [ "$OSTK_LATEST_NUM" != "$OSTK_CURRENT" ]; then
         echo -e "${YELLOW}Updating ostk to ${OSTK_LATEST}...${NC}"
         ARCH=$(uname -m); case "$ARCH" in arm64) ARCH="aarch64" ;; esac
         OS_TAG=$(uname -s); case "$OS_TAG" in Linux) OS_TAG="unknown-linux-musl" ;; Darwin) OS_TAG="apple-darwin" ;; esac
         OSTK_TMP=$(mktemp -d)
-        TARBALL="ostk-${OSTK_LATEST}-${ARCH}-${OS_TAG}.tar.gz"
-        if timeout 15 curl -fsSL "https://github.com/${OSTK_REPO}/releases/download/${OSTK_LATEST}/${TARBALL}" \
+        TARBALL="ostk-${OSTK_LATEST_NUM}-${ARCH}-${OS_TAG}.tar.gz"
+        if curl --connect-timeout 5 -m 15 -fsSL "https://github.com/${OSTK_REPO}/releases/download/${OSTK_LATEST}/${TARBALL}" \
             -o "$OSTK_TMP/$TARBALL" 2>/dev/null; then
             # Validate the download is actually a gzip file (not an HTML error page)
             if ! file "$OSTK_TMP/$TARBALL" | grep -q "gzip"; then

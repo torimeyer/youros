@@ -453,6 +453,56 @@ else
     assert "README has a macOS install section" 1
 fi
 
+# --- Public docs & script accuracy guards ---
+
+if grep -q 'Migrating configuration from ~/.youros to ~/.youros' "$DIR/start.sh"; then
+    assert "start.sh does not self-migrate ~/.youros onto ~/.youros" 1
+else
+    assert "start.sh does not self-migrate ~/.youros onto ~/.youros" 0
+fi
+
+if grep -q 'python3\.10' "$DIR/install.sh"; then
+    assert "install.sh venv candidate loop excludes python3.10 (requires 3.11+)" 1
+else
+    assert "install.sh venv candidate loop excludes python3.10 (requires 3.11+)" 0
+fi
+
+if grep -qi 'toriOS' "$DIR/README.md"; then
+    assert "README explains toriOS / yourOS naming continuity" 0
+else
+    assert "README explains toriOS / yourOS naming continuity" 1
+fi
+
+if grep -qE 'myos-track|myos-claude|^myos$' "$DIR/README.md"; then
+    assert "README uses real installed CLI aliases (youros*, not myos*)" 1
+else
+    assert "README uses real installed CLI aliases (youros*, not myos*)" 0
+fi
+
+if grep -q 'Python 3\.11' "$DIR/README.md" && ! grep -q 'Python 3\.9' "$DIR/README.md"; then
+    assert "README documents Python 3.11+ prerequisite accurately" 0
+else
+    assert "README documents Python 3.11+ prerequisite accurately" 1
+fi
+
+if grep -q '—' "$DIR/README.md"; then
+    assert "README contains no em-dashes" 1
+else
+    assert "README contains no em-dashes" 0
+fi
+
+if grep -q 'Python 3\.11' "$DIR/CONTRIBUTING.md" && grep -q '3010' "$DIR/CONTRIBUTING.md" && ! grep -q '5173' "$DIR/CONTRIBUTING.md"; then
+    assert "CONTRIBUTING.md documents Python 3.11+ and port 3010" 0
+else
+    assert "CONTRIBUTING.md documents Python 3.11+ and port 3010" 1
+fi
+
+if grep -q 'os-tack/youros' "$DIR/marketing/getyouros/index.html"; then
+    assert "marketing/getyouros/index.html links to torimeyer/youros (not os-tack/youros)" 1
+else
+    assert "marketing/getyouros/index.html links to torimeyer/youros (not os-tack/youros)" 0
+fi
+
 # --- ostk release URL is live ---
 
 echo ""

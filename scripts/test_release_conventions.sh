@@ -80,6 +80,19 @@ else
     assert "install.sh does NOT build tarball name from raw tag (v-prefix bug)" 0
 fi
 
+# Same v-prefix tarball guard for start.sh and update.sh.
+if grep -qE 'TARBALL="ostk-\$\{OSTK_LATEST\}-' "$DIR/start.sh"; then
+    assert "start.sh does NOT build tarball name from raw tag (v-prefix bug)" 1
+else
+    assert "start.sh does NOT build tarball name from raw tag (v-prefix bug)" 0
+fi
+
+if grep -qE 'TARBALL="ostk-\$\{LATEST_TAG\}-' "$DIR/update.sh"; then
+    assert "update.sh does NOT build tarball name from raw tag (v-prefix bug)" 1
+else
+    assert "update.sh does NOT build tarball name from raw tag (v-prefix bug)" 0
+fi
+
 echo ""
 
 # --- 2. Release notes filename convention ---

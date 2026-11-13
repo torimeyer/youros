@@ -6,17 +6,17 @@ See the plan at `~/.claude/plans/i-bought-it-on-groovy-sun.md` for context.
 
 ## Files
 
-- `index.html` — the holding page. Sunset-gradient wordmark (v7 logo lifted from `/tmp/myos-logo-v7.html` and adapted to "y[sunset-O]uros"), dark navy background (`#020617` from `app/src/index.css`), brand colors (pink `#ec4899`, purple `#8b5cf6`, amber `#fbbf24`). Real "Download youros" CTA pointing at `https://github.com/os-tack/youros/releases/latest`. Swap the href to a dedicated `/install` page once one exists.
-- `favicon.svg` — just the sunset disc. Renders crisp at any size.
-- `robots.txt` — allow all crawlers, points to sitemap
-- `sitemap.xml` — single-URL sitemap for faster Google indexing
+- `index.html` - the holding page. Sunset-gradient wordmark ("y[sunset-O]uros"), dark navy background (`#020617` from `app/src/index.css`), brand colors (pink `#ec4899`, purple `#8b5cf6`, amber `#fbbf24`). Real "Download youros" CTA pointing at `https://github.com/torimeyer/youros/releases/latest`. Swap the href to a dedicated `/install` page once one exists.
+- `favicon.svg` - just the sunset disc. Renders crisp at any size.
+- `robots.txt` - allow all crawlers, points to sitemap
+- `sitemap.xml` - single-URL sitemap for faster Google indexing
 
 ## CTA wiring
 
 The "Download youros" button has a `<!-- TODO -->` comment above it in `index.html`. Today it links to GitHub releases (real, works now). When you have a real install page or hosted installer, update the `href`. Two reasonable evolutions:
 
-- **Direct curl-pipe** — host `install.sh` on Cloudflare Pages alongside `index.html` and link the CTA to `/install` (a page with `curl -sSL https://getyouros.com/install.sh | bash` copy-pasteable in a code block)
-- **GitHub releases** (current default) — keeps you off the hook for hosting binaries, lets the GH UI handle platform-specific downloads
+- **Direct curl-pipe** - host `install.sh` on Cloudflare Pages alongside `index.html` and link the CTA to `/install` (a page with `curl -sSL https://getyouros.com/install.sh | bash` copy-pasteable in a code block)
+- **GitHub releases** (current default) - keeps you off the hook for hosting binaries, lets the GH UI handle platform-specific downloads
 
 ## Deploy to Cloudflare Pages
 

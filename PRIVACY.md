@@ -33,6 +33,7 @@ Code references: `api/services/youros_paths.py:30`, `api/services/settings_store
 When you send a message, the text goes to whichever model provider you picked in Settings:
 
 - **Claude via Claude Code** (default): message is sent to the local Claude Code process, which uses your existing Claude subscription. No API key is stored by yourOS.
+- **Gemini via Gemini CLI**: message is sent to the local Gemini CLI process using your existing Google login. No API key is stored by yourOS.
 - **Anthropic API key**: message is sent to `api.anthropic.com` using the key you pasted.
 - **Gemini API key or OAuth**: message is sent to Google's Gemini API.
 
@@ -89,7 +90,7 @@ Mid-session behavior: the credential is removed from disk immediately when you d
 Your keyboard
      |
      v
-yourOS frontend (localhost:3010)
+yourOS frontend (localhost:8000, or localhost:3010 in dev)
      |
      v
 yourOS backend (localhost:8000)
@@ -115,4 +116,4 @@ Repo:        code only
 
 ---
 
-*Verified 2026-07-09 against the source. Checked files: `api/services/github.py`, `api/services/google_auth.py`, `api/services/slack.py`, `api/services/atlassian.py`, `api/services/settings_store.py`, `api/routers/secrets.py`, `api/services/upgrade_check.py`, `api/services/chat_providers.py`. Telemetry search covered all `.py`, `.ts`, `.tsx`, `.js` files.*
+*Verified 2026-11-13 against the source. Checked files: `api/services/github.py`, `api/services/google_auth.py`, `api/services/slack.py`, `api/services/atlassian.py`, `api/services/settings_store.py`, `api/routers/secrets.py`, `api/services/upgrade_check.py`, `api/services/chat_providers.py`, `api/services/gemini_cli_provider.py`. Telemetry search covered all `.py`, `.ts`, `.tsx`, `.js` files.*

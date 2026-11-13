@@ -148,7 +148,7 @@ upgrade_ostk() {
 
     echo "Checking for ostk upgrades (installed: $CURRENT_VERSION)..."
 
-    LATEST_TAG=$(curl -fsSL "https://api.github.com/repos/os-tack/ostk.ai/releases/latest" \
+    LATEST_TAG=$(curl --connect-timeout 3 -m 5 -fsSL "https://api.github.com/repos/os-tack/ostk.ai/releases/latest" \
         2>/dev/null | grep '"tag_name"' | head -1 | cut -d'"' -f4)
 
     if [ -z "$LATEST_TAG" ]; then
@@ -204,11 +204,11 @@ upgrade_ostk() {
 
     PLATFORM="${ARCH}-${OS_TAG}"
     OSTK_REPO="os-tack/ostk.ai"
-    TARBALL="ostk-${LATEST_TAG}-${PLATFORM}.tar.gz"
+    TARBALL="ostk-${LATEST_VERSION}-${PLATFORM}.tar.gz"
     OSTK_URL="https://github.com/${OSTK_REPO}/releases/download/${LATEST_TAG}/${TARBALL}"
     OSTK_TMP=$(mktemp -d)
 
-    if curl -fsSL "$OSTK_URL" -o "$OSTK_TMP/$TARBALL" 2>/dev/null; then
+    if curl --connect-timeout 5 -m 15 -fsSL "$OSTK_URL" -o "$OSTK_TMP/$TARBALL" 2>/dev/null; then
         tar -xzf "$OSTK_TMP/$TARBALL" -C "$OSTK_TMP"
         if [ -f "$OSTK_TMP/ostk" ]; then
             OSTK_CURRENT_PATH=$(command -v ostk)

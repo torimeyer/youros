@@ -228,7 +228,7 @@ fi
 echo "Setting up the backend..."
 cd "$INSTALL_DIR/api"
 PYTHON_BIN=""
-for cand in python3.13 python3.12 python3.11 python3.10; do
+for cand in python3.13 python3.12 python3.11; do
     if command -v "$cand" >/dev/null 2>&1; then
         PYTHON_BIN="$(command -v "$cand")"
         break
@@ -279,7 +279,7 @@ fi
 # --- Stage the register-agent hook file -------------------------------
 # Always copy .claude/hooks/register-agent.sh and its lib to
 # ~/.youros/hooks/ so youros-track / youros-claude / --with-claude-hooks all
-# point at the same canonical location. Nothing fires yet — this just
+# point at the same canonical location. Nothing fires yet; this just
 # places the artifact. Idempotent; refreshes on every install.
 STAGED_HOOKS_DIR="$HOME/.youros/hooks"
 mkdir -p "$STAGED_HOOKS_DIR/lib"
@@ -439,8 +439,9 @@ echo ""
 echo "Or run it right now:"
 echo "  $INSTALL_DIR/start.sh"
 echo ""
-echo "Optional: if you want to use a Claude subscription instead of an API key,"
-echo "install the Claude command line tool yourself:"
+echo "Optional: to use your existing Claude or Gemini subscription without an API key,"
+echo "install either command line tool yourself:"
 echo "  npm install -g @anthropic-ai/claude-code"
-echo "yourOS works fine without it."
+echo "  npm install -g @google/gemini-cli"
+echo "yourOS also works with API keys configured in Settings."
 echo ""

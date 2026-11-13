@@ -1,22 +1,32 @@
 # yourOS
 
-Your personal AI operating system. A local web app that gives you a workspace with AI chat, background agents, task management, and more. Built on [ostk](https://ostk.ai).
+Your local-first personal AI operating system for macOS and Linux, built on [ostk](https://ostk.ai).
 
-## Why yourOS if you already have Claude Code?
+> **Looking for toriOS?** You are in the right place. **yourOS** began as **toriOS**, my personal AI workspace (used to build projects like Treehouse Hideaway). When you install yourOS, you name your own instance during setup (`toriOS`, `alexOS`, or whatever fits you).
 
-yourOS adds a persistent workspace on top of Claude Code. Your tasks, agents, and chat history carry across sessions, and your connected tools work together in one conversation instead of in separate tabs. Claude Code powers the AI. yourOS gives it memory and context.
+## Why yourOS if you already use Claude Code or Gemini CLI?
+
+Terminal coding tools do great work inside a single window, then lose the broader picture the moment that session closes. yourOS wraps **Claude Code** and **Gemini CLI** in a persistent local workspace powered by [ostk](https://ostk.ai):
+
+- **Specs, tasks, and memory that carry across sessions:** Turn rough ideas into structured specs, break specs into dependency-linked tasks, and keep full context across restarts.
+- **Supervise background agents in one place:** Dispatch agents in isolated git worktrees, watch live progress, approve permissions, and inspect commit and test receipts before merging.
+- **Works with the subscriptions you already pay for:** Connect your local Claude Code subscription or Gemini CLI login in seconds with no API key required (or paste an Anthropic or Gemini API key if you prefer).
 
 ## How it works
 
-yourOS runs entirely on your computer. You open it in your browser at localhost, no account or login needed. All your data lives in `~/.youros/` and never leaves your machine unless you connect an integration like Gmail or Slack, in which case those requests go directly from your machine to the provider. yourOS is not a cloud service.
+yourOS runs entirely on your computer. You open it in your browser at `https://localhost:8000` with no cloud account or login wall.
 
-Icons and fonts are loaded from Google Fonts (`fonts.googleapis.com`, `fonts.gstatic.com`). If your network blocks those hosts, the UI will still work but icons will render as text labels. See Troubleshooting below.
+All of your personal data (settings, chat history, specs, drafts, and local task state) lives in `~/.youros/`, outside the repository directory. Pulling updates never touches your data. Nothing leaves your machine except messages sent to the AI provider you selected and requests to external tools you explicitly connect and enable. See [PRIVACY.md](PRIVACY.md) for the full breakdown.
+
+Icons and UI fonts load from Google Fonts (`fonts.googleapis.com` and `fonts.gstatic.com`). If your network blocks those hosts, the app still works and renders text labels in place of icons.
 
 ## Install
 
-You need Python 3.9 or newer, Node 18 or newer, and git. Installing yourOS does not require Homebrew. yourOS runs on macOS and Linux.
+You need **Python 3.11 or newer**, **Node 18 or newer**, `curl`, and `git`. Installing yourOS does not require Homebrew. yourOS runs on macOS and Linux.
 
 ### On macOS
+
+Make sure Python 3.11+ ([python.org](https://python.org/downloads)) and Node 18+ ([nodejs.org](https://nodejs.org)) are installed, then run:
 
 ```bash
 git clone https://github.com/torimeyer/youros.git ~/youros
@@ -24,23 +34,11 @@ cd ~/youros
 ./install.sh
 ```
 
-Python and Node come pre-installed on recent macOS, or you can download them from [python.org](https://python.org/downloads) and [nodejs.org](https://nodejs.org).
-
-### Claude Code integration (optional)
-
-When you spawn Claude Code Task-tool subagents, yourOS can register them on its Agents page so you have one place to see all your in-flight AI work. By default this only happens inside the yourOS repo itself. If you want it elsewhere, you have three options — pick any or none:
-
-| Mode | How | When |
-|---|---|---|
-| **Per-repo** | `cd some-project && myos-track` | You always want tracking when working in a specific project. Writes `.claude/settings.local.json` in that repo. `myos-track --remove` reverses it. No global modification. |
-| **Per-session** | `cd some-project && myos-claude` | You occasionally want tracking — one Claude Code session at a time. Wrapper script that cleans up on exit, so the next plain `claude` in that dir isn't tracked. |
-| **Machine-wide** | `./install.sh --with-claude-hooks` | You use yourOS as your daily dashboard for all Claude Code activity. Installs a hook at `~/.claude/hooks/register-agent.sh` that fires on every Claude Code session on this machine. `./uninstall.sh` removes it. |
-
-All three point at the same hook file at `~/.youros/hooks/register-agent.sh`, which `install.sh` stages automatically.
+On macOS, `install.sh` sets up `ostk` (if not already installed), creates the Python virtual environment in `api/.venv`, builds the frontend in `app/`, seeds `~/.youros/settings.json` without overwriting existing settings, configures background `launchd` agents so the backend recovers automatically, and adds the `youros` and `youros-update` commands to your shell config.
 
 ### On Linux
 
-First install the basic tools with your system package manager. Pick the line for your Linux.
+First install the basic prerequisites with your system package manager.
 
 Ubuntu or Debian:
 
@@ -69,223 +67,185 @@ cd ~/youros
 ./install.sh
 ```
 
-If your distribution ships an older Node, install a newer one with nvm first:
+If your Linux distribution ships a Python older than 3.11 or Node older than 18, install newer versions first (for example with `pyenv` and `nvm`):
 
 ```bash
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
 source ~/.bashrc
-nvm install 20
+nvm install 22
 ```
 
 For contributors who already have a GitHub SSH key set up: `git clone git@github.com:torimeyer/youros.git ~/youros`
 
-## Updating
+### Subagent tracking in other repositories (optional)
+
+When you spawn Claude Code subagents, yourOS can register them on its **Agents** page so you have one dashboard for in-flight AI work. By default, tracking only activates inside the `yourOS` repository itself. To track work in other repositories, pick whichever scope fits your workflow:
+
+| Scope | Command | Behavior |
+|---|---|---|
+| **Per-repo** | `cd some-project && youros-track` | Enables persistent tracking in that repository by writing `.claude/settings.local.json`. Run `youros-track --remove` to reverse it. |
+| **Per-session** | `cd some-project && youros-claude` | Launches a single tracked Claude Code session and cleans up on exit, leaving subsequent plain `claude` runs untracked. |
+| **Machine-wide** | `./install.sh --with-claude-hooks` | Installs a hook in `~/.claude/hooks/register-agent.sh` so every Claude Code session on your machine reports to yourOS. `./uninstall.sh` removes it. |
+
+All three options point at `~/.youros/hooks/register-agent.sh`, which `install.sh` stages automatically.
+
+## Start, Stop, Update, and Uninstall
+
+### Start
+
+Open a new terminal window so your shell picks up the installed aliases, then run:
+
+```bash
+youros
+```
+
+Or directly from the repository directory:
+
+```bash
+./start.sh
+```
+
+Your browser opens automatically to `https://localhost:8000` (or `http://localhost:8000` if local TLS certificates were skipped).
+
+For active frontend development with Vite hot reload, run the backend and frontend in separate terminals instead:
+
+```bash
+scripts/dev-backend.sh      # FastAPI backend on https://127.0.0.1:8000
+scripts/dev-frontend.sh     # Vite dev server on https://localhost:3010
+```
+
+### Stop
+
+```bash
+./stop.sh
+```
+
+On macOS (`launchd`) and in dev mode (`backend_watchdog.sh`), a supervisor restarts `uvicorn` automatically if it exits unexpectedly, so pressing `Ctrl+C` alone can leave port `8000` running. `./stop.sh` unloads the supervisor cleanly before stopping ports `8000` and `3010`.
+
+### Update
+
+```bash
+youros-update
+```
+
+Or from inside the repository:
 
 ```bash
 cd ~/youros
 ./update.sh
 ```
 
-Your settings, chats, tasks, and labels live in `~/.youros/` (separate from the repo) and are never touched by updates. You can also verify this by running `ls -la ~/.youros/` before and after.
+`update.sh` pulls the latest code, refreshes Python and Node dependencies, rebuilds the frontend, and upgrades `ostk` when a newer release is available. Your data in `~/.youros/` is never modified by updates.
 
-## Uninstall
+### Uninstall
 
 ```bash
 ./uninstall.sh
 ```
 
-Stops running yourOS processes and removes what `install.sh` put in the repo: `api/.venv`, `app/node_modules`, `app/dist`, `.mcp.json`, and the `myos` / `myos-update` shell aliases. Keeps `~/.youros/` (your tasks, chats, settings), ostk, and the localhost cert trust — so re-running `./install.sh` brings you right back.
+Stops running processes and removes build artifacts created by `install.sh` (`api/.venv`, `app/node_modules`, `app/dist`, `.mcp.json`, `launchd` plists, and the `youros`, `youros-update`, `youros-track`, and `youros-claude` shell aliases) while preserving `~/.youros/` so re-running `./install.sh` restores your workspace immediately.
 
-To truly reset to a clean slate (useful when testing a fresh install):
+To wipe everything including `~/.youros/` (permanently deletes local user data), `ostk`, and the localhost certificate:
 
 ```bash
 ./uninstall.sh --purge
 ```
 
-Also removes `~/.youros/` (DESTROYS ALL USER DATA), stops the ostk daemon, removes `~/.local/bin/ostk` and `~/.cache/ostk`, and removes the localhost cert from the macOS login Keychain. Prompts before each destructive step — add `--yes` to skip prompts.
-
-The repo directory is never deleted. Remove it yourself with `rm -rf <path>` when you're done.
-
-## Start
-
-```bash
-./start.sh
-```
-
-Or from anywhere after install:
-
-```bash
-myos
-```
-
-Your browser will open to https://localhost:8000.
-
-For development (Vite hot reload on `app/` source), use the two-terminal setup instead:
-
-```bash
-scripts/dev-backend.sh      # backend on https://127.0.0.1:8000
-scripts/dev-frontend.sh     # Vite on https://localhost:3010
-```
-
-## Stop
-
-```bash
-./stop.sh
-```
-
-`./start.sh` and `scripts/dev-backend.sh` both run a watchdog that restarts uvicorn on crash, so `Ctrl+C` alone can leave yourOS running in the background. `stop.sh` kills the watchdog first, then uvicorn on port 8000 and Vite on port 3010.
-
-If `stop.sh` isn't available, the manual equivalent is:
-
-```bash
-pkill -9 -f backend_watchdog.sh
-lsof -ti tcp:8000 | xargs kill 2>/dev/null
-lsof -ti tcp:3010 | xargs kill 2>/dev/null
-```
+Prompts before each destructive step (pass `--yes` to skip confirmation prompts). Remove the cloned repository folder itself with `rm -rf ~/youros` when finished.
 
 ## First Run
 
-The setup wizard walks you through:
-1. Enter your name
-2. Name your OS (e.g. "MadisonOS", "AlexOS")
-3. Pick a theme
-4. Connect your AI provider (Anthropic or Google Gemini)
-5. Turn a task you have been putting off into a plan
+Opening yourOS for the first time launches a three-step setup wizard:
 
-You can explore the dashboard, tasks, and ideas without an API key. Chat and agents need one.
+1. **Connect:** Automatically detects local **Claude Code** and **Gemini CLI** subscriptions, lets you optionally paste Anthropic or Gemini API keys, and checks `ostk` kernel and `HUMANFILE` signature health.
+2. **Tracking:** Lets you choose whether background agent tracking stays scoped to `yourOS`, per-project (`youros-track`), or machine-wide.
+3. **Personalize:** Sets your display name, names your OS instance (for example `toriOS` or `alexOS`), and picks Light or Dark mode.
 
 ## What's Inside
 
-- **Dashboard** - home screen with smart focus card, day summary, session diff, quick launch, and labels
-- **Chat** - talk to Claude or Gemini with tool access. Multiple chat tabs. Resizable panel. GIF search, emoji reactions, image paste.
-- **Tasks** - create and manage work items with priorities. Labels for organization. Dependencies (blocks/needs). Task briefings. Health check for duplicates and missing info. Attributed commits.
-- **Activity** - chronological feed of everything that happened, filtered by category (tasks, agents, ideas, system)
-- **Agents** - spawn background AI agents. Permission requests (approve/deny). Delegation view for handing off tasks. Agent templates.
-- **Ideas** - capture thoughts quickly. AI-powered clustering. Convert ideas into tasks.
-- **Files** - browse your workspace with in-app file preview
-- **Timeline** - visual view of tasks over time
-- **Cost Tracking** - budget and spending by model and agent
-- **Settings** - theme, accent color, default LLM, Google sign-in, MCP servers (ostk-managed and manual), feature toggles, export/import config
-- **What's New** - release notes with badge for unseen updates
-- **Search** - Cmd+K searches across all tasks and ideas by topic, plus quick commands
+- **Dashboard:** Smart focus card, daily summary, session diff ("What Changed"), and quick launch actions.
+- **Chat:** Multi-tab chat with Claude and Gemini, streaming tool execution, file and image attachments, and quick task creation.
+- **Specs:** Draft specs, promote approved designs, and decompose specs directly into dependency-ordered tasks.
+- **Tasks:** Priorities (`P0` to `P3`), labels, dependency graphs (`blocks` / `needs`), pre-flight context briefings, duplicate health checks, and attributed git commits.
+- **Agents:** Spawn background agents in isolated git worktrees, monitor live progress, approve or deny permission requests, delegate tasks, and edit `Agentfile` recipes.
+- **Ideas:** Fast thought capture with automatic topic clustering and one-click promotion into tasks.
+- **Activity & Timeline:** Chronological history of agent runs, commits, specs, and task milestones.
+- **Files:** Browse workspace files with in-app markdown and code previews.
+- **Breakroom:** Lightweight arcade mini-games tucked into the bottom bar while background agents finish a test suite or build.
+- **Cost Tracking:** Token and spend visibility broken down by model and agent run.
+- **Settings:** Theme and accent customization, model defaults, provider credentials, MCP servers, backup/restore, and integration toggles.
 
 ## ostk Integration
 
-yourOS covers the full ostk surface area:
+yourOS is built directly on [ostk](https://ostk.ai), a local coordination kernel for AI agents and human operators:
 
-| ostk Feature | yourOS Integration |
+| ostk Command | yourOS Surface |
 |---|---|
-| work add/close/list/next | Tasks page |
-| work link/depends | Task dependencies |
-| work near | Concept search (Cmd+K) |
-| work activate | Task context briefings |
-| work refine | Task health check |
-| work radiate | Delegation view on Agents page |
-| work hay/compile | Ideas page |
-| thread create/list | Task groups |
-| compounds | Smart focus card on Dashboard |
-| os history | Activity page |
-| os diff | "What Changed" on Dashboard |
-| os clock | System status endpoint |
-| doc draft/promote/decompose | Document planning (API ready) |
-|  commit --task | Attributed commits on Tasks |
-| trace | Attribution history on Tasks |
-| secret set/get/list | Keychain-based key management in Settings |
-| grant list/approve/deny | Permissions tab on Agents page |
-| mcp list | MCP servers in Settings |
-| kernel spawn/ps/reap | Agent management |
+| `ostk work add / close / list / pull / edit` | Tasks page |
+| `ostk work link / unlink` | Task dependency graph (`blocks` / `needs`) |
+| `ostk work activate` | Task pre-flight context briefings |
+| `ostk work show --radiate` | Delegation view on Agents page |
+| `ostk work capture / triage` | Ideas capture and clustering |
+| `ostk work compounds` | Smart focus card on Dashboard |
+| `ostk doc draft / promote / decompose` | Specs workflow |
+| `ostk agentfile` | Agent templates and Agentfile editor |
+| `ostk spawn / interact / session` | Background agent supervision |
+| `ostk handoff / context-store / context-restore` | Session handoffs and tiered context memory |
+| `ostk commit` / `ostk trace` | Attributed git commits and lineage history |
+| `ostk search / recall` | Command palette (`Cmd+K`) and memory search |
+| `ostk session-history / show` | Activity feed and system status |
+| `ostk bail` | Portable workspace backup and restore (`scripts/youros-bail.sh`) |
+| `ostk boot / inspect` | Runtime health and `HUMANFILE` trust checks |
 
 ## Keyboard Shortcuts
 
 | Shortcut | Action |
-|----------|--------|
-| Cmd+K | Command palette and search |
-| Cmd+L | Toggle chat |
-| Cmd+N | New task |
-| Cmd+1-8 | Navigate pages |
+|---|---|
+| `Cmd+K` | Command palette and workspace search |
+| `Cmd+L` | Toggle chat panel |
+| `Cmd+N` | Create a new task |
+| `Cmd+1` to `Cmd+8` | Jump between workspace pages |
 
-## Privacy
+## Connecting AI Providers and Integrations
 
-yourOS runs on your laptop. Your data stays there. For a full breakdown of what is stored where, what leaves the machine and when, and how to revoke a connected tool's access: [PRIVACY.md](PRIVACY.md).
-
-## Connecting AI Providers
-
-If you have `gcloud auth application-default login` set up, Gemini calls automatically route through Vertex AI. No API key required.
-
-## Google Sign-In Setup
-
-To use Gemini through your Google account:
-
-1. Create a project at [console.cloud.google.com](https://console.cloud.google.com)
-2. Go to APIs and Services, then Credentials
-3. Create an OAuth 2.0 Client ID (Web application)
-4. Add redirect URI: `http://localhost:8000/api/auth/google/callback`
-5. Copy client ID and secret into `api/.env` (see `api/.env.example`)
-
-## Atlassian (Jira and Confluence) Setup
-
-Connect Jira and Confluence in **Settings > Atlassian**. yourOS uses OAuth, no password needed. Full setup instructions, permission details, and troubleshooting: [docs/integrations/atlassian.md](docs/integrations/atlassian.md).
-
-**If you connected before May 2026:** Disconnect and reconnect once. Atlassian deprecated the old permission names used in earlier versions of yourOS, and newer API endpoints reject tokens that only carry them. The reconnect takes about 30 seconds and is a one-time step.
+- **Claude Code & Gemini CLI (zero API key):** Install `@anthropic-ai/claude-code` or `@google/gemini-cli` and sign in once from your terminal. yourOS detects active CLI sessions automatically during setup and in **Settings**.
+- **API Keys:** You can paste an Anthropic API key or Gemini API key directly in **Settings** (or copy `api/.env.example` to `api/.env`).
+- **Google Cloud / Vertex AI:** If you have `gcloud auth application-default login` configured locally, Gemini calls can authenticate through Application Default Credentials without a separate API key.
+- **Google OAuth (optional):** To sign in with your own Google OAuth client, create a Web Application OAuth 2.0 Client ID in [Google Cloud Console](https://console.cloud.google.com/apis/credentials), add `http://localhost:8000/api/auth/google/callback` as an authorized redirect URI, and add `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` to `api/.env` (see `api/.env.example`) or upload credentials in **Settings**.
+- **Atlassian (Jira & Confluence, optional):** Connect via OAuth in **Settings > Atlassian**. Setup and permission details live in [docs/integrations/atlassian.md](docs/integrations/atlassian.md).
 
 ## Pre-commit Test Hook
 
-yourOS ships a lightweight git pre-commit hook that runs pytest, vitest, and `tsc -b` only on the files you staged. It catches broken tests at the commit that introduces them, instead of letting them pile up until release day. A typical commit stays under 30 seconds because only the relevant tests run.
-
-Install once:
+Contributors can install a fast git pre-commit hook that runs `pytest`, `vitest`, and `tsc -b` only against staged files:
 
 ```bash
 scripts/install-git-hooks.sh
-```
-
-Check status or uninstall:
-
-```bash
 scripts/install-git-hooks.sh --status
 scripts/install-git-hooks.sh --uninstall
 ```
 
-Bypass for a single commit (use sparingly):
-
-```bash
-git commit --no-verify
-```
-
-If you already have a local pre-commit hook, the installer preserves it as `.git/hooks/pre-commit.local` and runs it first, so nothing you had before is lost.
+Any existing local pre-commit hook is preserved as `.git/hooks/pre-commit.local` and executed first.
 
 ## Troubleshooting
 
-Run `scripts/youros-doctor.sh` for a guided diagnostic with fix commands. See [docs/recovery.md](docs/recovery.md) for the full recovery guide (check health, save your setup, restore it).
+Run `scripts/youros-doctor.sh` for an automated health check with exact fix commands, or see [docs/recovery.md](docs/recovery.md) to back up and restore your workspace with `scripts/youros-bail.sh`.
 
-**Icons render as text labels ("home", "checklist", "drag_indicator", etc.)**
-The Material Symbols font failed to load. Usually a stale browser cache after an update — hard refresh with Cmd+Shift+R (Mac) or Ctrl+Shift+R (Linux). If it persists, rebuild the frontend: `cd app && npm run build`, then restart. If your browser's DevTools console shows `Content-Security-Policy` errors for `fonts.googleapis.com`, pull the latest — this was fixed by allowing Google Fonts in the CSP.
-
-**`localhost:8000` still responds after you close the terminal**
-`start.sh` runs a watchdog that respawns uvicorn on crash, so the app can keep running after you Ctrl+C. Use `./stop.sh` to shut down cleanly.
-
-**Port 8000 is already in use**
-Another process (often a leftover yourOS from a previous session) is holding it. Run `./stop.sh`. If that doesn't clear it, `lsof -nP -iTCP:8000 -sTCP:LISTEN` shows what's there.
-
-**401 on `/api/calendar/events` in the browser console**
-Expected until you finish Google Sign-In. See "Google Sign-In Setup" above.
-
-**Corporate network or VPN blocks Google Fonts**
-Icons show as text because `fonts.googleapis.com` / `fonts.gstatic.com` are unreachable. The app is otherwise fully functional. If you need icons offline, open an issue — bundling the font locally is possible but not currently shipped.
+- **Icons render as text labels (`home`, `checklist`, `drag_indicator`):** The Material Symbols font failed to load, usually from a stale browser cache after an update. Hard refresh with `Cmd+Shift+R` (macOS) or `Ctrl+Shift+R` (Linux). If needed, rebuild the frontend with `cd app && npm run build` and restart.
+- **`localhost:8000` still responds after closing the terminal:** `launchd` (macOS) or `backend_watchdog.sh` keeps the backend alive in the background. Run `./stop.sh` to shut everything down cleanly.
+- **Port 8000 is already in use:** Run `./stop.sh`. If another process is still bound to port 8000, run `lsof -nP -iTCP:8000 -sTCP:LISTEN` to inspect it.
+- **`ostk` reports an invalid `HUMANFILE` signature:** Run `ostk boot` in your terminal to inspect trust status and re-sign your `HUMANFILE` after local edits, then click **Re-check** in Onboarding or Settings.
 
 ## Roadmap
 
-Open `roadmap.html` in your browser to see the three-year plan.
+Open `roadmap.html` in your browser to view the multi-year direction.
 
-## Contributing: why internal identifiers still say "myos"
+## Contributing: why some internal identifiers still say "myos"
 
-The product is called **yourOS** on every screen you see. Under the hood, engineering keeps the old `myos` name in identifiers that would break or lose data if changed:
+Before becoming **toriOS** and open-sourcing as **yourOS**, early internal prototypes used the working codename `myos`. User-facing paths (`~/.youros/`, `com.youros.*` launchd agents, and the `youros*` CLI commands) all use `youros`, while a handful of low-level engineering identifiers keep `myos` for backward compatibility:
 
-- `~/.youros/` — the user data directory (renaming moves no data and risks orphaning 200MB+ of history)
-- `MYOS_*` environment variables — 36 of them; renaming requires coordinated operator changes
-- `youros-backend` / `youros-frontend` PM2 process names and PID files
-- `com.youros.ostk-watchdog` launchd plist (installed at `~/Library/LaunchAgents/`)
-- `myos.` localStorage key prefixes — renaming clears browser state
-- `/api/health` returns `{"service":"myos-api"}` — e2e smoke tests grep this string
-- `BACKEND_SESSION_PREFIX = "myos-api-"` — names ostk session directories
+- `MYOS_*` environment variables used by test harnesses and daemon tuning
+- `myos.*` browser `localStorage` keys (renaming would reset saved UI preferences)
+- `/api/health` returning `{"service":"myos-api"}` (checked by smoke tests and watchdogs)
+- `BACKEND_SESSION_PREFIX = "myos-api-"` for internal `ostk` API session directories
 
-These stay `myos` until there is a migration path for each. The split is intentional: user-facing = `yourOS`, engineering internals = `myos`.
+See [CONTRIBUTING.md](CONTRIBUTING.md) to set up a local development environment and run the test suites.
