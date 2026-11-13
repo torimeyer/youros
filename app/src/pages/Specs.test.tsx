@@ -3164,3 +3164,140 @@ describe('→2959: API status warning on done specs', () => {
     expect(screen.getAllByTestId('spec-status-warning')).toHaveLength(1)
   })
 })
+
+describe('→3107: Specs History shows all completed specs across statuses and directories', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+  })
+
+  it('places every completed status synonym into History even when stage lags, keeping active tabs clean', async () => {
+    const mixedResponse = {
+      docs: [
+        {
+          path: '~/.youros/drafts/active-draft.md',
+          filename: 'active-draft.md',
+          title: 'Active Draft Item',
+          status: 'draft',
+          stage: 'draft',
+          created_at: '2026-07-10T00:00:00Z',
+          promoted_at: '',
+          body: '- [ ] pending',
+          acceptance_criteria: [{ text: 'pending', checked: false }],
+        },
+        {
+          path: '~/.youros/specs/active-ready.md',
+          filename: 'active-ready.md',
+          title: 'Active Ready Item',
+          status: 'ready',
+          stage: 'ready',
+          created_at: '2026-07-10T00:00:00Z',
+          promoted_at: '2026-07-10T01:00:00Z',
+          body: '- [ ] pending',
+          acceptance_criteria: [{ text: 'pending', checked: false }],
+        },
+        ...[
+          { status: 'complete', stage: 'complete', dir: '~/.youros/specs', slug: 's-complete', title: 'Finished Complete Spec' },
+          { status: 'completed', stage: undefined, dir: '~/.youros/specs', slug: 's-completed', title: 'Finished Completed Spec' },
+          { status: 'done', stage: 'draft', dir: '~/.youros/specs', slug: 's-done', title: 'Finished Done Spec' },
+          { status: 'shipped', stage: 'ready', dir: '~/.youros/specs/archive', slug: 's-shipped', title: 'Finished Shipped Spec' },
+          { status: 'implemented', stage: undefined, dir: 'docs/spec', slug: 's-implemented', title: 'Finished Implemented Spec' },
+          { status: 'closed', stage: undefined, dir: 'docs/specs', slug: 's-closed', title: 'Finished Closed Spec' },
+          { status: 'archived', stage: 'draft', dir: '~/.youros/specs/archive', slug: 's-archived', title: 'Finished Archived Spec' },
+        ].map((item, idx) => ({
+          path: `${item.dir}/${item.slug}.md`,
+          filename: `${item.slug}.md`,
+          title: item.title,
+          status: item.status,
+          stage: item.stage,
+          created_at: `2026-06-0${idx + 1}T00:00:00Z`,
+          promoted_at: `2026-06-1${idx}T00:00:00Z`,
+          body: '## Problem\nSolved.',
+          acceptance_criteria: [],
+        })),
+      ],
+    }
+
+    mockedApiGet.mockImplementation((reqPath: string) => {
+      if (reqPath === '/specs') return Promise.resolve(mixedResponse)
+      if (reqPath === '/specs/templates') return Promise.resolve({ templates: [] })
+      if (reqPath.includes('/tasks')) return Promise.resolve({ tasks: [] })
+      return Promise.resolve({})
+    })
+
+    renderSpecs()
+    await waitFor(() => expect(screen.getByText('Active Ready Item')).toBeInTheDocument())
+
+    // Only the 2 active specs appear in the All view; none of the 7 completed ones leak.
+    expect(screen.getAllByTestId('spec-card')).toHaveLength(2)
+    expect(screen.queryByText('Finished Done Spec')).not.toBeInTheDocument()
+    expect(screen.queryByText('Finished Shipped Spec')).not.toBeInTheDocument()
+
+    const historyBtn = screen.getByTestId('show-history-button')
+    expect(historyBtn.textContent).toContain('7')
+
+    fireEvent.click(historyBtn)
+    await waitFor(() => expect(screen.getByText('Finished Archived Spec')).toBeInTheDocument())
+
+    const historyCards = screen.getAllByTestId('spec-card')
+    expect(historyCards).toHaveLength(7)
+    for (const card of historyCards) {
+      const chip = card.querySelector('[data-testid="stage-chip"]')
+      expect(chip?.textContent).toBe('Done')
+    }
+  })
+
+  it('renders 30 completed specs with no cap, sorted newest first, and supports history search', async () => {
+    const manyDoneDocs = Array.from({ length: 30 }, (_, idx) => {
+      const day = String(idx + 1).padStart(2, '0')
+      return {
+        path: `~/.youros/specs/archive/2026-06-${day}T120000Z-spec-${day}.md`,
+        filename: `2026-06-${day}T120000Z-spec-${day}.md`,
+        title: idx === 14 ? 'Discord Connected Bridge' : `Historical Spec ${day}`,
+        spec_id: `S${String(idx + 100)}`,
+        status: 'complete',
+        stage: 'complete',
+        created_at: `2026-06-${day}T10:00:00Z`,
+        promoted_at: `2026-06-${day}T12:00:00Z`,
+        body: '- [x] Verified',
+        acceptance_criteria: [{ text: 'Verified', checked: true }],
+      }
+    })
+
+    mockedApiGet.mockImplementation((reqPath: string) => {
+      if (reqPath === '/specs') return Promise.resolve({ docs: manyDoneDocs })
+      if (reqPath === '/specs/templates') return Promise.resolve({ templates: [] })
+      if (reqPath.includes('/tasks')) return Promise.resolve({ tasks: [] })
+      return Promise.resolve({})
+    })
+
+    renderSpecs()
+    const historyBtn = await screen.findByTestId('show-history-button')
+    await waitFor(() => expect(historyBtn.textContent).toContain('30'))
+
+    fireEvent.click(historyBtn)
+    await waitFor(() => expect(screen.getAllByTestId('spec-card')).toHaveLength(30))
+
+    // Sorted newest promoted_at first: day 30 precedes day 01
+    const cardsBeforeFilter = screen.getAllByTestId('spec-card')
+    expect(cardsBeforeFilter[0].textContent).toContain('Historical Spec 30')
+    expect(cardsBeforeFilter[29].textContent).toContain('Historical Spec 01')
+
+    // Search filters by title and spec_id while keeping input mounted on zero matches
+    const searchInput = screen.getByTestId('history-search-input') as HTMLInputElement
+    fireEvent.change(searchInput, { target: { value: 'Discord Connected' } })
+    expect(screen.getAllByTestId('spec-card')).toHaveLength(1)
+    expect(screen.getByText('Discord Connected Bridge')).toBeInTheDocument()
+
+    fireEvent.change(searchInput, { target: { value: 'S129' } })
+    expect(screen.getAllByTestId('spec-card')).toHaveLength(1)
+    expect(screen.getByText('Historical Spec 30')).toBeInTheDocument()
+
+    fireEvent.change(searchInput, { target: { value: 'nonexistent-query-xyz' } })
+    expect(screen.queryAllByTestId('spec-card')).toHaveLength(0)
+    expect(screen.getByTestId('history-search-input')).toBeInTheDocument()
+
+    fireEvent.change(searchInput, { target: { value: '' } })
+    expect(screen.getAllByTestId('spec-card')).toHaveLength(30)
+  })
+})

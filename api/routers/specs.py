@@ -454,9 +454,13 @@ _SPEC_ARTIFACT_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"-\d{4}-\d{2}-\d{2}(?:\.md)?$", re.IGNORECASE),
     # Root-cause suffix — diagnosis reports like "vite-504-root-cause.md".
     re.compile(r"[-_ ]root[-_ ]cause\b", re.IGNORECASE),
-    # Verification suffix — agent verification writeups like
+    # Verification suffix - agent verification writeups like
     # "pre-design-audit-script-verification.md".
     re.compile(r"[-_ ]verification(?:\.md)?$", re.IGNORECASE),
+    # E2E journey run fixtures carrying an embedded run id (e.g.
+    # "e2e-specs-journey-id1782854089-end.md"); leaves plain
+    # "e2e-http-journey.md" untouched.
+    re.compile(r"(?:^|/)e2e[-_ ]specs[-_ ]journey[-_ ](?:id)?\d+", re.IGNORECASE),
 )
 
 
@@ -534,11 +538,13 @@ def _validate_doc_path(path: str) -> None:
     if not (
         str(p).startswith("docs/draft/")
         or str(p).startswith("docs/spec/")
+        or str(p).startswith("docs/specs/")
+        or str(p).startswith("docs/archive/")
         or is_user_local
     ):
         raise HTTPException(
             status_code=400,
-            detail="Path must be under docs/draft/, docs/spec/, ~/.youros/specs/, or ~/.youros/drafts/",
+            detail="Path must be under docs/draft/, docs/spec/, docs/specs/, docs/archive/, ~/.youros/specs/, or ~/.youros/drafts/",
         )
 
 
@@ -551,7 +557,7 @@ def _validate_write_doc_path(path: str) -> None:
     """
     _validate_doc_path(path)
     p = PurePosixPath(path)
-    if str(p).startswith("docs/spec/"):
+    if str(p).startswith(("docs/spec/", "docs/specs/", "docs/archive/")):
         raise HTTPException(
             status_code=400,
             detail=(
@@ -654,13 +660,30 @@ async def list_specs(clear_to_build: Optional[bool] = None):
 
         # Resolve task statuses up front (the only other await in the body) so
         # the heavy synchronous enrichment below can run entirely off-loop.
+        # Seed with rotated closed tasks from .ostk/needles/issues.jsonl* first,
+        # then overlay active list_tasks() statuses (→3107).
+        from services.ostk import (
+            COMPLETED_SPEC_STATUSES as _COMPLETED_SPEC_STATUSES,
+            read_rotated_task_statuses as _read_rotated_task_statuses,
+        )
         needle_statuses: dict[str, str] = {}
+        try:
+            needle_statuses.update(
+                await asyncio.to_thread(
+                    _read_rotated_task_statuses, _effective_repo_root()
+                )
+            )
+        except Exception:
+            pass
         try:
             raw_tasks = await ostk.list_tasks()
             for t in raw_tasks:
                 nid = str(t.get("id", ""))
                 if nid:
                     needle_statuses[nid] = t.get("status", "open")
+                    norm_nid = ostk._normalize_task_id(nid)
+                    if norm_nid:
+                        needle_statuses[norm_nid] = t.get("status", "open")
         except Exception:
             pass
 
@@ -728,13 +751,14 @@ async def list_specs(clear_to_build: Optional[bool] = None):
                         Path(raw_path) if raw_path.startswith("/") or raw_path.startswith("~")
                         else _ostk_module.USER_SPECS_DIR / raw_path
                     )
-                    # Only auto-archive files that live in USER_SPECS_DIR.
-                    # Drafts in USER_DRAFTS_DIR are works-in-progress and must
-                    # never be moved by this loop — they haven't been promoted yet.
+                    # Only auto-archive top-level files in USER_SPECS_DIR.
+                    # Drafts in USER_DRAFTS_DIR and specs already inside
+                    # USER_SPECS_DIR/archive/ must never be moved by this loop.
+                    if d.get("is_archived"):
+                        surviving.append(d)
+                        continue
                     try:
-                        if not str(abs_path.resolve()).startswith(
-                            str(_ostk_module.USER_SPECS_DIR.resolve())
-                        ):
+                        if abs_path.parent.resolve() != _ostk_module.USER_SPECS_DIR.resolve():
                             surviving.append(d)
                             continue
                     except Exception:
@@ -742,16 +766,28 @@ async def list_specs(clear_to_build: Optional[bool] = None):
                         continue
                     shipped = compute_shipped(abs_path, _effective_repo_root(), needle_statuses)
                     if shipped.is_shipped and abs_path.exists():
-                        # Move to archive
+                        # Move to archive and keep visible in History as complete (→3107)
                         archive_dir.mkdir(parents=True, exist_ok=True)
                         import datetime as _dt
-                        ts = _dt.datetime.utcnow().strftime("%Y-%m-%dT%H%M%SZ")
+                        ts = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H%M%SZ")
                         slug = abs_path.stem
                         dest = archive_dir / f"{ts}-{slug}.md"
                         try:
                             abs_path.rename(dest)
+                            try:
+                                ostk._write_status_to_frontmatter(dest, "complete")
+                            except Exception:
+                                pass
+                            d["path"] = str(dest)
+                            d["filename"] = dest.name
+                            d["status"] = "complete"
+                            d["stage"] = "complete"
+                            d["husk"] = False
+                            d["husk_reason"] = ""
+                            d["is_archived"] = True
+                            surviving.append(d)
                             trace_event("spec_auto_archive", slug=slug, path=str(dest))
-                            logger.info("auto-archived spec %s → %s", slug, dest)
+                            logger.info("auto-archived spec %s -> %s", slug, dest)
                         except Exception as mv_err:
                             logger.warning("auto-archive failed for %s: %s", raw_path, mv_err)
                             surviving.append(d)
@@ -802,8 +838,8 @@ async def list_specs(clear_to_build: Optional[bool] = None):
                     # Readiness is a pre-build signal ("is this ready to build?").
                     # A spec that is already complete/done must never be flagged
                     # "needs clarity" — the build decision is moot once it shipped.
-                    _status = d.get("status")
-                    if not r.ready and _status not in ("complete", "done", "archived"):
+                    _status = str(d.get("status") or "").strip().lower()
+                    if not r.ready and _status not in _COMPLETED_SPEC_STATUSES:
                         # Surface needs_clarity as information; never downgrade the
                         # spec's status. Readiness informs, it does not block.
                         d["needs_clarity"] = True
@@ -812,15 +848,8 @@ async def list_specs(clear_to_build: Optional[bool] = None):
                     d.setdefault("clear_to_build", False)
                     d.setdefault("clear_to_build_checks", [])
 
-            # →2955: a spec must not claim complete while its own checkboxes
-            # contradict it. Progress used to live in hidden per-box ledger
-            # rows, which could all be closed while the file's boxes sat
-            # unchecked — the file is now the single source of truth (→2938),
-            # so the listing attaches the contradiction instead of hiding it.
-            # Status itself is never rewritten: a spec the user marked done
-            # stays done (informs, never blocks — same stance as b4fba786).
             for d in docs:
-                if d.get("status") not in ("complete", "done"):
+                if str(d.get("status") or "").strip().lower() not in _COMPLETED_SPEC_STATUSES:
                     continue
                 open_boxes = sum(
                     1 for c in (d.get("acceptance_criteria") or [])
@@ -885,6 +914,7 @@ async def spec_counts():
     user specs.
     """
     try:
+        from services.ostk import COMPLETED_SPEC_STATUSES as _COMPLETED_SPEC_STATUSES
         docs = await ostk.list_docs()
         real_specs = [d for d in docs if d.get("status") != "plan"]
         total = len(real_specs)
@@ -894,20 +924,21 @@ async def spec_counts():
             "ready": "ready",
             "spec": "ready",
             "in-progress": "in_progress",
+            "in_progress": "in_progress",
             "building": "in_progress",
-            "complete": "complete",
+            **{s: "complete" for s in _COMPLETED_SPEC_STATUSES},
         }
         by_stage: dict[str, int] = {}
         for d in real_specs:
-            raw_status = d.get("status", "draft")
+            raw_status = str(d.get("status", "draft") or "draft").strip().lower()
             stage = d.get("stage") or _status_to_stage.get(raw_status, "draft")
             # Normalise: any stage we don't know maps to "draft" so it still counts as
             # unfinished but doesn't silently inflate the in_progress bucket.
             if stage not in ("draft", "ready", "in_progress", "complete"):
                 stage = "draft"
             # The `stage` field from list_docs() can lag behind explicit status changes.
-            # Always honour status:complete — a spec the user marked done is done.
-            if raw_status == "complete":
+            # Always honour completed statuses - a spec marked done/shipped/archived is done.
+            if raw_status in _COMPLETED_SPEC_STATUSES:
                 stage = "complete"
             by_stage[stage] = by_stage.get(stage, 0) + 1
         # →2623: unfinished = every spec that is not done. The Specs page
@@ -4115,7 +4146,18 @@ async def archive_spec(slug: str):
 # Statuses a spec frontmatter may carry. "spec" is the legacy promoted value
 # (list_specs maps it to "ready" for display); kept so a PATCH can round-trip it.
 _VALID_SPEC_STATUSES = {
-    "draft", "ready", "spec", "building", "complete", "done", "deferred", "archived",
+    "draft",
+    "ready",
+    "spec",
+    "building",
+    "complete",
+    "completed",
+    "done",
+    "shipped",
+    "implemented",
+    "closed",
+    "deferred",
+    "archived",
 }
 
 
@@ -4186,8 +4228,9 @@ async def patch_spec_status(spec_path: str, body: SpecStatusUpdate):
     result = _set_spec_status(spec_path, new_status)
     if result is None:
         raise HTTPException(status_code=404, detail="Spec not found or has no status line")
+    from services.ostk import COMPLETED_SPEC_STATUSES as _COMPLETED_SPEC_STATUSES
     response: dict = {"ok": True, "status": new_status}
-    if new_status in ("done", "complete"):
+    if new_status in _COMPLETED_SPEC_STATUSES:
         # →2231 →2234: marking done with unchecked criteria always succeeds;
         # the unchecked list rides along as information, never a refusal.
         # The status flip above already happened unconditionally.
