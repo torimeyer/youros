@@ -27,6 +27,7 @@ import { useDashboardStore } from '../stores/dashboardStore';
 import { useDashboardFeed } from '../hooks/useDashboardFeed';
 import { ClampedDescription } from '../components/ClampedDescription';
 import CalendarGridWidget from '../components/CalendarGridWidget';
+import MissionControlFleetStrip from '../components/MissionControlFleetStrip';
 
 interface ActionItem {
   type: 'reply_email' | 'close_task' | 'prep_meeting' | 'review_agent';
@@ -1051,6 +1052,8 @@ export default function Dashboard() {
             Customize
           </button>
         </div>
+
+        <MissionControlFleetStrip />
 
         {/* Widget Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

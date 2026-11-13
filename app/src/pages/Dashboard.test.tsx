@@ -1552,3 +1552,83 @@ describe('Blockers widget removal (→2924)', () => {
   })
 })
 
+describe('Unified Mission Control Fleet Strip on Dashboard (→3094)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockNavigate.mockClear()
+    localStorage.clear()
+    localStorage.setItem('myos-tour-complete', 'true')
+    useAppStore.setState({
+      chatOpen: false,
+      osName: 'yourOS',
+      darkMode: true,
+      showTour: false,
+      dashboardWidgets: ['todays_focus'],
+    })
+  })
+
+  it('mounts MissionControlFleetStrip on / with live seats, ostk trust warning, and file conflict actions', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/dashboard') return Promise.resolve(mockDashboardData)
+      if (path === '/dashboard/summary') return Promise.resolve(mockSummaryData)
+      if (path === '/dashboard/compounds') return Promise.resolve(mockCompoundsData)
+      if (path === '/dashboard/diff') return Promise.resolve(mockSessionDiff)
+      if (path === '/sessions') {
+        return Promise.resolve({
+          sessions: [
+            {
+              id: 'claude-w1',
+              name: 'claude-w1',
+              runtime: 'claude',
+              repo: '/Users/torimeyer/claude/torios',
+              status: 'active',
+              touched_files: ['app/src/pages/Dashboard.tsx'],
+              stuck: false,
+            },
+            {
+              id: 'gemini-w2',
+              name: 'gemini-w2',
+              runtime: 'gemini',
+              repo: '/Users/torimeyer/claude/torios',
+              status: 'active',
+              touched_files: ['app/src/pages/Dashboard.tsx'],
+              stuck: true,
+            },
+          ],
+        })
+      }
+      if (path === '/secrets/key-status') {
+        return Promise.resolve({
+          ostk_available: true,
+          humanfile_valid: false,
+        })
+      }
+      return Promise.reject(new Error(`unmocked path: ${path}`))
+    })
+
+    renderDashboard()
+
+    const strip = await screen.findByTestId('mission-control-strip')
+    await waitFor(() => {
+      expect(within(strip).getByTestId('mission-control-trust-pill')).toHaveTextContent(
+        'HUMANFILE signature needs ostk trust sign',
+      )
+      expect(within(strip).getByTestId('mission-control-conflict-banner')).toBeInTheDocument()
+    })
+
+    expect(within(strip).getByText('Claude')).toBeInTheDocument()
+    expect(within(strip).getByText('Gemini')).toBeInTheDocument()
+    expect(within(strip).getByTestId('seat-quiet-badge')).toHaveTextContent('quiet')
+
+    const banner = within(strip).getByTestId('mission-control-conflict-banner')
+    fireEvent.click(within(banner).getByRole('button', { name: /Acquire Lock/i }))
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/locks', {
+        path: 'app/src/pages/Dashboard.tsx',
+        holder: 'operator',
+      })
+    })
+  })
+})
+
+

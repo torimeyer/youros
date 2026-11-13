@@ -480,3 +480,129 @@ describe('UniversalSearch search', () => {
     })
   })
 })
+
+describe('UniversalSearch ostk recall-search hits (→3094)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    useAppStore.setState({ chatOpen: false, enterpriseEnabled: false })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  const mockWithRecall = (recallHits: Array<Record<string, unknown>>) => (url: string) => {
+    if (url.includes('/search?q=')) {
+      return Promise.resolve({ tasks: [], recall: recallHits, query: 'spawn' })
+    }
+    if (url.includes('/search/deep')) return Promise.resolve([])
+    if (url.includes('/search/recall')) return Promise.resolve({ hits: [] })
+    if (url.includes('/agents')) return Promise.resolve({ agents: [] })
+    if (url.includes('/specs')) return Promise.resolve({ docs: [] })
+    if (url.includes('/docs/recent')) return Promise.resolve({ files: [] })
+    return Promise.resolve({ tasks: [], query: '' })
+  }
+
+  it('renders decision, transcript, code, and work recall hits with scope badges and snippets', async () => {
+    mockedApiGet.mockImplementation(
+      mockWithRecall([
+        {
+          id: 'dec-1',
+          scope: 'decision',
+          title: 'Sign HUMANFILE with Ed25519',
+          snippet: 'ostk trust sign verifies operator identity',
+          path: '.ostk/decisions.jsonl',
+          line: 14,
+          source: 'ostk_recall',
+        },
+        {
+          id: 'tool:abc123',
+          scope: 'transcript',
+          title: 'Spawn worktree isolation transcript',
+          snippet: 'Shared git worktree keeps storage zero-copy',
+          path: null,
+          line: null,
+          source: 'ostk_recall',
+        },
+        {
+          id: 'path:app/src/lib/spawn.ts',
+          scope: 'code',
+          title: 'spawn.ts',
+          snippet: 'export async function buildSpec',
+          path: 'app/src/lib/spawn.ts',
+          line: 42,
+          source: 'ostk_recall',
+        },
+        {
+          id: '→3094',
+          scope: 'work',
+          title: '→3094 Unified Mission Control',
+          snippet: 'Consolidate fleet seats and conflicts onto Home',
+          path: null,
+          line: null,
+          source: 'ostk_recall',
+        },
+      ]),
+    )
+
+    renderSearch(true)
+    fireEvent.change(screen.getByTestId('universal-search-input'), {
+      target: { value: 'spawn' },
+    })
+    vi.advanceTimersByTime(200)
+
+    const recallSection = await screen.findByTestId('section-recall')
+    expect(recallSection).toBeInTheDocument()
+    expect(recallSection.textContent).toContain('Recall')
+    expect(recallSection.textContent).toContain('decision')
+    expect(recallSection.textContent).toContain('Sign HUMANFILE with Ed25519')
+    expect(recallSection.textContent).toContain('ostk trust sign verifies operator identity')
+    expect(recallSection.textContent).toContain('transcript')
+    expect(recallSection.textContent).toContain('Spawn worktree isolation transcript')
+    expect(recallSection.textContent).toContain('code')
+    expect(recallSection.textContent).toContain('app/src/lib/spawn.ts:42')
+    expect(recallSection.textContent).toContain('work')
+  })
+
+  it('navigates recall hits to /ostk, /transcripts, /projects, and /tasks based on scope', async () => {
+    const cases = [
+      { scope: 'decision', expectedPath: '/ostk' },
+      { scope: 'transcript', expectedPath: '/transcripts' },
+      { scope: 'code', expectedPath: '/projects' },
+      { scope: 'work', expectedPath: '/tasks' },
+    ]
+
+    for (const c of cases) {
+      mockNavigate.mockClear()
+      mockedApiGet.mockImplementation(
+        mockWithRecall([
+          {
+            id: `hit-${c.scope}`,
+            scope: c.scope,
+            title: `Hit for ${c.scope}`,
+            snippet: 'matching snippet',
+            path: c.scope === 'code' ? 'api/routers/search.py' : null,
+            line: null,
+            source: 'ostk_recall',
+          },
+        ]),
+      )
+
+      const onClose = vi.fn()
+      const { unmount } = renderSearch(true, onClose)
+      fireEvent.change(screen.getByTestId('universal-search-input'), {
+        target: { value: 'spawn' },
+      })
+      vi.advanceTimersByTime(200)
+
+      // eslint-disable-next-line no-await-in-loop
+      const item = await screen.findByTestId('recall-item-0')
+      fireEvent.click(item)
+
+      expect(mockNavigate).toHaveBeenCalledWith(c.expectedPath)
+      expect(onClose).toHaveBeenCalledTimes(1)
+      unmount()
+    }
+  })
+})
