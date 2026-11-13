@@ -1185,6 +1185,8 @@ async def stream_chat(
     # loaded: cold start drops to ~2 s and warm turns drop to ~1 s.
     # The model still reaches ostk via Bash (ostk CLI) when needed.
     _is_warm_turn = False
+    _was_reused_warm_proc = False
+    _t_spawn: Optional[float] = None
     proc = None
     if tab_id:
         # warm_args: same as args but --input-format stream-json inserted,
@@ -1195,6 +1197,12 @@ async def stream_chat(
         if "--strict-mcp-config" not in _warm_args:
             _warm_args.append("--strict-mcp-config")
         try:
+            _existing_wp = _warm_procs.get(tab_id)
+            _was_reused_warm_proc = bool(
+                _existing_wp is not None
+                and _existing_wp.returncode is None
+                and _warm_proc_fingerprints.get(tab_id, "") == (_mcp_allowlist_cfg or "")
+            )
             _wproc = await _get_or_start_warm_proc(
                 tab_id, _warm_args, config_fingerprint=_mcp_allowlist_cfg or ""
             )
@@ -1219,6 +1227,7 @@ async def stream_chat(
             )
             _reset_warm_proc_reap_timer(tab_id)
         except Exception as _warm_e:
+            _was_reused_warm_proc = False
             _claude_log.warning(
                 "warm_proc: start/write failed tab=%s: %s; falling back to cold spawn",
                 tab_id,
@@ -1276,6 +1285,8 @@ async def stream_chat(
     full_text = ""
     final_usage: Optional[dict] = None
     _first_token_logged = False
+    _init_ms: Optional[float] = None
+    _first_token_ms: Optional[float] = None
 
     # Maps Anthropic content-block index → tool_use id for the current
     # stream so input_json_delta fragments can be routed back to the
@@ -1283,7 +1294,7 @@ async def stream_chat(
     tool_index_map: dict[int, str] = {}
 
     async def _read_stdout() -> None:
-        nonlocal full_text, final_usage, saw_deltas, _first_token_logged
+        nonlocal full_text, final_usage, saw_deltas, _first_token_logged, _init_ms, _first_token_ms
         assert proc.stdout is not None
         # Track text-block boundaries so we can inject \n\n when a new text
         # block starts after a non-text block (e.g. tool_use). Mirrors the
@@ -1303,6 +1314,8 @@ async def stream_chat(
                 continue
 
             etype = event.get("type", "")
+            if etype in ("system", "init") and _init_ms is None:
+                _init_ms = (time.perf_counter() - _t_entry) * 1000.0
             if etype == "stream_event":
                 inner = event.get("event", {})
                 inner_type = inner.get("type", "")
@@ -1322,9 +1335,10 @@ async def stream_chat(
             text, done, usage, extra_msg = _handle_stream_event(event, tool_index_map)
             if text:
                 if not _first_token_logged:
+                    _first_token_ms = (time.perf_counter() - _t_entry) * 1000.0
                     _claude_log.info(
                         "claude_phase=first_token ms=%.0f",
-                        (time.perf_counter() - _t_entry) * 1000,
+                        _first_token_ms,
                     )
                     _first_token_logged = True
                 if etype == "stream_event":
@@ -1404,6 +1418,35 @@ async def stream_chat(
         except (asyncio.CancelledError, Exception):
             pass
 
+    def _record_claude_turn_latency(warm_flag: bool) -> None:
+        try:
+            from services.chat_latency import TurnLatencySample, record_turn_latency
+
+            m_frag = _chat_model_args()
+            default_mod = (
+                m_frag[1]
+                if len(m_frag) >= 2 and m_frag[0] == "--model"
+                else "claude-code-subscription"
+            )
+            mod_label = str(kwargs.get("model") or "").strip() or default_mod
+            spawn_val = (
+                (_t_spawn - _t_entry) * 1000.0 if _t_spawn is not None else None
+            )
+            record_turn_latency(
+                TurnLatencySample(
+                    provider="claude_code",
+                    model=mod_label,
+                    tab_id=tab_id,
+                    warm_session=warm_flag,
+                    spawn_ms=spawn_val,
+                    init_ms=_init_ms,
+                    first_token_ms=_first_token_ms,
+                    total_ms=(time.perf_counter() - _t_entry) * 1000.0,
+                )
+            )
+        except Exception:
+            pass
+
     # Warm turns: the process stays alive for the next turn.
     # Send done, record metrics, and return without waiting for process exit.
     if _is_warm_turn:
@@ -1419,6 +1462,7 @@ async def stream_chat(
             (time.perf_counter() - _t_entry) * 1000,
             len(full_text),
         )
+        _record_claude_turn_latency(_was_reused_warm_proc)
         try:
             from routers.agents import complete_chat_session
             _wu = final_usage or {}
@@ -1513,6 +1557,7 @@ async def stream_chat(
         (time.perf_counter() - _t_entry) * 1000,
         len(full_text),
     )
+    _record_claude_turn_latency(False)
     try:
         from routers.agents import complete_chat_session
         usage = final_usage or {}

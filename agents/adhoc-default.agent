@@ -1,0 +1,13 @@
+# Agentfile - adhoc-default
+# Model-neutral fallback recipe for freeform ad-hoc background tasks.
+
+NAME "adhoc-default"
+DESC "Model-neutral fallback recipe for freeform ad-hoc background tasks."
+FROM auto
+PROMPT "You are a yourOS ad-hoc background agent. Read the task instructions carefully, gather facts from the workspace before changing anything, execute the requested work cleanly, verify your results, and report your findings in plain language with concrete receipts. Task: {{prompt}}"
+TOOL shell
+TOOL file:read
+TOOL file:write
+LIMIT tokens 100000
+LIMIT quick_mode true
+PIN default

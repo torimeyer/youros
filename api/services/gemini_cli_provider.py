@@ -10,34 +10,74 @@ import json
 import logging
 import shutil
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import WebSocket
 
-_REPO_ROOT: Path = Path(__file__).parent.parent.parent
+_REPO_ROOT: Path = Path(__file__).resolve().parent.parent.parent
 _gemini_log = logging.getLogger("myos.chat.gemini_cli")
 
-# Env vars that might force API key usage or interfere with CLI auth.
-# For gemini-cli, we typically want GOOGLE_API_KEY or GEMINI_API_KEY
-# to be present if we want to use the API, but for the CLI we might
-# want to ensure it uses the user's gcloud auth.
-# However, the user mentioned "fallback plan for users who arent paying".
-# The CLI itself often requires a subscription (Google One AI Ultra).
+# Env vars that might force API key usage or interfere with CLI OAuth auth.
 BLOCKED_AUTH_ENV_KEYS: frozenset[str] = frozenset({
     "GOOGLE_API_KEY",
     "GEMINI_API_KEY",
 })
 
 _DETECTION_CACHE_TTL_SECONDS: float = 600.0
-_AUTH_STATUS_TIMEOUT_SECONDS: float = 3.0   # was 20 s — gemini ping only needs a quick check →1738
+_AUTH_STATUS_TIMEOUT_SECONDS: float = 3.0
 _STREAM_TIMEOUT_SECONDS: float = 1800.0
 _WS_HEARTBEAT_INTERVAL_S: float = 10.0
 
 _detection_cache: dict[str, Any] = {"result": None, "expires_at": 0.0}
-# Single-flight lock: prevents N concurrent callers from each spawning their own
-# `gemini -p ping` subprocess when the cache is cold.  →1738
 _detection_lock: asyncio.Lock | None = None
+
+# Per-tab Gemini CLI session registry mapping tab_id -> session_id.
+_gemini_tab_sessions: dict[str, str] = {}
+
+_GEMINI_MODEL_REMAP: dict[str, str] = {
+    "gemini-3.1-pro": "gemini-3.1-pro-preview",
+    "gemini-3-flash": "gemini-3-flash-preview",
+    "gemini-3.5-flash": "flash",
+    "gemini-3.1-flash-lite": "flash-lite",
+}
+
+_VALID_GEMINI_CLI_MODELS: frozenset[str] = frozenset({
+    "auto",
+    "pro",
+    "flash",
+    "flash-lite",
+    "gemini-3.1-pro-preview",
+    "gemini-3-flash-preview",
+    "gemini-2.5-pro",
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+})
+
+_OAUTH_FALLBACK_MARKERS: tuple[str, ...] = (
+    "ineligibletiererror",
+    "ineligible tier",
+    "not authenticated",
+    "unauthenticated",
+    "authentication failed",
+    "auth failure",
+    "auth error",
+    "sign in",
+    "login required",
+    "invalid_grant",
+    "invalid credentials",
+    "unauthorized",
+)
+
+_SESSION_NOT_FOUND_MARKERS: tuple[str, ...] = (
+    "session not found",
+    "no session found",
+    "failed to resume session",
+    "could not find session",
+    "invalid session",
+    "unknown session",
+)
 
 
 def _get_detection_lock() -> asyncio.Lock:
@@ -46,23 +86,79 @@ def _get_detection_lock() -> asyncio.Lock:
         _detection_lock = asyncio.Lock()
     return _detection_lock
 
-def _gemini_install_dirs() -> list[Path]:
-    """Common locations where the gemini CLI (and node) may live but which a
-    non-interactive backend's PATH might not include.
 
-    The dev backend is launched by scripts/dev-backend.sh, not the user's
-    interactive shell (Warp/zsh), so its PATH is narrower. When `gemini` is
-    installed via npm global / Homebrew / ~/.local, shutil.which("gemini")
-    returns None here even though the user is signed in and can run it in their
-    terminal. (UAT item 4)
+def clear_detection_cache() -> None:
+    """Reset cached CLI availability detection state."""
+    _detection_cache["result"] = None
+    _detection_cache["expires_at"] = 0.0
+
+
+def get_gemini_session_id(tab_id: str) -> Optional[str]:
+    """Return the stored Gemini CLI session UUID for tab_id, if any."""
+    return _gemini_tab_sessions.get(tab_id)
+
+
+def clear_gemini_session(tab_id: str) -> None:
+    """Remove any stored Gemini CLI session UUID for tab_id."""
+    _gemini_tab_sessions.pop(tab_id, None)
+
+
+def get_adhoc_agentfile_path() -> Path:
+    """Return the path to the model-neutral fallback ad-hoc Agentfile."""
+    return _REPO_ROOT / "agents" / "adhoc-default.agent"
+
+
+def resolve_gemini_cli_model(model: Optional[str]) -> Optional[str]:
+    """Map an incoming model tag to a valid Gemini CLI 0.57.0 -m flag value.
+
+    Returns None when -m should be omitted so the CLI default applies.
+    """
+    if model is None:
+        return None
+    cleaned = str(model).strip().lstrip("@").strip().lower()
+    if cleaned in {"", "gemini", "gemini-cli", "gemini_cli", "default"}:
+        return None
+    if cleaned in _GEMINI_MODEL_REMAP:
+        return _GEMINI_MODEL_REMAP[cleaned]
+    if cleaned in _VALID_GEMINI_CLI_MODELS:
+        return cleaned
+    return None
+
+
+def _nvm_version_sort_key(bin_dir: Path) -> tuple[int, ...]:
+    ver_str = bin_dir.parent.name.lstrip("vV")
+    parts: list[int] = []
+    for seg in ver_str.split("."):
+        digits = "".join(ch for ch in seg if ch.isdigit())
+        parts.append(int(digits) if digits else 0)
+    return tuple(parts)
+
+
+def _gemini_install_dirs() -> list[Path]:
+    """Common locations where the gemini CLI (and node) may live when a
+    non-interactive backend's PATH is minimal (for example under launchd).
+
+    Discovers ~/.nvm/versions/node/*/bin sorted newest-first alongside
+    npm global, ~/.local/bin, and Homebrew paths.
     """
     import os
+
     home = Path.home()
     dirs: list[Path] = []
     override = os.environ.get("GEMINI_CLI_PATH")
     if override:
         p = Path(override)
         dirs.append(p.parent if p.suffix or p.name == "gemini" else p)
+
+    nvm_nodes = home / ".nvm" / "versions" / "node"
+    try:
+        if nvm_nodes.is_dir():
+            nvm_bins = [p for p in nvm_nodes.glob("*/bin") if p.is_dir()]
+            nvm_bins.sort(key=_nvm_version_sort_key, reverse=True)
+            dirs.extend(nvm_bins)
+    except Exception:
+        pass
+
     dirs += [
         home / ".npm-global" / "bin",
         home / ".local" / "bin",
@@ -74,17 +170,14 @@ def _gemini_install_dirs() -> list[Path]:
     return dirs
 
 
-def _build_subprocess_env() -> dict[str, str]:
+def _build_subprocess_env(api_key: Optional[str] = None) -> dict[str, str]:
     import os
+
     env = dict(os.environ)
-    # If we want to force CLI-only auth, we'd strip keys here.
-    # For now let's keep it clean but allow the keys if they help the CLI.
-    # The spec says "spawns the CLI ... strips ... if we leave those env vars
-    # in place the local program silently falls back to API key billing".
     for k in BLOCKED_AUTH_ENV_KEYS:
         env.pop(k, None)
-    # UAT item 4: prepend the common install dirs so the gemini shebang can find
-    # `node` when it runs, even when the backend's own PATH is missing them.
+    if api_key:
+        env["GEMINI_API_KEY"] = api_key
     extra = [str(d) for d in _gemini_install_dirs() if d.is_dir()]
     if extra:
         env["PATH"] = os.pathsep.join(extra + [env.get("PATH", "")])
@@ -92,24 +185,47 @@ def _build_subprocess_env() -> dict[str, str]:
 
 
 def _gemini_signed_in() -> bool:
-    """True when the gemini CLI has stored OAuth credentials on disk.
-
-    Secondary signal so a slow/timed-out ping does not report a signed-in user
-    as logged out (UAT item 4).
-    """
+    """True when ~/.gemini/oauth_creds.json exists as a non-empty valid JSON object."""
     try:
-        return (Path.home() / ".gemini" / "oauth_creds.json").is_file()
+        creds_path = Path.home() / ".gemini" / "oauth_creds.json"
+        if not creds_path.is_file():
+            return False
+        raw = creds_path.read_text(encoding="utf-8").strip()
+        if not raw:
+            return False
+        parsed = json.loads(raw)
+        return isinstance(parsed, dict)
     except Exception:
         return False
 
 
+def _resolve_gemini_api_key() -> str:
+    """Return a configured Gemini API key from env or settings_store, or empty string."""
+    import os
+
+    for env_key in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "gemini_api_key"):
+        val = os.environ.get(env_key, "").strip()
+        if val:
+            return val
+    try:
+        from services.settings_store import settings_store
+
+        val = str(settings_store.get("gemini_api_key", "") or "").strip()
+        if val:
+            return val
+    except Exception:
+        pass
+    return ""
+
+
 def _find_gemini_binary() -> Optional[str]:
     import os
+
     # 1. Standard PATH lookup (works when the backend inherited a full PATH).
     found = shutil.which("gemini")
     if found:
         return found
-    # 2. UAT item 4: fall back to common install dirs the backend's PATH may miss.
+    # 2. Fall back to common install dirs (including NVM) that launchd PATH may miss.
     for d in _gemini_install_dirs():
         cand = d / "gemini"
         try:
@@ -119,15 +235,14 @@ def _find_gemini_binary() -> Optional[str]:
             continue
     return None
 
+
 async def is_gemini_cli_available(force: bool = False) -> bool:
+    """Fast, zero-ping local check for Gemini CLI binary and credentials."""
     now = time.monotonic()
     if not force and _detection_cache["result"] is not None and now < _detection_cache["expires_at"]:
         return bool(_detection_cache["result"])
 
-    # Single-flight: only one subprocess runs at a time; concurrent callers wait
-    # for the lock and then return the freshly cached value.  →1738
     async with _get_detection_lock():
-        # Re-check after acquiring the lock — a previous waiter may have populated cache.
         now = time.monotonic()
         if not force and _detection_cache["result"] is not None and now < _detection_cache["expires_at"]:
             return bool(_detection_cache["result"])
@@ -137,58 +252,14 @@ async def is_gemini_cli_available(force: bool = False) -> bool:
             if not gemini_path:
                 result = False
             else:
-                # Check auth status. gemini-cli v0.42.0 shows "Plan: ..." in help or start.
-                # There isn't a direct "auth status" command that returns JSON yet,
-                # so we'll check if we can run a simple prompt.
-                # Run the probe in a worker thread so the fork+exec of the heavy
-                # gemini CLI happens OFF the event-loop thread. Forking on the
-                # loop stalled TLS handshakes and wedged the backend during
-                # startup and on every cache-miss settings poll (->1806).
-                import subprocess
-
-                def _probe() -> tuple[int, str]:
-                    try:
-                        r = subprocess.run(
-                            [gemini_path, "-p", "ping", "--output-format", "text"],
-                            capture_output=True,
-                            timeout=_AUTH_STATUS_TIMEOUT_SECONDS,
-                            env=_build_subprocess_env(),
-                        )
-                        return r.returncode, r.stderr.decode("utf-8", errors="replace").lower()
-                    except subprocess.TimeoutExpired:
-                        return -1, "__timeout__"
-                    except Exception:
-                        return -2, "__error__"
-
-                rc, err_text = await asyncio.to_thread(_probe)
-                if err_text == "__timeout__":
-                    # UAT item 4: a slow ping must not report a signed-in user as
-                    # logged out. If the CLI's OAuth creds are on disk, trust them.
-                    if _gemini_signed_in():
-                        _gemini_log.info(
-                            "Gemini CLI ping timed out but OAuth creds present; treating as available."
-                        )
-                        result = True
-                    else:
-                        _gemini_log.warning("Gemini CLI availability check timed out.")
-                        result = False
-                elif rc < 0:
-                    result = False
-                else:
-                    result = rc == 0
-                    if "sign in" in err_text or "not authenticated" in err_text:
-                        _gemini_log.info("Gemini CLI found but not authenticated.")
-                        result = False
-                    elif result:
-                        _gemini_log.info("Gemini CLI is available and authenticated.")
-                    else:
-                        _gemini_log.warning(f"Gemini CLI ping failed with exit code {rc}: {err_text}")
+                result = bool(_gemini_signed_in() or _resolve_gemini_api_key())
         except Exception:
             result = False
 
         _detection_cache["result"] = result
         _detection_cache["expires_at"] = time.monotonic() + _DETECTION_CACHE_TTL_SECONDS
         return result
+
 
 # ---------------------------------------------------------------------------
 # RuntimeProvider implementation (→1891, →1892, →2145)
@@ -284,6 +355,50 @@ class GeminiCliRuntimeProvider(_BaseRuntimeProvider):
 
 # ---------------------------------------------------------------------------
 
+
+def _message_content_to_text(content: Any) -> str:
+    if isinstance(content, list):
+        parts: list[str] = []
+        for blk in content:
+            if isinstance(blk, dict) and blk.get("type") == "text":
+                parts.append(str(blk.get("text", "")))
+        return "\n".join(p for p in parts if p)
+    return str(content or "")
+
+
+def _extract_last_user_content(messages: list[dict]) -> str:
+    for msg in reversed(messages):
+        if msg.get("role") == "user":
+            return _message_content_to_text(msg.get("content", ""))
+    if messages:
+        return _message_content_to_text(messages[-1].get("content", ""))
+    return ""
+
+
+def _flatten_messages(messages: list[dict], system_prompt: Optional[str]) -> str:
+    prompt_lines: list[str] = []
+    if system_prompt:
+        prompt_lines.append(f"System: {system_prompt}")
+
+    for m in messages:
+        role = m.get("role", "user")
+        content = _message_content_to_text(m.get("content", ""))
+        prompt_lines.append(f"{role.capitalize()}: {content}")
+
+    prompt_lines.append("Assistant:")
+    return "\n\n".join(prompt_lines)
+
+
+def _is_oauth_auth_or_tier_failure(text: str) -> bool:
+    lowered = text.lower()
+    return any(marker in lowered for marker in _OAUTH_FALLBACK_MARKERS)
+
+
+def _is_session_not_found_failure(text: str) -> bool:
+    lowered = text.lower()
+    return any(marker in lowered for marker in _SESSION_NOT_FOUND_MARKERS)
+
+
 async def stream_chat(
     messages: list[dict],
     websocket: WebSocket,
@@ -295,82 +410,302 @@ async def stream_chat(
         await websocket.send_json({"type": "error", "data": "Gemini CLI not found."})
         return ""
 
-    # Flatten messages
-    prompt_lines = []
-    if system_prompt:
-        prompt_lines.append(f"System: {system_prompt}")
-    
-    for m in messages:
-        role = m.get("role", "user")
-        content = m.get("content", "")
-        prompt_lines.append(f"{role.capitalize()}: {content}")
-    
-    prompt_lines.append("Assistant:")
-    prompt = "\n\n".join(prompt_lines)
+    tab_id: Optional[str] = kwargs.get("tab_id")
+    resolved_model: Optional[str] = resolve_gemini_cli_model(kwargs.get("model"))
 
-    args = [
-        gemini_path,
-        "-p", prompt,
-        "--output-format", "stream-json",
-        "--skip-trust",
-        "--approval-mode", "yolo",  # allow file reads without interactive approval (->0.45.1)
-    ]
+    stored_sid = get_gemini_session_id(tab_id) if tab_id else None
+    is_resume = bool(tab_id and stored_sid and len(messages) > 1)
+    active_sid: Optional[str] = None
 
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            *args,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=_build_subprocess_env(),
-            cwd=str(_REPO_ROOT),
-            limit=32 * 1024 * 1024,
-        )
-    except Exception as e:
-        await websocket.send_json({"type": "error", "data": f"Failed to start Gemini CLI: {e}"})
-        return ""
+    if is_resume and stored_sid:
+        active_sid = stored_sid
+        session_args = ["--resume", stored_sid]
+        prompt = _extract_last_user_content(messages)
+    elif tab_id:
+        active_sid = str(uuid.uuid4())
+        session_args = ["--session-id", active_sid]
+        if len(messages) == 1 and not system_prompt:
+            prompt = _extract_last_user_content(messages)
+        else:
+            prompt = _flatten_messages(messages, system_prompt)
+    else:
+        session_args = []
+        prompt = _flatten_messages(messages, system_prompt)
 
-    full_text = ""
-    error_sent = False
+    async def _run_attempt(
+        attempt_prompt: str,
+        attempt_session_args: list[str],
+        api_key: Optional[str] = None,
+    ) -> dict[str, Any]:
+        t_start = time.perf_counter()
+        args: list[str] = [
+            gemini_path,
+            "-p",
+            attempt_prompt,
+            "--output-format",
+            "stream-json",
+            "--skip-trust",
+            "--approval-mode",
+            "yolo",
+        ]
+        if resolved_model is not None:
+            args.extend(["-m", resolved_model])
+        if attempt_session_args:
+            args.extend(attempt_session_args)
 
-    async def _read_stdout():
-        nonlocal full_text, error_sent
-        assert proc.stdout is not None
-        while True:
-            line = await proc.stdout.readline()
-            if not line:
-                break
-            try:
-                event = json.loads(line.decode("utf-8", errors="replace"))
-                # format: {"type": "token", "data": "..."}
-                if event.get("type") == "token":
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=_build_subprocess_env(api_key=api_key),
+                cwd=str(_REPO_ROOT),
+                limit=32 * 1024 * 1024,
+            )
+        except Exception as exc:
+            return {
+                "start_error": f"Failed to start Gemini CLI: {exc}",
+                "full_text": "",
+                "timed_out": False,
+                "pending_error": None,
+                "error_type": "",
+                "stderr_text": "",
+                "returncode": -1,
+                "usage": {"input_tokens": 0, "output_tokens": 0},
+                "init_session_id": None,
+                "init_model": None,
+                "spawn_ms": None,
+                "init_ms": None,
+                "first_token_ms": None,
+                "t_start": t_start,
+            }
+
+        spawn_ms = (time.perf_counter() - t_start) * 1000.0
+        full_text = ""
+        timed_out = False
+        pending_error: Optional[str] = None
+        error_type = ""
+        usage = {"input_tokens": 0, "output_tokens": 0}
+        init_session_id: Optional[str] = None
+        init_model: Optional[str] = None
+        init_ms: Optional[float] = None
+        first_token_ms: Optional[float] = None
+
+        async def _read_stdout() -> None:
+            nonlocal full_text, pending_error, error_type, usage
+            nonlocal init_session_id, init_model, init_ms, first_token_ms
+            assert proc.stdout is not None
+            while True:
+                line = await proc.stdout.readline()
+                if not line:
+                    break
+                try:
+                    event = json.loads(line.decode("utf-8", errors="replace"))
+                except Exception:
+                    continue
+                if not isinstance(event, dict):
+                    continue
+
+                etype = event.get("type")
+                if etype == "init":
+                    if init_ms is None:
+                        init_ms = (time.perf_counter() - t_start) * 1000.0
+                    sid_val = event.get("session_id")
+                    if isinstance(sid_val, str) and sid_val.strip():
+                        init_session_id = sid_val.strip()
+                    mod_val = event.get("model")
+                    if isinstance(mod_val, str) and mod_val.strip():
+                        init_model = mod_val.strip()
+                elif etype == "message":
+                    role = event.get("role")
+                    if role == "user":
+                        # Ignore echoed user messages in 0.57.0 StreamJsonFormatter.
+                        continue
+                    if role == "assistant" or role is None:
+                        chunk = event.get("content", "")
+                        if chunk:
+                            if first_token_ms is None:
+                                first_token_ms = (time.perf_counter() - t_start) * 1000.0
+                            full_text += chunk
+                            await websocket.send_json({"type": "token", "data": chunk})
+                elif etype == "token":
+                    # Legacy stream format compatibility.
                     token = event.get("data", "")
+                    if token and first_token_ms is None:
+                        first_token_ms = (time.perf_counter() - t_start) * 1000.0
                     full_text += token
                     await websocket.send_json({"type": "token", "data": token})
-                elif event.get("type") == "error":
-                    error_sent = True
-                    await websocket.send_json({"type": "error", "data": event.get("data")})
-            except:
-                continue
+                elif etype == "tool_use":
+                    await websocket.send_json({
+                        "type": "tool_use",
+                        "tool": event.get("tool_name"),
+                        "tool_id": event.get("tool_id"),
+                        "input": event.get("parameters", {}),
+                    })
+                elif etype == "tool_result":
+                    await websocket.send_json({
+                        "type": "tool_result",
+                        "tool_id": event.get("tool_id"),
+                        "status": event.get("status"),
+                    })
+                elif etype == "result":
+                    stats = event.get("stats")
+                    if isinstance(stats, dict):
+                        usage = {
+                            "input_tokens": int(stats.get("input_tokens", 0) or 0),
+                            "output_tokens": int(stats.get("output_tokens", 0) or 0),
+                        }
+                    if event.get("status") == "error":
+                        err_obj = event.get("error")
+                        if isinstance(err_obj, dict):
+                            error_type = str(err_obj.get("type") or "")
+                            if pending_error is None:
+                                pending_error = str(
+                                    err_obj.get("message")
+                                    or err_obj.get("type")
+                                    or "Gemini CLI error"
+                                )
+                        elif err_obj and pending_error is None:
+                            pending_error = str(err_obj)
+                elif etype == "error":
+                    msg = event.get("message") or event.get("data") or "Gemini CLI error"
+                    pending_error = str(msg)
 
-    try:
-        await asyncio.wait_for(_read_stdout(), timeout=_STREAM_TIMEOUT_SECONDS)
-    except asyncio.TimeoutError:
-        try: proc.kill()
-        except: pass
-        error_sent = True
+        try:
+            await asyncio.wait_for(_read_stdout(), timeout=_STREAM_TIMEOUT_SECONDS)
+        except asyncio.TimeoutError:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+            timed_out = True
+
+        rc = await proc.wait()
+        stderr_text = ""
+        if proc.stderr is not None:
+            try:
+                stderr_bytes = await proc.stderr.read()
+                if stderr_bytes:
+                    stderr_text = stderr_bytes.decode("utf-8", errors="replace").strip()
+            except Exception:
+                stderr_text = ""
+
+        return {
+            "start_error": None,
+            "full_text": full_text,
+            "timed_out": timed_out,
+            "pending_error": pending_error,
+            "error_type": error_type,
+            "stderr_text": stderr_text,
+            "returncode": rc,
+            "usage": usage,
+            "init_session_id": init_session_id,
+            "init_model": init_model,
+            "spawn_ms": spawn_ms,
+            "init_ms": init_ms,
+            "first_token_ms": first_token_ms,
+            "t_start": t_start,
+        }
+
+    outcome = await _run_attempt(prompt, session_args, api_key=None)
+    if outcome["start_error"]:
+        await websocket.send_json({"type": "error", "data": outcome["start_error"]})
+        return ""
+
+    # Fallback 1: If --resume failed because the session was not found, clear the
+    # stale tab session and run a clean new --session-id turn with full context.
+    if (
+        is_resume
+        and tab_id
+        and not outcome["timed_out"]
+        and not outcome["full_text"].strip()
+    ):
+        combined_resume_err = " ".join(
+            part for part in (outcome["pending_error"] or "", outcome["stderr_text"]) if part
+        )
+        if _is_session_not_found_failure(combined_resume_err):
+            _gemini_log.info(
+                "Gemini CLI session %s not found for tab %s; starting fresh session.",
+                stored_sid,
+                tab_id,
+            )
+            clear_gemini_session(tab_id)
+            is_resume = False
+            active_sid = str(uuid.uuid4())
+            session_args = ["--session-id", active_sid]
+            prompt = _flatten_messages(messages, system_prompt)
+            outcome = await _run_attempt(prompt, session_args, api_key=None)
+            if outcome["start_error"]:
+                await websocket.send_json({"type": "error", "data": outcome["start_error"]})
+                return ""
+
+    # Fallback 2: If OAuth exited non-zero with empty output due to IneligibleTierError
+    # or auth failure and a Gemini API key is configured, retry once with GEMINI_API_KEY.
+    if (
+        not outcome["timed_out"]
+        and outcome["returncode"] not in (0, None)
+        and not outcome["full_text"].strip()
+    ):
+        combined_auth_err = " ".join(
+            part
+            for part in (
+                outcome["error_type"],
+                outcome["pending_error"] or "",
+                outcome["stderr_text"],
+            )
+            if part
+        )
+        fallback_api_key = _resolve_gemini_api_key()
+        if fallback_api_key and _is_oauth_auth_or_tier_failure(combined_auth_err):
+            _gemini_log.info(
+                "Gemini CLI OAuth failed; retrying once with GEMINI_API_KEY."
+            )
+            outcome = await _run_attempt(prompt, session_args, api_key=fallback_api_key)
+            if outcome["start_error"]:
+                await websocket.send_json({"type": "error", "data": outcome["start_error"]})
+                return ""
+
+    full_text: str = outcome["full_text"]
+
+    if outcome["timed_out"]:
         await websocket.send_json({"type": "error", "data": "Gemini CLI timed out."})
+        return full_text
 
-    await proc.wait()
-
-    if error_sent:
-        # An error was already sent; return what we have (likely empty)
-        # and let the caller decide if it wants to fall back.
+    if outcome["pending_error"] is not None:
+        await websocket.send_json({"type": "error", "data": outcome["pending_error"]})
         return full_text
 
     if not full_text.strip():
-        # CLI exited 0 but produced no tokens — likely a version mismatch
-        # or auth error hidden by the CLI's internal handling.
+        rc = outcome["returncode"]
+        stderr_snippet = outcome["stderr_text"][:300]
+        if rc not in (0, None) and stderr_snippet:
+            raise RuntimeError(f"Gemini CLI returned no tokens (exit {rc}): {stderr_snippet}")
         raise RuntimeError("Gemini CLI returned no tokens")
 
-    await websocket.send_json({"type": "done", "usage": {"input_tokens": 0, "output_tokens": 0}})
+    if tab_id:
+        final_sid = outcome["init_session_id"] or active_sid
+        if final_sid:
+            _gemini_tab_sessions[tab_id] = final_sid
+
+    await websocket.send_json({"type": "done", "usage": outcome["usage"]})
+
+    try:
+        from services.chat_latency import TurnLatencySample, record_turn_latency
+
+        total_ms = (time.perf_counter() - outcome["t_start"]) * 1000.0
+        record_turn_latency(
+            TurnLatencySample(
+                provider="gemini_cli",
+                model=resolved_model or outcome["init_model"] or "default",
+                tab_id=tab_id,
+                warm_session=bool(is_resume),
+                spawn_ms=outcome["spawn_ms"],
+                init_ms=outcome["init_ms"],
+                first_token_ms=outcome["first_token_ms"],
+                total_ms=total_ms,
+            )
+        )
+    except Exception:
+        pass
+
     return full_text
