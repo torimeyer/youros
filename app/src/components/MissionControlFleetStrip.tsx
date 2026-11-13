@@ -63,6 +63,61 @@ interface TrustStatusResponse {
   }
 }
 
+interface DogfoodDailyBucket {
+  date: string
+  tracked_spawns: number
+  untracked_terminal_sessions: number
+  handoffs_count: number
+  verified_merges: number
+  supervised_ratio: number
+}
+
+interface DogfoodRepoTelemetry {
+  name: string
+  path: string
+  tracked_spawns: number
+  handoffs_count: number
+  verified_merges: number
+  untracked_terminal_sessions: number
+  supervised_ratio: number
+  by_runtime?: Record<string, number>
+}
+
+interface DogfoodTelemetryResponse {
+  window_days: number
+  freeze_target_days?: number
+  computed_at?: string
+  tracked_spawns: number
+  handoffs_count: number
+  verified_merges: number
+  untracked_terminal_sessions: number
+  supervised_ratio: number
+  by_runtime?: {
+    claude?: number
+    gemini?: number
+    [key: string]: number | undefined
+  }
+  by_repo?: Record<string, DogfoodRepoTelemetry>
+  daily?: DogfoodDailyBucket[]
+}
+
+function isValidDogfoodTelemetry(value: unknown): value is DogfoodTelemetryResponse {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as Partial<DogfoodTelemetryResponse>
+  return (
+    typeof candidate.supervised_ratio === 'number' &&
+    Number.isFinite(candidate.supervised_ratio) &&
+    typeof candidate.tracked_spawns === 'number' &&
+    Number.isFinite(candidate.tracked_spawns) &&
+    typeof candidate.handoffs_count === 'number' &&
+    Number.isFinite(candidate.handoffs_count) &&
+    typeof candidate.verified_merges === 'number' &&
+    Number.isFinite(candidate.verified_merges) &&
+    typeof candidate.untracked_terminal_sessions === 'number' &&
+    Number.isFinite(candidate.untracked_terminal_sessions)
+  )
+}
+
 interface NormalizedSeat {
   key: string
   nudgeName: string
@@ -223,15 +278,20 @@ function computeConflicts(
 export default function MissionControlFleetStrip() {
   const [sessionsPayload, setSessionsPayload] = useState<SessionsResponse | RawSeat[] | null>(null)
   const [trustStatus, setTrustStatus] = useState<TrustStatusResponse | null>(null)
+  const [dogfoodTelemetry, setDogfoodTelemetry] = useState<DogfoodTelemetryResponse | null>(null)
+  const [dogfoodOpen, setDogfoodOpen] = useState(false)
   const [digestData, setDigestData] = useState<DigestData | null>(null)
   const [digestOpen, setDigestOpen] = useState(false)
   const [lockedPaths, setLockedPaths] = useState<Record<string, boolean>>({})
   const [nudgedSeats, setNudgedSeats] = useState<Record<string, boolean>>({})
 
   const loadFleet = useCallback(async () => {
-    const [primarySessions, keyStatus] = await Promise.all([
+    const [primarySessions, keyStatus, dogfood] = await Promise.all([
       Promise.resolve(api.get<SessionsResponse | RawSeat[]>('/sessions')).catch(() => null),
       Promise.resolve(api.get<TrustStatusResponse>('/secrets/key-status')).catch(() => null),
+      Promise.resolve(
+        api.get<DogfoodTelemetryResponse>('/dashboard/dogfood-telemetry?days=14'),
+      ).catch(() => null),
     ])
 
     let resolvedSessions = primarySessions
@@ -249,6 +309,9 @@ export default function MissionControlFleetStrip() {
     }
     if (keyStatus !== null) {
       setTrustStatus(keyStatus)
+    }
+    if (isValidDogfoodTelemetry(dogfood)) {
+      setDogfoodTelemetry(dogfood)
     }
   }, [])
 
@@ -333,6 +396,18 @@ export default function MissionControlFleetStrip() {
     setNudgedSeats((prev) => ({ ...prev, [`${conflict.path}:${targetSeat}`]: true }))
   }
 
+  const dogfoodWindowDays =
+    typeof dogfoodTelemetry?.window_days === 'number' && dogfoodTelemetry.window_days > 0
+      ? dogfoodTelemetry.window_days
+      : 14
+  const supervisedPct = dogfoodTelemetry
+    ? Math.round(dogfoodTelemetry.supervised_ratio * 100)
+    : 0
+  const dogfoodRepos = useMemo(() => {
+    if (!dogfoodTelemetry?.by_repo || typeof dogfoodTelemetry.by_repo !== 'object') return []
+    return Object.entries(dogfoodTelemetry.by_repo)
+  }, [dogfoodTelemetry])
+
   return (
     <section
       data-testid="mission-control-strip"
@@ -366,6 +441,36 @@ export default function MissionControlFleetStrip() {
             <Icon name={trustInvalid ? 'warning' : 'verified_user'} size={13} />
             {trustInvalid ? 'HUMANFILE signature needs ostk trust sign' : 'ostk verified'}
           </span>
+          {dogfoodTelemetry && (
+            <button
+              type="button"
+              data-testid="mission-control-dogfood-pill"
+              aria-expanded={dogfoodOpen}
+              onClick={() => setDogfoodOpen((prev) => !prev)}
+              title={`${dogfoodWindowDays}d Fleet Supervision: tracked fleet spawns vs untracked raw terminal sessions`}
+              className="inline-flex flex-wrap items-center gap-1.5 rounded-full border border-blue-500/30 bg-blue-500/10 px-2.5 py-0.5 text-xs font-medium text-blue-700 dark:text-blue-300 hover:bg-blue-500/20 transition-colors"
+            >
+              <Icon name="monitoring" size={13} />
+              <span className="font-semibold">{dogfoodWindowDays}d Fleet Supervision:</span>
+              <span>{supervisedPct}% supervised</span>
+              <span aria-hidden="true" className="opacity-50">
+                ·
+              </span>
+              <span>{dogfoodTelemetry.tracked_spawns} spawned</span>
+              <span aria-hidden="true" className="opacity-50">
+                ·
+              </span>
+              <span>{dogfoodTelemetry.handoffs_count} handoffs</span>
+              <span aria-hidden="true" className="opacity-50">
+                ·
+              </span>
+              <span>{dogfoodTelemetry.verified_merges} merges</span>
+              <span aria-hidden="true" className="opacity-50">
+                ·
+              </span>
+              <span>{dogfoodTelemetry.untracked_terminal_sessions} raw terminal sessions</span>
+            </button>
+          )}
         </div>
 
         <button
@@ -379,6 +484,44 @@ export default function MissionControlFleetStrip() {
           Today across sessions
         </button>
       </div>
+
+      {dogfoodTelemetry && dogfoodOpen && (
+        <div
+          data-testid="mission-control-dogfood-drawer"
+          className="mt-3 rounded-lg border border-blue-500/25 bg-blue-500/5 px-3.5 py-2.5 text-xs"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2 text-slate-700 dark:text-slate-300">
+            <span className="font-semibold">
+              {dogfoodWindowDays}-day fleet vs raw terminal breakdown
+            </span>
+            <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-600 dark:text-slate-400">
+              <span>Claude: {dogfoodTelemetry.by_runtime?.claude ?? 0}</span>
+              <span aria-hidden="true">·</span>
+              <span>Gemini: {dogfoodTelemetry.by_runtime?.gemini ?? 0}</span>
+            </div>
+          </div>
+          {dogfoodRepos.length > 0 && (
+            <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {dogfoodRepos.map(([repoKey, repoStats]) => (
+                <div
+                  key={repoKey}
+                  className="flex flex-wrap items-center justify-between gap-1.5 rounded border border-slate-200/80 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 px-2.5 py-1.5"
+                >
+                  <span className="font-mono font-medium text-slate-800 dark:text-slate-200">
+                    {repoStats.name || repoKey}
+                  </span>
+                  <span className="text-[11px] text-slate-600 dark:text-slate-400">
+                    {Math.round((repoStats.supervised_ratio ?? 0) * 100)}% supervised ·{' '}
+                    {repoStats.tracked_spawns ?? 0} spawned · {repoStats.handoffs_count ?? 0}{' '}
+                    handoffs · {repoStats.verified_merges ?? 0} merges ·{' '}
+                    {repoStats.untracked_terminal_sessions ?? 0} raw
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {conflicts.length > 0 && (
         <div

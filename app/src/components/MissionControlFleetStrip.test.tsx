@@ -224,5 +224,107 @@ describe('MissionControlFleetStrip (→3094)', () => {
     renderStrip()
 
     expect(screen.getByTestId('mission-control-strip')).toBeInTheDocument()
+    expect(screen.queryByTestId('mission-control-dogfood-pill')).toBeNull()
+  })
+
+  it('renders 14d Fleet Supervision pill and breakdown drawer when /dashboard/dogfood-telemetry?days=14 returns telemetry (→3097)', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/sessions') {
+        return Promise.resolve({ sessions: [] })
+      }
+      if (path === '/secrets/key-status') {
+        return Promise.resolve({ ostk_available: true, humanfile_valid: true })
+      }
+      if (path === '/dashboard/dogfood-telemetry?days=14') {
+        return Promise.resolve({
+          window_days: 14,
+          freeze_target_days: 14,
+          computed_at: '2026-11-13T20:00:00+00:00',
+          tracked_spawns: 13,
+          handoffs_count: 4,
+          verified_merges: 9,
+          untracked_terminal_sessions: 3,
+          supervised_ratio: 0.812,
+          by_runtime: { claude: 8, gemini: 5 },
+          by_repo: {
+            torios: {
+              name: 'torios',
+              path: '/Users/torimeyer/claude/torios',
+              tracked_spawns: 10,
+              handoffs_count: 3,
+              verified_merges: 7,
+              untracked_terminal_sessions: 2,
+              supervised_ratio: 0.833,
+              by_runtime: { claude: 6, gemini: 4 },
+            },
+            'youros-core': {
+              name: 'youros-core',
+              path: '/Users/torimeyer/work/youros-core',
+              tracked_spawns: 3,
+              handoffs_count: 1,
+              verified_merges: 2,
+              untracked_terminal_sessions: 1,
+              supervised_ratio: 0.75,
+              by_runtime: { claude: 2, gemini: 1 },
+            },
+          },
+          daily: [
+            {
+              date: '2026-11-13',
+              tracked_spawns: 13,
+              untracked_terminal_sessions: 3,
+              handoffs_count: 4,
+              verified_merges: 9,
+              supervised_ratio: 0.812,
+            },
+          ],
+        })
+      }
+      return Promise.resolve(null)
+    })
+
+    renderStrip()
+
+    const pill = await screen.findByTestId('mission-control-dogfood-pill')
+    expect(mockedApiGet).toHaveBeenCalledWith('/dashboard/dogfood-telemetry?days=14')
+    expect(pill).toHaveTextContent('81% supervised')
+    expect(pill).toHaveTextContent('13 spawned')
+    expect(pill).toHaveTextContent('4 handoffs')
+    expect(pill).toHaveTextContent('9 merges')
+    expect(pill).toHaveTextContent('3 raw terminal sessions')
+
+    expect(screen.queryByTestId('mission-control-dogfood-drawer')).toBeNull()
+    fireEvent.click(pill)
+
+    const drawer = await screen.findByTestId('mission-control-dogfood-drawer')
+    expect(drawer).toHaveTextContent('Claude: 8')
+    expect(drawer).toHaveTextContent('Gemini: 5')
+    expect(drawer).toHaveTextContent('torios')
+    expect(drawer).toHaveTextContent('youros-core')
+
+    fireEvent.click(pill)
+    expect(screen.queryByTestId('mission-control-dogfood-drawer')).toBeNull()
+  })
+
+  it('omits mission-control-dogfood-pill cleanly without error when /dashboard/dogfood-telemetry?days=14 rejects (→3097)', async () => {
+    mockedApiGet.mockImplementation((path: string) => {
+      if (path === '/sessions') {
+        return Promise.resolve({ sessions: [] })
+      }
+      if (path === '/secrets/key-status') {
+        return Promise.resolve({ ostk_available: true, humanfile_valid: true })
+      }
+      if (path === '/dashboard/dogfood-telemetry?days=14') {
+        return Promise.reject(new Error('telemetry endpoint unavailable'))
+      }
+      return Promise.resolve(null)
+    })
+
+    renderStrip()
+
+    const trustPill = await screen.findByTestId('mission-control-trust-pill')
+    expect(trustPill).toHaveTextContent('ostk verified')
+    expect(mockedApiGet).toHaveBeenCalledWith('/dashboard/dogfood-telemetry?days=14')
+    expect(screen.queryByTestId('mission-control-dogfood-pill')).toBeNull()
   })
 })
