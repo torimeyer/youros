@@ -67,6 +67,11 @@ docs/superpowers/
 tori.zsh
 HUMANFILE
 
+# Personal projects live inside torios but are NEVER committed or pushed.
+# Holds real bank statements, tax forms, and Plaid tokens. Every project under
+# projects/ is git-ignored from the moment it is created (2026-07-21).
+projects/
+
 # Plans are local-only, never committed (standing rule 2026-07-06)
 docs/uat/
 docs/fix/*-plan.md

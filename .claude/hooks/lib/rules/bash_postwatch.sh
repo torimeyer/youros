@@ -90,8 +90,8 @@ PY
 RECOVERY NAG: You have been blocked $COUNT times in a row by the ostk-first hook.
 Stop retrying native Bash/Read/Edit/Write/Grep/Glob. Those tools are blocked while uvicorn is up.
 Do this RIGHT NOW:
-  1. Call ToolSearch('select:mcp__ostk__shell,mcp__ostk__fs_read,mcp__ostk__fs_write,mcp__ostk__edit,mcp__ostk__search')
-  2. Retry your operation via mcp__ostk__* (shell for commands, fs_read/fs_write for files, edit for patches, search for grep/glob).
+  1. Call ToolSearch('select:mcp__ostk__bash,mcp__ostk__read,mcp__ostk__fs_ops,mcp__ostk__search,mcp__ostk__spawn,mcp__ostk__interact')
+  2. Retry your operation via mcp__ostk__* (bash for commands, read for file reads, fs_ops for file edits/writes, search for grep/glob).
   3. Only fall back to native tools if pgrep shows uvicorn on :8000 is truly offline.
 NAG
               NAGGED=1
