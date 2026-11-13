@@ -10,6 +10,29 @@ export interface ReleaseGroup {
 }
 
 const releaseNotes: ReleaseGroup[] = [
+  // v5.18.1
+  {
+    date: '2026-11-13',
+    label: 'November 13, 2026',
+    entries: [
+      {
+        title: 'Lighter session startup and tool loading',
+        description: 'Sessions load only the six core workspace tools instead of every tool definition at once, keeping memory headroom open for longer tasks.',
+      },
+      {
+        title: 'Cleaner background session shutdown',
+        description: 'Background keepalive timers stop immediately when an agent finishes, and focus reminders stay advisory without blocking work.',
+      },
+      {
+        title: 'Accurate local due dates on issue cards',
+        description: 'Due dates on dashboard issue cards now count exact local calendar days without shifting backward in western time zones or across daylight saving transitions.',
+      },
+      {
+        title: 'Private local projects folder',
+        description: 'Work placed inside the local projects folder stays strictly on your computer and out of version control.',
+      },
+    ],
+  },
   // v5.18.0
   {
     date: '2026-07-20',
