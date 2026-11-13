@@ -9761,6 +9761,11 @@ async def heartbeat_agent(name: str, body: Optional[AgentHeartbeat] = None):
                 ),
             )
     now_iso = _now_iso()
+    if current_status == "stalled":
+        meta.pop("stalled_at", None)
+        if str(meta.get("last_error", "")).startswith("stalled:"):
+            meta.pop("last_error", None)
+        _set_agent_status(name, "running")
     meta["last_heartbeat_at"] = now_iso
     if body and body.step:
         meta["current_step"] = body.step
@@ -12027,7 +12032,7 @@ async def agent_transcript_tail_v2(name: str, lines: int = 20):
     }
 
 
-_WS_ACTIVE_STATUSES = frozenset({"running", "spawned", "starting"})
+_WS_ACTIVE_STATUSES = frozenset({"running", "spawned", "starting", "stalled"})
 
 
 def _compute_running_snapshot() -> dict:

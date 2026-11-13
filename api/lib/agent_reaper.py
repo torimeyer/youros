@@ -250,11 +250,16 @@ def detect_stalled_agents(
             _stall_snapshots[name] = (t_bytes, now.isoformat(), prev_wt_hash)
             continue
 
-        # Check current_step_updated_at as a secondary progress signal.
+        # Check current_step_updated_at or last_heartbeat_at as secondary progress signals.
         step_ts = _parse_iso(meta.get("current_step_updated_at"))
+        hb_ts = _parse_iso(meta.get("last_heartbeat_at"))
+        latest_ping_ts = max(
+            (ts for ts in (step_ts, hb_ts) if ts is not None),
+            default=None,
+        )
         stored_ts = _parse_iso(last_progress_iso)
-        if step_ts is not None and stored_ts is not None and step_ts > stored_ts:
-            _stall_snapshots[name] = (t_bytes, step_ts.isoformat(), prev_wt_hash)
+        if latest_ping_ts is not None and stored_ts is not None and latest_ping_ts > stored_ts:
+            _stall_snapshots[name] = (t_bytes, latest_ping_ts.isoformat(), prev_wt_hash)
             continue
 
         # Worktree commit check (tertiary progress signal for worktree agents).

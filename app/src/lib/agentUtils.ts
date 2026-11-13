@@ -116,7 +116,10 @@ export function computeAgentGhostState(
   agent: Pick<AgentInfo, "status" | "pid" | "last_heartbeat_at">,
   now: number,
 ): "ghost" | "alive" | null {
-  const active = agent.status === "running" || agent.status === "spawned";
+  const active =
+    agent.status === "running" ||
+    agent.status === "spawned" ||
+    agent.status === "stalled";
   if (!active && agent.status !== "abandoned") return null;
   if (agent.status === "abandoned") return "ghost";
   // No PID means HTTP-registered (no subprocess). A fresh heartbeat proves
@@ -218,7 +221,10 @@ export function isAgentActive(
   if (status === "running" || status === "spawned" || status === "starting") {
     return true;
   }
-  if (status === "terminated_stale" && agent.last_heartbeat_at) {
+  if (
+    (status === "terminated_stale" || status === "stalled") &&
+    agent.last_heartbeat_at
+  ) {
     const hb = Date.parse(agent.last_heartbeat_at);
     if (!Number.isNaN(hb) && now - hb <= ACTIVE_HEARTBEAT_FRESHNESS_MS) {
       return true;

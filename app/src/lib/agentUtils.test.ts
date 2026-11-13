@@ -319,6 +319,14 @@ describe('isAgentActive (Active tab visibility)', () => {
     ).toBe(false)
   })
 
+  it('keeps stalled visible when heartbeat is fresh and gates out stale stalled ghosts (→3108)', () => {
+    const freshHb = new Date(NOW - 30_000).toISOString()
+    const staleHb = new Date(NOW - 600_000).toISOString()
+    expect(isAgentActive({ status: 'stalled', last_heartbeat_at: freshHb }, NOW)).toBe(true)
+    expect(computeAgentGhostState({ status: 'stalled', pid: null, last_heartbeat_at: freshHb }, NOW)).toBe('alive')
+    expect(computeAgentGhostState({ status: 'stalled', pid: null, last_heartbeat_at: staleHb }, NOW)).toBe('ghost')
+  })
+
   it('hides terminated_stale with no heartbeat at all', () => {
     expect(isAgentActive({ status: 'terminated_stale' }, NOW)).toBe(false)
   })
