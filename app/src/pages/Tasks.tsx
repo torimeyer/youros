@@ -44,6 +44,7 @@ export const USER_SELECTABLE_STATUSES = ["open", "closed"] as const;
 import ConfirmModal from "../components/ConfirmModal";
 import { ComprehensiveBuildPill } from "../components/ComprehensiveBuild";
 import { NeedsClarityChip, type ReadinessCheck } from "../components/NeedsClarityChip";
+import ReceiptPanel from "../components/ReceiptPanel";
 import { useRunningAgentsStore } from "../stores/runningAgents";
 
 interface Task {
@@ -3031,6 +3032,14 @@ export default function Tasks() {
                           )}
                         </div>
                       )}
+
+                      <ReceiptPanel
+                        taskId={task.id}
+                        onActionComplete={() => {
+                          fetchTasks();
+                          fetchTrace(task.id);
+                        }}
+                      />
 
                       {/* Link a commit to this task */}
                       <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-800">

@@ -8,6 +8,7 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from models.schemas import (
@@ -2012,6 +2013,350 @@ async def reopen_task(task_id: str):
         return {"result": result}
     except OstkError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+class CompleteVerifiedBody(BaseModel):
+    worktree_path: Optional[str] = None
+    branch_name: Optional[str] = None
+    base_sha: Optional[str] = None
+    repo_path: Optional[str] = None
+    agent_name: Optional[str] = None
+    force: bool = False
+    auto_spawn: bool = True
+
+
+async def _default_auto_spawn_unblocked(task: dict) -> Optional[str]:
+    """Dispatch a background agent spawn for a newly unblocked task."""
+    import asyncio
+    from models.schemas import AgentSpawn
+    from routers.agents import spawn_agent
+
+    raw_tid = str(task.get("id") or "")
+    bare_tid = _normalize_task_id(raw_tid)
+    agent_name = f"auto-task-{bare_tid or 'unblocked'}"
+    title = str(task.get("title") or f"Task {raw_tid}")
+    desc = str(task.get("description") or "")
+    prompt = f"Implement newly unblocked task {raw_tid}: {title}"
+    if desc:
+        prompt = f"{prompt}\n\n{desc}"
+
+    spawn_body = AgentSpawn(
+        name=agent_name,
+        prompt=prompt,
+        task=title,
+        task_id=raw_tid,
+        needle_id=bare_tid or None,
+        isolation="none",
+        locks=["*"],
+    )
+
+    async def _run_spawn() -> None:
+        try:
+            await spawn_agent(spawn_body)
+        except Exception:
+            logger.exception("auto-spawn failed for unblocked task %s", raw_tid)
+
+    asyncio.create_task(_run_spawn())
+    return agent_name
+
+
+# Hookable callback for auto-spawning newly unblocked tasks (task ->3092).
+# Tests can patch routers.tasks._AUTO_SPAWN_UNBLOCKED_FN directly.
+_AUTO_SPAWN_UNBLOCKED_FN = _default_auto_spawn_unblocked
+
+
+def _norm_receipt_task_id(val: object) -> str:
+    raw = str(val or "").strip()
+    return re.sub(r"^(?:\u2192|#|t-)+", "", raw)
+
+
+def _extract_blocker_id_token(item: object) -> str:
+    if isinstance(item, dict):
+        for key in ("blocker_id", "id", "task_id"):
+            if item.get(key):
+                return _norm_receipt_task_id(item[key])
+        txt = str(item.get("text") or "")
+        m = _BLOCKER_ID_RE.search(txt)
+        if m:
+            return _norm_receipt_task_id(m.group(0))
+        return ""
+    return _norm_receipt_task_id(item)
+
+
+def _resolve_receipt_context(
+    task_id: str,
+    worktree_path: Optional[str] = None,
+    branch_name: Optional[str] = None,
+    base_sha: Optional[str] = None,
+    repo_path: Optional[str] = None,
+    agent_name: Optional[str] = None,
+) -> tuple[Path, Optional[Path], Optional[str], Optional[str], Optional[str]]:
+    """Fill missing receipt parameters from routers.agents.agent_metadata when available."""
+    resolved_wt = worktree_path
+    resolved_branch = branch_name
+    resolved_base = base_sha
+    resolved_repo = repo_path
+    resolved_agent = agent_name
+
+    norm_tid = _norm_receipt_task_id(task_id)
+
+    try:
+        from routers.agents import agent_metadata as _agent_meta_map
+    except Exception:
+        _agent_meta_map = {}
+
+    matched_meta: Optional[dict] = None
+    if resolved_agent and resolved_agent in _agent_meta_map:
+        matched_meta = _agent_meta_map.get(resolved_agent)
+    else:
+        for cand_name, meta in reversed(list(_agent_meta_map.items())):
+            if not isinstance(meta, dict):
+                continue
+            meta_tid = _norm_receipt_task_id(meta.get("task_id"))
+            meta_nid = _norm_receipt_task_id(meta.get("needle_id"))
+            meta_nids = {
+                _norm_receipt_task_id(x)
+                for x in (meta.get("needle_ids") or [])
+                if x is not None
+            }
+            meta_task_str = str(meta.get("task") or "")
+            if (
+                (norm_tid and meta_tid == norm_tid)
+                or (norm_tid and meta_nid == norm_tid)
+                or (norm_tid and norm_tid in meta_nids)
+                or (norm_tid and f"\u2192{norm_tid}" in meta_task_str)
+            ):
+                matched_meta = meta
+                if not resolved_agent:
+                    resolved_agent = cand_name
+                break
+
+    if isinstance(matched_meta, dict):
+        if not resolved_wt:
+            resolved_wt = matched_meta.get("worktree_path")
+        if not resolved_branch:
+            resolved_branch = (
+                matched_meta.get("branch_name")
+                or matched_meta.get("worktree_branch")
+                or matched_meta.get("branch")
+            )
+        if not resolved_base:
+            resolved_base = (
+                matched_meta.get("base_sha")
+                or matched_meta.get("save_point_sha")
+                or matched_meta.get("base_commit")
+            )
+        if not resolved_repo:
+            resolved_repo = matched_meta.get("repo_path") or matched_meta.get("repo_root")
+
+    repo_root = Path(resolved_repo) if resolved_repo else Path(ostk.cwd)
+    wt_path = Path(resolved_wt) if resolved_wt else None
+    return repo_root, wt_path, resolved_branch, resolved_base, resolved_agent
+
+
+def _read_fallback_tasks_from_repo(repo_root: Path) -> list[dict]:
+    entries_by_id: dict[str, dict] = {}
+    for rel in (Path(".ostk") / "needles" / "issues.jsonl", Path(".ostk") / "issues.jsonl"):
+        p = repo_root / rel
+        if not p.exists():
+            continue
+        try:
+            for raw_line in p.read_text(encoding="utf-8", errors="replace").splitlines():
+                line = raw_line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                tid = str(entry.get("id") or "")
+                if tid:
+                    entries_by_id[tid] = entry
+        except OSError:
+            continue
+    return list(entries_by_id.values())
+
+
+@router.get("/tasks/{task_id}/receipt")
+async def get_task_receipt(
+    task_id: str,
+    worktree_path: Optional[str] = Query(None),
+    branch_name: Optional[str] = Query(None),
+    base_sha: Optional[str] = Query(None),
+    repo_path: Optional[str] = Query(None),
+    agent_name: Optional[str] = Query(None),
+):
+    """Verify cryptographic git commit, ostk trace, and exit-0 audit proof for a task."""
+    import asyncio
+    from services.git_receipts import verify_task_receipt
+
+    repo_root, wt_path, resolved_branch, resolved_base, resolved_agent = _resolve_receipt_context(
+        task_id=task_id,
+        worktree_path=worktree_path,
+        branch_name=branch_name,
+        base_sha=base_sha,
+        repo_path=repo_path,
+        agent_name=agent_name,
+    )
+    receipt = await asyncio.to_thread(
+        verify_task_receipt,
+        repo_root=repo_root,
+        worktree_path=wt_path,
+        branch_name=resolved_branch,
+        base_sha=resolved_base,
+        task_id=task_id,
+    )
+    payload = receipt.to_dict()
+    if resolved_agent:
+        payload["agent_name"] = resolved_agent
+    return payload
+
+
+@router.post("/tasks/{task_id}/complete-verified")
+async def complete_task_verified(
+    task_id: str,
+    body: CompleteVerifiedBody = CompleteVerifiedBody(),
+):
+    """Verify cryptographic receipt before closing a task and auto-spawning unblocked dependents."""
+    import asyncio
+    import inspect
+    from services.git_receipts import verify_task_receipt
+
+    repo_root, wt_path, resolved_branch, resolved_base, resolved_agent = _resolve_receipt_context(
+        task_id=task_id,
+        worktree_path=body.worktree_path,
+        branch_name=body.branch_name,
+        base_sha=body.base_sha,
+        repo_path=body.repo_path,
+        agent_name=body.agent_name,
+    )
+    receipt = await asyncio.to_thread(
+        verify_task_receipt,
+        repo_root=repo_root,
+        worktree_path=wt_path,
+        branch_name=resolved_branch,
+        base_sha=resolved_base,
+        task_id=task_id,
+    )
+
+    receipt_dict = receipt.to_dict()
+    if resolved_agent:
+        receipt_dict["agent_name"] = resolved_agent
+
+    if not receipt.verified and not body.force:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "verified": False,
+                "receipt": receipt_dict,
+                "detail": "Task receipt verification failed",
+            },
+        )
+
+    normalised_id = f"\u2192{task_id}" if task_id.isdigit() else task_id
+    try:
+        await ostk.close_task(normalised_id, closed_reason="completed")
+    except OstkError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    try:
+        from routers.specs import (
+            _advance_spec_status_if_all_builder_tasks_closed_async,
+        )
+        await _advance_spec_status_if_all_builder_tasks_closed_async(task_id)
+    except Exception:
+        logger.exception(
+            "complete_task_verified: spec-status advance failed for task %s", task_id
+        )
+
+    trace_event("task_closed", task_id=task_id, reason="completed")
+    await _notifications_events_bus.publish("needle_closed", {"task_id": normalised_id})
+    try:
+        await _event_bus.publish(TASK_CLOSED, {"task_id": normalised_id})
+    except Exception:
+        pass
+
+    # Scan remaining open tasks to find tasks unblocked by closing task_id.
+    try:
+        all_tasks = await ostk.list_tasks()
+    except Exception:
+        all_tasks = []
+    if not all_tasks and body.repo_path:
+        all_tasks = _read_fallback_tasks_from_repo(repo_root)
+
+    closed_norm = _norm_receipt_task_id(task_id)
+    open_norm_ids: set[str] = set()
+    reverse_blocks: dict[str, set[str]] = {}
+
+    for t in all_tasks:
+        t_norm = _norm_receipt_task_id(t.get("id"))
+        if not t_norm:
+            continue
+        if t_norm != closed_norm and t.get("status") not in ("closed", "shelved"):
+            open_norm_ids.add(t_norm)
+        for target_id in (t.get("blocks") or []):
+            target_norm = _extract_blocker_id_token(target_id)
+            if target_norm:
+                reverse_blocks.setdefault(target_norm, set()).add(t_norm)
+
+    unblocked_tasks: list[str] = []
+    unblocked_task_objs: list[dict] = []
+
+    for t in all_tasks:
+        raw_tid = str(t.get("id") or "")
+        t_norm = _norm_receipt_task_id(raw_tid)
+        if not t_norm or t_norm == closed_norm:
+            continue
+        if t.get("status") in ("closed", "shelved", "in_progress"):
+            continue
+
+        blockers: set[str] = set(reverse_blocks.get(t_norm, set()))
+        for b in (t.get("blocked_by") or []):
+            tok = _extract_blocker_id_token(b)
+            if tok:
+                blockers.add(tok)
+        for d in (t.get("depends_on") or []):
+            tok = _extract_blocker_id_token(d)
+            if tok:
+                blockers.add(tok)
+
+        if closed_norm not in blockers:
+            continue
+
+        remaining_open_blockers = [b for b in blockers if b in open_norm_ids]
+        if not remaining_open_blockers:
+            unblocked_tasks.append(raw_tid)
+            unblocked_task_objs.append(t)
+
+    spawned_agents: list[str] = []
+    spawn_fn = _AUTO_SPAWN_UNBLOCKED_FN
+    if body.auto_spawn and spawn_fn is not None and unblocked_task_objs:
+        for utask in unblocked_task_objs:
+            try:
+                spawn_res = spawn_fn(utask)
+                if inspect.isawaitable(spawn_res):
+                    spawn_res = await spawn_res
+                if isinstance(spawn_res, dict):
+                    agent_id = spawn_res.get("name") or spawn_res.get("agent_name")
+                elif isinstance(spawn_res, str):
+                    agent_id = spawn_res
+                else:
+                    agent_id = None
+                if agent_id:
+                    spawned_agents.append(str(agent_id))
+            except Exception:
+                logger.exception(
+                    "complete_task_verified: auto-spawn callback failed for %s",
+                    utask.get("id"),
+                )
+
+    return {
+        "verified": receipt.verified,
+        "closed": True,
+        "receipt": receipt_dict,
+        "unblocked_tasks": unblocked_tasks,
+        "spawned_agents": spawned_agents,
+    }
 
 
 @router.post("/tasks/close-by-session/{session_id}")

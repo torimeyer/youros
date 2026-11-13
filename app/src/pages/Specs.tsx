@@ -18,6 +18,7 @@ import { useAppStore } from "../stores/app";
 import { Button, EmptyState, ErrorBanner } from "../components/ui";
 import { SpecDriveSync } from "../components/SpecDriveSync";
 import SpecWizard from "../components/SpecWizard";
+import ReceiptPanel from "../components/ReceiptPanel";
 
 // --- Data types ---
 
@@ -1806,6 +1807,12 @@ export default function Specs({ embedded }: { embedded?: boolean } = {}) {
                           onOpenAgent={(name) => navigate(`/agents?agent=${encodeURIComponent(name)}`)}
                         />
                       )}
+
+                      {/* Cryptographic receipt verification for linked spec tasks */}
+                      <ReceiptPanel
+                        taskId={tasks[0]?.id ?? doc.task_ids?.[0]}
+                        agentName={tasks[0]?.assigned_agent ?? undefined}
+                      />
 
                       {/* Path */}
                       <div className="flex items-center gap-2 text-xs text-slate-600 mt-4">
