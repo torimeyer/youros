@@ -31,7 +31,7 @@ _install_certifi_default()
 
 import asyncio
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from services.staticfiles_ws_guard import StaticFilesWSGuard, SPAStaticFiles
@@ -195,6 +195,62 @@ app.add_middleware(SecurityHeadersMiddleware)
 # item G5. Registered AFTER SecurityHeadersMiddleware so the 401 response
 # still carries the baseline security headers.
 app.add_middleware(LoopbackGuardMiddleware)
+
+
+_STRICT_INTERNAL_LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
+
+
+def _is_strict_internal_loopback(host: str | None, forwarded_for: str | None = None) -> bool:
+    """Return True only when client peer (and any X-Forwarded-For hop) is loopback."""
+    if forwarded_for:
+        first_hop = forwarded_for.split(",", 1)[0].strip()
+        if first_hop and first_hop not in _STRICT_INTERNAL_LOOPBACK_HOSTS and not first_hop.startswith("::ffff:127."):
+            return False
+    if host is None:
+        return True
+    cleaned = host.strip()
+    if not cleaned:
+        return True
+    if cleaned in _STRICT_INTERNAL_LOOPBACK_HOSTS:
+        return True
+    if cleaned.startswith("::ffff:127."):
+        return True
+    return False
+
+
+class _InternalReloadLoopbackMiddleware:
+    """Enforce strict 403 loopback-only access on /api/internal/reload-state."""
+
+    def __init__(self, inner_app):
+        self.app = inner_app
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") == "http" and scope.get("path") == "/api/internal/reload-state":
+            client = scope.get("client")
+            host = client[0] if client else None
+            forwarded_for = None
+            for hdr_key, hdr_val in scope.get("headers") or ():
+                if hdr_key.lower() == b"x-forwarded-for":
+                    forwarded_for = hdr_val.decode("latin-1", errors="replace")
+                    break
+            if not _is_strict_internal_loopback(host, forwarded_for):
+                body = b'{"detail":"Loopback access only"}'
+                await send(
+                    {
+                        "type": "http.response.start",
+                        "status": 403,
+                        "headers": [
+                            (b"content-type", b"application/json"),
+                            (b"content-length", str(len(body)).encode("ascii")),
+                        ],
+                    }
+                )
+                await send({"type": "http.response.body", "body": body})
+                return
+        await self.app(scope, receive, send)
+
+
+app.add_middleware(_InternalReloadLoopbackMiddleware)
 
 app.include_router(tasks.router, prefix="/api")
 app.include_router(events_router.router)
@@ -1171,6 +1227,16 @@ async def health():
             "ostk": shutil.which("ostk") is not None,
         },
     }
+
+
+@app.post("/api/internal/reload-state", include_in_schema=False)
+async def reload_internal_state(request: Request):
+    host = request.client.host if request.client is not None else None
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if not _is_strict_internal_loopback(host, forwarded_for):
+        raise HTTPException(status_code=403, detail="Loopback access only")
+    count = agents.reload_agent_state_from_disk()
+    return {"status": "ok", "agents_loaded": count}
 
 
 # Serve the built frontend in production mode. When the app/dist directory

@@ -6,6 +6,10 @@ import fs from 'node:fs'
 import https from 'node:https'
 import os from 'node:os'
 import path from 'node:path'
+import {
+  bindDynamicProxyTarget,
+  resolveActiveBackendTarget,
+} from './src/lib/viteProxyTarget'
 
 // Needle 287 (round 3): when the backend restarts, vite's default
 // proxy agent keeps dead keep-alive sockets in its pool and routes
@@ -251,12 +255,13 @@ export default defineConfig({
       // must sit ABOVE '/api' because vite picks the first matching key in
       // insertion order.
       '^/api/.+/suggest(\\?|$)': {
-        target: 'https://127.0.0.1:8000',
+        target: resolveActiveBackendTarget(),
         secure: false,
         changeOrigin: true,
         proxyTimeout: 120_000,
         agent: backendAgent,
-        configure: (proxy) => {
+        configure: (proxy, opts) => {
+          bindDynamicProxyTarget(proxy, opts)
           proxy.on('error', (err, _req, res) => {
             // Dead sockets (backend restart) still fail fast: ECONNRESET
             // fires immediately regardless of proxyTimeout.
@@ -277,12 +282,13 @@ export default defineConfig({
       // so the 8 per-tab /api/ws streams never occupy the pooled HTTP
       // agent's slots. proxyTimeout stays unset: streams are idle by design.
       '^/api/ws/': {
-        target: 'https://127.0.0.1:8000',
+        target: resolveActiveBackendTarget(),
         secure: false,
         changeOrigin: true,
         ws: true,
         agent: wsAgent,
-        configure: (proxy) => {
+        configure: (proxy, opts) => {
+          bindDynamicProxyTarget(proxy, opts)
           proxy.on('error', (err) => {
             proxyErrLog('[vite proxy /api/ws] error:', err)
           })
@@ -294,7 +300,7 @@ export default defineConfig({
         // Uvicorn binds IPv4 only, so every proxy request starts with
         // a refused IPv6 attempt that poisons the connection pool and
         // causes intermittent ETIMEDOUT on the IPv4 fallback. Needle 315.
-        target: 'https://127.0.0.1:8000',
+        target: resolveActiveBackendTarget(),
         secure: false,  // accept self-signed cert (backendAgent also sets rejectUnauthorized:false)
         changeOrigin: true,
         proxyTimeout: 5000,
@@ -304,7 +310,8 @@ export default defineConfig({
         ws: true,
         // Pooled TLS agent — see backendAgent comment above (→1431).
         agent: backendAgent,
-        configure: (proxy) => {
+        configure: (proxy, opts) => {
+          bindDynamicProxyTarget(proxy, opts)
           proxy.on('error', (err, _req, res) => {
             // Make upstream failures a fast 502 instead of a hung
             // socket so the frontend fetch fails quickly and the
@@ -331,13 +338,14 @@ export default defineConfig({
       // and all three WS connections fail. changeOrigin fixes the Host header
       // sent to uvicorn (was localhost:3010, must be localhost:8000).
       '/ws': {
-        target: 'https://127.0.0.1:8000',
+        target: resolveActiveBackendTarget(),
         ws: true,
         secure: false,
         changeOrigin: true,
         proxyTimeout: 5000,
         agent: backendAgent,
-        configure: (proxy) => {
+        configure: (proxy, opts) => {
+          bindDynamicProxyTarget(proxy, opts)
           proxy.on('error', (err, _req, res) => {
             proxyErrLog('[vite proxy /ws] error:', err)
             try {
