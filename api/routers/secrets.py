@@ -72,17 +72,29 @@ async def key_status():
     from services.google_auth import is_authenticated as _google_is_authenticated, can_start_oauth as _can_start_oauth
     google_connected = _google_is_authenticated()
 
-    from services.provider_detection import detect_vertex_gemini
-    vx = await detect_vertex_gemini()
+    import asyncio
+    from services import provider_detection as _pd
+
+    vx, claude_sub, gemini_cli_ok, ostk_trust = await asyncio.gather(
+        _pd.detect_vertex_gemini(),
+        _pd.is_claude_code_available(),
+        _pd.is_gemini_cli_available(),
+        _pd.detect_ostk_trust(),
+    )
     datastore = os.environ.get("VERTEX_SEARCH_DATASTORE", "") or None
 
     return {
         "anthropic": anthropic_src != "none",
         "anthropic_source": anthropic_src,
+        "claude_subscription": bool(claude_sub),
         "gemini": gemini_src != "none",
         "gemini_source": gemini_src,
+        "gemini_cli": bool(gemini_cli_ok),
         "google_oauth_available": _can_start_oauth(),
         "google_connected": google_connected,
+        "ostk_available": bool(ostk_trust.get("ostk_available", False)),
+        "humanfile_valid": bool(ostk_trust.get("humanfile_valid", False)),
+        "humanfile_warning": ostk_trust.get("humanfile_warning"),
         "gemini_enterprise": {
             "available": vx.get("available", False),
             "source": "vertex" if vx.get("available") else ("nerd-completion" if _nerd_completion_available() else None),

@@ -21,6 +21,9 @@ _providers_cache_value: dict | None = None
 _providers_cache_ts: float = 0.0
 _providers_lock: asyncio.Lock | None = None  # lazy-init to avoid import-time loop issues
 
+_ostk_trust_cache_value: dict | None = None
+_ostk_trust_cache_ts: float = 0.0
+
 _VERTEX_GEMINI_TIMEOUT: float = 3.5
 
 
@@ -201,7 +204,89 @@ async def detect_bedrock() -> bool:
     return False
 
 
-async def _run_full_detection() -> dict[str, bool]:
+async def detect_ostk_trust(force: bool = False) -> dict:
+    """Check ostk CLI availability and HUMANFILE signature trust posture.
+
+    Runs ``ostk boot`` in a worker thread with a bounded timeout so the event
+    loop is never blocked. Surfaces ``humanfile_valid=False`` and an actionable
+    recovery command whenever HUMANFILE signature verification fails or warns
+    of unsigned local edits that block secret injection.
+    """
+    global _ostk_trust_cache_value, _ostk_trust_cache_ts
+    import shutil
+
+    now = time.monotonic()
+    if (
+        not force
+        and _ostk_trust_cache_value is not None
+        and now < _ostk_trust_cache_ts + _PROVIDERS_CACHE_TTL
+    ):
+        return dict(_ostk_trust_cache_value)
+
+    ostk_bin = shutil.which("ostk")
+    if not ostk_bin:
+        res = {
+            "ostk_available": False,
+            "humanfile_valid": False,
+            "humanfile_warning": "ostk CLI not found on PATH.",
+        }
+        _ostk_trust_cache_value = res
+        _ostk_trust_cache_ts = now
+        return dict(res)
+
+    try:
+        r = await asyncio.to_thread(
+            subprocess.run,
+            [ostk_bin, "boot"],
+            capture_output=True,
+            timeout=3,
+            text=True,
+        )
+        combined = f"{r.stdout or ''}\n{r.stderr or ''}"
+        lowered = combined.lower()
+        if "signature invalid" in lowered or "refusing secret injection" in lowered:
+            res = {
+                "ostk_available": True,
+                "humanfile_valid": False,
+                "humanfile_warning": (
+                    "HUMANFILE signature is invalid, so ostk refuses secret injection. "
+                    "Run `ostk trust sign --humanfile` (and `ostk trust sign ~/.HUMANFILE` if edited) to re-sign."
+                ),
+            }
+        elif "modified since it was signed" in lowered or "subject hash mismatch" in lowered:
+            res = {
+                "ostk_available": True,
+                "humanfile_valid": False,
+                "humanfile_warning": (
+                    "HUMANFILE was modified since it was signed. "
+                    "Run `ostk trust sign ~/.HUMANFILE` (or `ostk trust sign --humanfile`) so secret injection stays trusted."
+                ),
+            }
+        elif r.returncode != 0:
+            res = {
+                "ostk_available": True,
+                "humanfile_valid": False,
+                "humanfile_warning": "ostk boot reported an error. Run `ostk boot` in your terminal to inspect.",
+            }
+        else:
+            res = {
+                "ostk_available": True,
+                "humanfile_valid": True,
+                "humanfile_warning": None,
+            }
+    except Exception:
+        res = {
+            "ostk_available": False,
+            "humanfile_valid": False,
+            "humanfile_warning": "Could not verify ostk boot health.",
+        }
+
+    _ostk_trust_cache_value = res
+    _ostk_trust_cache_ts = time.monotonic()
+    return dict(res)
+
+
+async def _run_full_detection() -> dict:
     """Run a full provider scan (no cache). Called only by detect_providers()."""
     from services.ostk_secrets import get_anthropic_key, get_gemini_key
 
@@ -212,6 +297,7 @@ async def _run_full_detection() -> dict[str, bool]:
         gemini_key_val,
         vx,
         bedrock,
+        ostk_trust,
     ) = await asyncio.gather(
         is_claude_code_available(),
         is_gemini_cli_available(),
@@ -219,6 +305,7 @@ async def _run_full_detection() -> dict[str, bool]:
         get_gemini_key(),
         detect_vertex_gemini(),
         detect_bedrock(),
+        detect_ostk_trust(),
     )
     return {
         "claude_code": claude_code,
@@ -230,6 +317,9 @@ async def _run_full_detection() -> dict[str, bool]:
         "vertex_ai_needs_reauth": vx.get("vertex_ai_needs_reauth", False),
         "vertex_ai_signed_in": vx.get("vertex_ai_signed_in", False),
         "bedrock": bedrock,
+        "ostk_available": ostk_trust.get("ostk_available", False),
+        "humanfile_valid": ostk_trust.get("humanfile_valid", False),
+        "humanfile_warning": ostk_trust.get("humanfile_warning"),
     }
 
 
@@ -240,9 +330,12 @@ def _reset_provider_cache() -> None:
     run a full detection scan rather than returning a stale cached result.
     """
     global _providers_cache_value, _providers_cache_ts, _providers_lock
+    global _ostk_trust_cache_value, _ostk_trust_cache_ts
     _providers_cache_value = None
     _providers_cache_ts = 0.0
     _providers_lock = None
+    _ostk_trust_cache_value = None
+    _ostk_trust_cache_ts = 0.0
 
 
 async def _refresh_provider_cache() -> None:

@@ -247,6 +247,33 @@ async def test_key_status_gemini_enterprise_unavailable(client):
     assert ge["datastore"] is None
 
 
+@pytest.mark.asyncio
+async def test_key_status_includes_cli_subscriptions_and_ostk_trust(client):
+    """GET /api/secrets/key-status exposes CLI subscriptions and ostk HUMANFILE trust."""
+    mock_secrets = []
+    trust_payload = {
+        "ostk_available": True,
+        "humanfile_valid": False,
+        "humanfile_warning": "HUMANFILE signature is invalid. Run `ostk trust sign --humanfile`.",
+    }
+    with patch("routers.secrets.ostk") as mock_ostk, \
+         patch("services.provider_detection.detect_vertex_gemini", new=AsyncMock(return_value={"available": False})), \
+         patch("services.provider_detection.is_claude_code_available", new=AsyncMock(return_value=True)), \
+         patch("services.provider_detection.is_gemini_cli_available", new=AsyncMock(return_value=True)), \
+         patch("services.provider_detection.detect_ostk_trust", new=AsyncMock(return_value=trust_payload)), \
+         patch("services.google_auth.is_authenticated", return_value=False):
+        mock_ostk.secret_list = AsyncMock(return_value=mock_secrets)
+        resp = await client.get("/api/secrets/key-status")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["claude_subscription"] is True
+    assert data["gemini_cli"] is True
+    assert data["ostk_available"] is True
+    assert data["humanfile_valid"] is False
+    assert "ostk trust sign --humanfile" in data["humanfile_warning"]
+
+
 # --- _resolve_api_key tests ---
 
 

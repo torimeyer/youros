@@ -43,7 +43,17 @@ async def test_detect_no_providers():
                 with patch("services.provider_detection.detect_vertex_ai", new=AsyncMock(return_value=False)):
                     with patch("services.provider_detection.detect_bedrock", new=AsyncMock(return_value=False)):
                         with patch("services.provider_detection.is_gemini_cli_available", new=AsyncMock(return_value=False)):
-                            result = await detect_providers()
+                            with patch(
+                                "services.provider_detection.detect_ostk_trust",
+                                new=AsyncMock(
+                                    return_value={
+                                        "ostk_available": False,
+                                        "humanfile_valid": False,
+                                        "humanfile_warning": "ostk CLI not found on PATH.",
+                                    }
+                                ),
+                            ):
+                                result = await detect_providers()
 
     assert result == {
         "claude_code": False,
@@ -55,6 +65,9 @@ async def test_detect_no_providers():
         "vertex_ai_signed_in": False,
         "bedrock": False,
         "gemini_cli": False,
+        "ostk_available": False,
+        "humanfile_valid": False,
+        "humanfile_warning": "ostk CLI not found on PATH.",
     }
 
 
@@ -120,8 +133,26 @@ def test_detect_endpoint_returns_dict():
 
     assert resp.status_code == 200
     data = resp.json()
-    assert {"claude_code", "anthropic_key", "gemini_key", "vertex_ai", "vertex_ai_project", "bedrock"} <= set(data.keys())
-    bool_keys = {"claude_code", "anthropic_key", "gemini_key", "vertex_ai", "bedrock"}
+    assert {
+        "claude_code",
+        "anthropic_key",
+        "gemini_key",
+        "vertex_ai",
+        "vertex_ai_project",
+        "bedrock",
+        "ostk_available",
+        "humanfile_valid",
+        "humanfile_warning",
+    } <= set(data.keys())
+    bool_keys = {
+        "claude_code",
+        "anthropic_key",
+        "gemini_key",
+        "vertex_ai",
+        "bedrock",
+        "ostk_available",
+        "humanfile_valid",
+    }
     for key in bool_keys:
         assert isinstance(data[key], bool), f"{key} should be bool"
 
@@ -701,3 +732,78 @@ async def test_classify_vertex_state_gcloud_failure():
             result = await _pd.classify_vertex_state("test-project")
 
     assert result == "api-disabled"
+
+
+# ---------------------------------------------------------------------------
+# detect_ostk_trust() tests (Phase 0 Slice B, →3060)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_detect_ostk_trust_valid_signature():
+    from services.provider_detection import detect_ostk_trust
+
+    mock_proc = MagicMock()
+    mock_proc.returncode = 0
+    mock_proc.stdout = "HUMANFILE: ✓ verified (T0)\ntrust: T0\n"
+    mock_proc.stderr = ""
+
+    with patch("shutil.which", return_value="/usr/local/bin/ostk"):
+        with patch("services.provider_detection.subprocess.run", return_value=mock_proc):
+            res = await detect_ostk_trust()
+
+    assert res == {
+        "ostk_available": True,
+        "humanfile_valid": True,
+        "humanfile_warning": None,
+    }
+
+
+@pytest.mark.asyncio
+async def test_detect_ostk_trust_invalid_signature_blocks_secret_injection():
+    from services.provider_detection import detect_ostk_trust
+
+    mock_proc = MagicMock()
+    mock_proc.returncode = 0
+    mock_proc.stdout = "HUMANFILE: ✘ signature invalid - refusing secret injection\n"
+    mock_proc.stderr = ""
+
+    with patch("shutil.which", return_value="/usr/local/bin/ostk"):
+        with patch("services.provider_detection.subprocess.run", return_value=mock_proc):
+            res = await detect_ostk_trust()
+
+    assert res["ostk_available"] is True
+    assert res["humanfile_valid"] is False
+    assert res["humanfile_warning"] is not None
+    assert "ostk trust sign --humanfile" in res["humanfile_warning"]
+
+
+@pytest.mark.asyncio
+async def test_detect_ostk_trust_modified_since_signed_warns():
+    from services.provider_detection import detect_ostk_trust
+
+    mock_proc = MagicMock()
+    mock_proc.returncode = 0
+    mock_proc.stdout = "[humanfile] advisory: HUMANFILE has been modified since it was signed (subject hash mismatch).\n"
+    mock_proc.stderr = ""
+
+    with patch("shutil.which", return_value="/usr/local/bin/ostk"):
+        with patch("services.provider_detection.subprocess.run", return_value=mock_proc):
+            res = await detect_ostk_trust()
+
+    assert res["ostk_available"] is True
+    assert res["humanfile_valid"] is False
+    assert res["humanfile_warning"] is not None
+    assert "ostk trust sign" in res["humanfile_warning"]
+
+
+@pytest.mark.asyncio
+async def test_detect_ostk_trust_missing_binary():
+    from services.provider_detection import detect_ostk_trust
+
+    with patch("shutil.which", return_value=None):
+        res = await detect_ostk_trust()
+
+    assert res["ostk_available"] is False
+    assert res["humanfile_valid"] is False
+    assert res["humanfile_warning"] is not None
