@@ -14,15 +14,20 @@ interface RawSeat {
   label?: string
   type?: string
   runtime?: string
+  kind?: string
+  external?: boolean
   provider?: string
   model?: string
   source?: string
   repo?: string
   project?: string
+  project_slug?: string
   cwd?: string
   worktree?: string
   workspace?: string
   status?: string
+  last_event_at?: string
+  age_seconds?: number
   activity?: string
   current_step?: string
   task?: string
@@ -178,6 +183,8 @@ interface NormalizedSeat {
   nudgeName: string
   displayName: string
   runtime: string
+  kind: 'background' | 'interactive'
+  external: boolean
   repoBasename: string | null
   status: string
   active: boolean
@@ -286,7 +293,11 @@ function normalizeSeats(payload: SessionsResponse | RawSeat[] | null): Normalize
       ),
     )
 
-    const repoSource = s.repo || s.project || s.worktree || s.workspace || s.cwd
+    const rawKind = (s.kind || '').trim().toLowerCase()
+    const normalizedKind: 'background' | 'interactive' =
+      rawKind === 'background' || rawKind === 'bg' ? 'background' : 'interactive'
+    const repoSource =
+      s.repo || s.project || s.worktree || s.workspace || s.cwd || s.project_slug
     return {
       key: (s.id || s.session_id || nudgeName || `seat-${idx}`).trim(),
       pid: parsedPid,
@@ -294,6 +305,8 @@ function normalizeSeats(payload: SessionsResponse | RawSeat[] | null): Normalize
       nudgeName,
       displayName,
       runtime: detectRuntimeBadge(s),
+      kind: normalizedKind,
+      external: Boolean(s.external),
       repoBasename: extractBasename(repoSource),
       status,
       active,
@@ -830,6 +843,32 @@ export default function MissionControlFleetStrip() {
                   >
                     {seat.runtime}
                   </span>
+                  {seat.kind === 'background' ? (
+                    <span
+                      data-testid="seat-bg-badge"
+                      title="Background runtime session (claude --bg)"
+                      style={{
+                        borderColor: 'var(--color-accent)',
+                      }}
+                      className="rounded border bg-indigo-500/15 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-indigo-600 dark:text-indigo-300"
+                    >
+                      bg
+                    </span>
+                  ) : (
+                    seat.external && (
+                      <span
+                        data-testid="seat-terminal-badge"
+                        title="Standalone external terminal session"
+                        style={{
+                          backgroundColor: 'var(--color-surface, var(--theme-surface))',
+                          borderColor: 'var(--color-border, var(--theme-border))',
+                        }}
+                        className="rounded border px-1.5 py-0.5 font-mono text-[10px] font-medium text-slate-600 dark:text-slate-300"
+                      >
+                        terminal
+                      </span>
+                    )
+                  )}
                   {matchedRoster && (
                     <span
                       data-testid="seat-verdict-badge"

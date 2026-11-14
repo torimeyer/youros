@@ -525,4 +525,93 @@ describe('MissionControlFleetStrip (→3094)', () => {
       'IMPOSTOR[session-contradiction]',
     )
   })
+
+  it('distinguishes standalone terminal (external: true) and claude --bg (kind: background) sessions with badges (->3121)', async () => {
+    mockedApiGet.mockImplementation((urlPath: string) => {
+      if (urlPath === '/sessions') {
+        return Promise.resolve({
+          sessions: [
+            {
+              id: 'claude-term-17',
+              name: 'torios-17',
+              label: 'torios-17',
+              runtime: 'claude',
+              kind: 'interactive',
+              external: true,
+              pid: 14165,
+              cwd: '/Users/torimeyer/claude/torios',
+              status: 'idle',
+              activity: '',
+              recent_files: [],
+            },
+            {
+              id: 'claude-bg-99',
+              name: 'claude-bg-99',
+              label: 'claude-bg-99',
+              runtime: 'claude',
+              kind: 'background',
+              external: true,
+              pid: 24100,
+              cwd: '/Users/torimeyer/claude/torios',
+              status: 'active',
+              activity: 'Running background build',
+              recent_files: [],
+            },
+            {
+              id: 'gemini-term-42',
+              name: 'gemini-term-42',
+              label: 'gemini-term-42',
+              runtime: 'gemini',
+              kind: 'interactive',
+              external: true,
+              pid: null,
+              cwd: null,
+              project_slug: 'youros-core',
+              status: 'active',
+              activity: 'Inspecting session files',
+              recent_files: [],
+            },
+            {
+              id: 'ostk-fleet-1',
+              name: 'ostk-fleet-1',
+              label: 'ostk-fleet-1',
+              runtime: 'claude',
+              kind: 'interactive',
+              external: false,
+              status: 'active',
+              activity: 'Supervised fleet seat',
+              recent_files: [],
+            },
+          ],
+          conflicts: [],
+        })
+      }
+      if (urlPath === '/secrets/key-status') {
+        return Promise.resolve({ ostk_available: true, humanfile_valid: true })
+      }
+      return Promise.resolve(null)
+    })
+
+    renderStrip()
+
+    const termClaude = await screen.findByTestId('mission-control-seat-claude-term-17')
+    expect(within(termClaude).getByText('Claude')).toBeInTheDocument()
+    expect(within(termClaude).getByTestId('seat-terminal-badge')).toHaveTextContent('terminal')
+    expect(within(termClaude).queryByTestId('seat-bg-badge')).toBeNull()
+    expect(within(termClaude).getByTestId('seat-repo-badge')).toHaveTextContent('torios')
+
+    const bgClaude = screen.getByTestId('mission-control-seat-claude-bg-99')
+    expect(within(bgClaude).getByText('Claude')).toBeInTheDocument()
+    expect(within(bgClaude).getByTestId('seat-bg-badge')).toHaveTextContent('bg')
+    expect(within(bgClaude).queryByTestId('seat-terminal-badge')).toBeNull()
+
+    const termGemini = screen.getByTestId('mission-control-seat-gemini-term-42')
+    expect(within(termGemini).getByText('Gemini')).toBeInTheDocument()
+    expect(within(termGemini).getByTestId('seat-terminal-badge')).toHaveTextContent('terminal')
+    expect(within(termGemini).getByTestId('seat-repo-badge')).toHaveTextContent('youros-core')
+
+    const supervised = screen.getByTestId('mission-control-seat-ostk-fleet-1')
+    expect(within(supervised).queryByTestId('seat-terminal-badge')).toBeNull()
+    expect(within(supervised).queryByTestId('seat-bg-badge')).toBeNull()
+  })
 })

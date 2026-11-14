@@ -10,16 +10,24 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 
 from config import OSTK_DIR
 from services.ostk import get_effective_root
+import services.runtime_sessions as _runtime_sessions_svc
+from services.runtime_sessions import (
+    discover_external_runtime_sessions as _default_discover_external_runtime_sessions,
+    reset_runtime_sessions_cache,
+)
 from services.session_events import bus as _session_events_bus
+
+discover_external_runtime_sessions = _default_discover_external_runtime_sessions
 
 router = APIRouter(tags=["sessions"])
 
@@ -352,11 +360,16 @@ def _get_sessions() -> list[dict]:
             "activity": activity,
             "recent_files": recent_files,
             "stuck": stuck,
+            "runtime": _infer_session_runtime(entry.name),
+            "pid": _extract_pid_from_session_id(entry.name),
         })
 
     # Sort: active first, then by most recent
     results.sort(key=lambda s: s["last_active"], reverse=True)
     return results
+
+
+_ORIG_GET_SESSIONS = _get_sessions
 
 
 def _claude_code_transcript_sessions() -> list[dict]:
@@ -404,6 +417,9 @@ def _claude_code_transcript_sessions() -> list[dict]:
             "last_active": mtime.isoformat(),
             "status": status,
             "recent_events": [],
+            "runtime": "claude",
+            "external": True,
+            "_transcript_only": True,
         })
     return results
 
@@ -494,6 +510,39 @@ def cleanup_stale_backend_sessions() -> int:
     return swept
 
 
+_PID_SUFFIX_RE = re.compile(r"(?:-p|^claude-pid-)(\d+)$")
+
+
+def _extract_pid_from_session_id(session_id: str) -> Optional[int]:
+    if not session_id:
+        return None
+    match = _PID_SUFFIX_RE.search(session_id)
+    if not match:
+        return None
+    try:
+        pid_val = int(match.group(1))
+        return pid_val if pid_val > 0 else None
+    except ValueError:
+        return None
+
+
+def _infer_session_runtime(session_id: str, meta: Optional[dict] = None) -> str:
+    if isinstance(meta, dict):
+        probe = " ".join(
+            str(meta.get(k) or "") for k in ("runtime", "provider", "model", "source")
+        ).lower()
+        if "gemini" in probe:
+            return "gemini"
+        if any(tok in probe for tok in ("claude", "anthropic", "sonnet", "opus", "haiku")):
+            return "claude"
+    lowered = (session_id or "").lower()
+    if "gemini" in lowered:
+        return "gemini"
+    if "claude" in lowered:
+        return "claude"
+    return "ostk"
+
+
 def _session_type(session_id: str) -> str:
     if session_id.startswith("claude-code-"):
         return "claude-code"
@@ -502,6 +551,162 @@ def _session_type(session_id: str) -> str:
     if session_id.startswith("chat-"):
         return "chat"
     return "ostk"
+
+
+def _should_discover_external(include_external: Optional[bool] = None) -> bool:
+    """Determine whether host Claude/Gemini runtime discovery should run.
+
+    When tests patch SESSIONS_DIR (or _get_sessions) to an isolated fixture
+    without explicitly enabling include_external or patching
+    discover_external_runtime_sessions, skip real host process scanning so
+    synthetic assertions stay deterministic.
+    """
+    if include_external is True:
+        return True
+    if include_external is False:
+        return False
+    if discover_external_runtime_sessions is not _default_discover_external_runtime_sessions:
+        return True
+    if (
+        _runtime_sessions_svc.discover_external_runtime_sessions
+        is not _default_discover_external_runtime_sessions
+    ):
+        return True
+    return SESSIONS_DIR == _DEFAULT_SESSIONS_DIR and _get_sessions is _ORIG_GET_SESSIONS
+
+
+def _resolve_discover_callable():
+    if discover_external_runtime_sessions is not _default_discover_external_runtime_sessions:
+        return discover_external_runtime_sessions
+    return _runtime_sessions_svc.discover_external_runtime_sessions
+
+
+def _merge_external_sessions(
+    sessions: list[dict],
+    external_sessions: list[dict],
+    now_utc: Optional[datetime] = None,
+) -> list[dict]:
+    """Deduplicate and merge discovered external runtime sessions into *sessions*.
+
+    If an existing .ostk/sessions/ (or registered agent) entry shares the same
+    id/sessionId, pid (including claude-code-p<pid>), or name, enrich that row
+    with runtime, kind, and pid rather than emitting a duplicate row.
+    """
+    now_ref = now_utc or datetime.now(timezone.utc)
+    merged = [dict(row) for row in sessions]
+
+    for ext in external_sessions:
+        if not isinstance(ext, dict):
+            continue
+        ext_id = str(ext.get("id") or ext.get("session_id") or "").strip()
+        ext_name = str(ext.get("name") or "").strip()
+        if _is_backend_self_session(ext_id) or _is_backend_self_session(ext_name):
+            continue
+
+        raw_ext_pid = ext.get("pid")
+        ext_pid = (
+            raw_ext_pid
+            if isinstance(raw_ext_pid, int) and not isinstance(raw_ext_pid, bool) and raw_ext_pid > 0
+            else None
+        )
+
+        matched_row: Optional[dict] = None
+        for row in merged:
+            row_id = str(row.get("id") or row.get("session_id") or "").strip()
+            row_name = str(row.get("name") or "").strip()
+            raw_row_pid = row.get("pid")
+            row_pid = (
+                raw_row_pid
+                if isinstance(raw_row_pid, int) and not isinstance(raw_row_pid, bool)
+                else _extract_pid_from_session_id(row_id)
+            )
+
+            id_match = bool(
+                ext_id
+                and row_id
+                and (
+                    row_id.lower() == ext_id.lower()
+                    or (len(ext_id) >= 10 and row_id.lower() == f"claude-code-{ext_id[:10]}".lower())
+                )
+            )
+            pid_match = ext_pid is not None and row_pid is not None and row_pid == ext_pid
+            name_match = bool(
+                (ext_name and row_id and row_id.lower() == ext_name.lower())
+                or (ext_name and row_name and row_name.lower() == ext_name.lower())
+                or (ext_id and row_name and row_name.lower() == ext_id.lower())
+            )
+            if id_match or pid_match or name_match:
+                matched_row = row
+                break
+
+        if matched_row is not None:
+            if ext.get("runtime"):
+                matched_row["runtime"] = ext["runtime"]
+            if ext.get("kind"):
+                matched_row["kind"] = ext["kind"]
+            if ext_pid is not None:
+                matched_row["pid"] = ext_pid
+            if ext.get("cwd") and not matched_row.get("cwd"):
+                matched_row["cwd"] = ext["cwd"]
+            if ext.get("project_slug") and not matched_row.get("project_slug"):
+                matched_row["project_slug"] = ext["project_slug"]
+            if matched_row.get("_transcript_only"):
+                matched_row["external"] = True
+            else:
+                matched_row["external"] = False
+            continue
+
+        last_event_at = str(
+            ext.get("last_event_at")
+            or ext.get("last_active_at")
+            or ext.get("last_active")
+            or now_ref.isoformat()
+        )
+        raw_age = ext.get("age_seconds")
+        if isinstance(raw_age, (int, float)) and not isinstance(raw_age, bool):
+            age_seconds = max(0, int(raw_age))
+        else:
+            try:
+                ev_dt = datetime.fromisoformat(last_event_at.replace("Z", "+00:00"))
+                age_seconds = max(0, int((now_ref - ev_dt).total_seconds()))
+            except (ValueError, TypeError):
+                age_seconds = 0
+
+        display_name = ext_name or ext_id
+        merged.append({
+            "id": ext_id or display_name,
+            "session_id": ext_id or display_name,
+            "name": display_name,
+            "label": str(ext.get("label") or display_name),
+            "type": str(ext.get("runtime") or "external"),
+            "runtime": str(ext.get("runtime") or _infer_session_runtime(ext_id)),
+            "kind": str(ext.get("kind") or "interactive"),
+            "pid": ext_pid,
+            "cwd": ext.get("cwd"),
+            "project_slug": ext.get("project_slug"),
+            "external": True,
+            "started_at": ext.get("started_at"),
+            "last_active_at": last_event_at,
+            "last_event_at": last_event_at,
+            "last_active": last_event_at,
+            "age_seconds": age_seconds,
+            "status": str(ext.get("status") or "active"),
+            "activity": str(ext.get("activity") or ""),
+            "recent_files": list(ext.get("recent_files") or []),
+            "recent_events": list(ext.get("recent_events") or []),
+            "stuck": bool(ext.get("stuck", False)),
+        })
+
+    for row in merged:
+        row.pop("_transcript_only", None)
+
+    merged.sort(
+        key=lambda s: str(
+            s.get("last_active_at") or s.get("last_event_at") or s.get("last_active") or ""
+        ),
+        reverse=True,
+    )
+    return merged
 
 
 # Coordination snapshot cache (→1738). The gather below walks the ostk
@@ -550,26 +755,44 @@ def _gather_sessions_and_events_sync(
         # by _get_sessions(). Agent/transcript sessions don't carry it.
         activity = s.get("activity", "")
         recent_files = s.get("recent_files", [])
-        if "stuck" in s:
-            stuck = s["stuck"]
-        else:
-            try:
-                la = datetime.fromisoformat(s["last_active"].replace("Z", "+00:00"))
-                stuck = _is_stuck(la, now_utc)
-            except (ValueError, TypeError, KeyError):
-                stuck = False
-        sessions.append({
+        la_iso = s["last_active"]
+        try:
+            la_dt = datetime.fromisoformat(la_iso.replace("Z", "+00:00"))
+            age_seconds = max(0, int((now_utc - la_dt).total_seconds()))
+            computed_stuck = _is_stuck(la_dt, now_utc)
+        except (ValueError, TypeError, KeyError):
+            age_seconds = 0
+            computed_stuck = False
+        stuck = s["stuck"] if "stuck" in s else computed_stuck
+        raw_pid = s.get("pid")
+        pid_val = (
+            raw_pid
+            if isinstance(raw_pid, int) and not isinstance(raw_pid, bool)
+            else _extract_pid_from_session_id(sid)
+        )
+        row_entry = {
             "id": sid,
+            "session_id": sid,
             "name": task or sid,
             "label": label,
             "type": _session_type(sid),
+            "runtime": s.get("runtime") or _infer_session_runtime(sid, meta),
+            "kind": s.get("kind") or "interactive",
+            "pid": pid_val,
+            "cwd": s.get("cwd") or meta.get("worktree_path") or meta.get("cwd"),
+            "external": bool(s.get("external", False)),
             "started_at": meta.get("spawned_at"),
-            "last_active_at": s["last_active"],
+            "last_active_at": la_iso,
+            "last_event_at": la_iso,
+            "age_seconds": age_seconds,
             "status": s["status"],
             "activity": activity,
             "recent_files": recent_files,
             "stuck": stuck,
-        })
+        }
+        if s.get("_transcript_only"):
+            row_entry["_transcript_only"] = True
+        sessions.append(row_entry)
 
     # --- recent coordination events (nudges across all agents, last 20) ---
     all_events: list[dict] = []
@@ -589,7 +812,7 @@ def _gather_sessions_and_events_sync(
     return sessions, events, conflicts
 
 
-async def _build_coordination_data() -> dict:
+async def _build_coordination_data(include_external: Optional[bool] = None) -> dict:
     """Assemble the full coordination snapshot (sessions, locks, events).
 
     The filesystem-heavy session/event gather is offloaded to a worker thread
@@ -606,6 +829,14 @@ async def _build_coordination_data() -> dict:
     sessions, events, conflicts = await asyncio.to_thread(
         _gather_sessions_and_events_sync, meta_snapshot, nudge_snapshot
     )
+
+    if _should_discover_external(include_external):
+        discover_fn = _resolve_discover_callable()
+        external_sessions = await discover_fn()
+        sessions = _merge_external_sessions(sessions, external_sessions)
+    else:
+        for row in sessions:
+            row.pop("_transcript_only", None)
 
     # --- locks (already async) ---
     try:
@@ -688,9 +919,46 @@ async def sessions_state_ws(websocket: WebSocket) -> None:
         pass
 
 
+@router.get("/sessions")
+async def list_sessions(include_external: Optional[bool] = Query(default=None)):
+    """Unified Mission Control sessions feed (->3121).
+
+    Merges ostk/agent sessions with ground-truth external Claude (`claude agents
+    --json`) and Gemini (`~/.gemini/tmp/*/chats/session-*.jsonl`) sessions,
+    deduplicating by session ID, PID, or name.
+    """
+    from routers.agents import agent_metadata, nudge_history
+
+    meta_snapshot = dict(agent_metadata)
+    nudge_snapshot = {k: list(v) for k, v in nudge_history.items()}
+
+    sessions, _, conflicts = await asyncio.to_thread(
+        _gather_sessions_and_events_sync, meta_snapshot, nudge_snapshot
+    )
+
+    if _should_discover_external(include_external):
+        discover_fn = _resolve_discover_callable()
+        external_sessions = await discover_fn()
+        sessions = _merge_external_sessions(sessions, external_sessions)
+    else:
+        for row in sessions:
+            row.pop("_transcript_only", None)
+
+    return {
+        "sessions": sessions,
+        "conflicts": conflicts,
+        "count": len(sessions),
+        "active_count": sum(1 for s in sessions if s.get("status") == "active"),
+        "idle_count": sum(1 for s in sessions if s.get("status") == "idle"),
+        "external_count": sum(1 for s in sessions if s.get("external")),
+    }
+
+
 @router.get("/sessions/coordination")
-async def get_coordination():
+async def get_coordination(include_external: Optional[bool] = Query(default=None)):
     """Visible coordination panel: sessions, locks, and recent inter-session events."""
+    if include_external is not None:
+        return await _build_coordination_data(include_external=include_external)
     return await _coordination_snapshot()
 
 
@@ -966,6 +1234,7 @@ def reset_session_caches() -> None:
     _coord_cache_ts = 0.0
     _digest_cache = None
     _digest_cache_ts = 0.0
+    reset_runtime_sessions_cache()
 
 
 @router.get("/sessions/digest")
@@ -977,7 +1246,7 @@ async def get_digest():
 
 
 @router.get("/sessions/active")
-async def get_active_sessions():
+async def get_active_sessions(include_external: Optional[bool] = Query(default=None)):
     """Return all sessions that have written events in the last 30 minutes,
     merged with every live agent record (Claude Code tabs, chat turns,
     spawned fleet members). Without the merge the counter was always zero
@@ -988,4 +1257,17 @@ async def get_active_sessions():
     (->2018): on the event loop it blocked every other request and WS
     publish under the live frontend's multi-socket polling.
     """
-    return await asyncio.to_thread(_build_active_sessions)
+    payload = await asyncio.to_thread(_build_active_sessions)
+    if _should_discover_external(include_external):
+        discover_fn = _resolve_discover_callable()
+        external_sessions = await discover_fn()
+        merged = _merge_external_sessions(payload["sessions"], external_sessions)
+        return {
+            "sessions": merged,
+            "count": len(merged),
+            "active_count": sum(1 for s in merged if s.get("status") == "active"),
+            "idle_count": sum(1 for s in merged if s.get("status") == "idle"),
+        }
+    for row in payload["sessions"]:
+        row.pop("_transcript_only", None)
+    return payload
