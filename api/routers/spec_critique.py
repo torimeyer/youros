@@ -229,13 +229,14 @@ async def _run_optional_live_critique(
             from services.gemini_cli_provider import (
                 _build_subprocess_env,
                 _find_gemini_binary,
+                build_gemini_readonly_args,
                 resolve_gemini_cli_model,
             )
 
             gem_bin = _find_gemini_binary()
             if not gem_bin:
                 return None
-            cmd = [gem_bin, "-p", prompt, "--skip-trust"]
+            cmd = [gem_bin, "-p", prompt, "--skip-trust", *build_gemini_readonly_args()]
             mapped = resolve_gemini_cli_model(model)
             if mapped:
                 cmd.extend(["-m", mapped])
@@ -253,9 +254,17 @@ async def _run_optional_live_critique(
             claude_bin = shutil.which("claude")
             if not claude_bin:
                 return None
-            cmd = [claude_bin, "--print", prompt]
+            cmd = [
+                claude_bin,
+                "--print",
+                "--permission-mode",
+                "plan",
+                "--no-session-persistence",
+                "--disallowed-tools=Edit,Write,Bash,NotebookEdit,mcp__ostk__fs_ops,mcp__ostk__bash,mcp__ostk__spawn",
+            ]
             if model:
                 cmd.extend(["--model", model])
+            cmd.extend(["--", prompt])
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
