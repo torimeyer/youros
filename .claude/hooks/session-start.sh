@@ -17,64 +17,108 @@ set -u
 
 INPUT=$(cat)
 
-CWD=$(echo "$INPUT" | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-print(d.get('cwd', ''))
-" 2>/dev/null)
+HOST_SHORT=$(hostname -s 2>/dev/null || echo "host")
+PARSED=$(INPUT_JSON="$INPUT" HOST_SHORT="$HOST_SHORT" HOOK_PID="$$" python3 <<'PY' 2>/dev/null
+import json, os, re, sys
 
-MODEL=$(echo "$INPUT" | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-m = d.get('model', '')
-if not m:
-    m = d.get('session', {}).get('model', 'claude-sonnet-4-6')
-print(m)
-" 2>/dev/null)
+raw = os.environ.get("INPUT_JSON", "") or "{}"
+try:
+    d = json.loads(raw, strict=False)
+except Exception:
+    d = {}
 
-SESSION_ID=$(echo "$INPUT" | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-sid = d.get('session_id', '') or d.get('session', {}).get('id', '')
-print(sid)
-" 2>/dev/null)
+event_name = (d.get("hook_event_name") or "").strip()
+session_obj = d.get("session") if isinstance(d.get("session"), dict) else {}
+raw_model = (d.get("model") or session_obj.get("model") or "").strip()
+
+if event_name in {"PreToolUse", "PostToolUse", "UserPromptSubmit", "Stop", "SubagentStop"}:
+    runtime = "claude"
+elif event_name in {
+    "BeforeTool", "AfterTool", "BeforeAgent", "AfterAgent",
+    "BeforeModel", "AfterModel", "BeforeToolSelection", "PreCompress",
+}:
+    runtime = "gemini"
+elif raw_model.lower().startswith("gemini"):
+    runtime = "gemini"
+elif raw_model.lower().startswith("claude"):
+    runtime = "claude"
+elif os.environ.get("GEMINI_PROJECT_DIR") or os.environ.get("GEMINI_SESSION_ID"):
+    runtime = "gemini"
+else:
+    runtime = "claude"
+
+if runtime == "gemini":
+    proj_dir = os.environ.get("GEMINI_PROJECT_DIR") or os.environ.get("CLAUDE_PROJECT_DIR") or ""
+    default_model = "gemini-3.1-pro-preview"
+    prefix = "gemini-cli"
+    source_val = "gemini-cli"
+    label = "Gemini CLI"
+    env_sid = os.environ.get("GEMINI_SESSION_ID") or os.environ.get("CLAUDE_SESSION_ID") or ""
+else:
+    proj_dir = os.environ.get("CLAUDE_PROJECT_DIR") or os.environ.get("GEMINI_PROJECT_DIR") or ""
+    default_model = "claude-sonnet-4-6"
+    prefix = "claude-code"
+    source_val = "claude-code"
+    label = "Claude Code"
+    env_sid = os.environ.get("CLAUDE_SESSION_ID") or os.environ.get("GEMINI_SESSION_ID") or ""
+
+cwd = (d.get("cwd") or proj_dir or "").strip()
+model = raw_model or default_model
+sid = (d.get("session_id") or session_obj.get("id") or env_sid or "").strip()
+
+if sid:
+    raw_name = f"{prefix}-{sid[:10]}"
+else:
+    raw_name = f"{prefix}-{os.environ.get('HOST_SHORT', 'host')}-{os.environ.get('HOOK_PID', '0')}"
+
+agent_name = re.sub(r"[^a-z0-9-]+", "-", raw_name.lower())
+agent_name = re.sub(r"-+", "-", agent_name).strip("-")
+
+reg_body = json.dumps({
+    "name": agent_name,
+    "model": model,
+    "budget": 0,
+    "status": "running",
+    "source": source_val,
+    "description": f"{label} session (cwd: {cwd})",
+})
+
+US = "\x1f"
+sys.stdout.write(f"{runtime}{US}{cwd}{US}{model}{US}{agent_name}{US}{reg_body}")
+PY
+)
+
+RUNTIME="claude"
+CWD="${CLAUDE_PROJECT_DIR:-${GEMINI_PROJECT_DIR:-}}"
+MODEL="claude-sonnet-4-6"
+AGENT_NAME="claude-code-${HOST_SHORT}-$$"
+REGISTER_BODY=""
+if [ -n "$PARSED" ]; then
+    IFS=$'\x1f' read -r RUNTIME CWD MODEL AGENT_NAME REGISTER_BODY <<<"$PARSED"
+fi
 
 # ---- 1. Record the current model for downstream hooks. ----
 if [ -n "$CWD" ] && [ -d "$CWD/.ostk" ]; then
     echo "$MODEL" > "$CWD/.ostk/current_model" 2>/dev/null || true
 fi
 
-# Derive a session agent name. Prefer session_id for uniqueness; fall
-# back to hostname + pid so concurrent sessions get different names.
-if [ -n "$SESSION_ID" ]; then
-    AGENT_NAME="claude-code-${SESSION_ID:0:10}"
-else
-    AGENT_NAME="claude-code-$(hostname -s)-$$"
-fi
-
-# Sanitize to [a-z0-9-]
-AGENT_NAME=$(echo "$AGENT_NAME" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9-' '-' | sed 's/--*/-/g' | sed 's/^-//;s/-$//')
-
 # ---- 2. Register as an agent in ToriOS. ----
-# HTTPS only — plain HTTP returns empty reply (HTTP 000) because the backend
-# requires TLS. Attempting HTTP first was generating a failing TCP connection
-# on every session start (→1192).
-curl -sSk --connect-timeout 2 -m 3 \
-    -X POST "https://localhost:8000/api/agents/register" \
-    -H 'Content-Type: application/json' \
-    -d "{
-        \"name\": \"$AGENT_NAME\",
-        \"model\": \"$MODEL\",
-        \"budget\": 0,
-        \"status\": \"running\",
-        \"description\": \"Claude Code session (cwd: $CWD)\"
-    }" > /dev/null 2>&1 || true
+# HTTPS by default -- plain HTTP returns empty reply (HTTP 000) because the backend
+# requires TLS. YOUROS_BACKEND_URL / TORIOS_API_BASE override for isolated tests.
+API_BASE="${YOUROS_BACKEND_URL:-${TORIOS_API_BASE:-https://localhost:8000}}"
+if [ -n "$REGISTER_BODY" ]; then
+    curl -sSk --connect-timeout 2 -m 3 \
+        -X POST "${API_BASE}/api/agents/register" \
+        -H 'Content-Type: application/json' \
+        -d "$REGISTER_BODY" > /dev/null 2>&1 || true
+fi
 
 # ---- 2b. Drain any pending subagent registrations. ----
 # When the backend was down or the MCP was flapping at spawn time,
 # register-agent.sh parks the POST body in this file. Replay each
 # line now. Lines that succeed are dropped; lines that still fail
 # stay in the queue for the next session.
+DRAIN_BASE="${YOUROS_BACKEND_URL:-${TORIOS_API_BASE:-https://127.0.0.1:8000}}"
 PENDING_QUEUE="$HOME/.youros/subagents/pending-register.jsonl"
 if [ -f "$PENDING_QUEUE" ] && [ -s "$PENDING_QUEUE" ]; then
     TMP_REMAIN=$(mktemp 2>/dev/null || echo "${PENDING_QUEUE}.tmp.$$")
@@ -82,7 +126,7 @@ if [ -f "$PENDING_QUEUE" ] && [ -s "$PENDING_QUEUE" ]; then
     while IFS= read -r line; do
         [ -z "$line" ] && continue
         if curl -sSk --connect-timeout 2 -m 4 \
-                -X POST "https://127.0.0.1:8000/api/agents/register" \
+                -X POST "${DRAIN_BASE}/api/agents/register" \
                 -H 'Content-Type: application/json' \
                 -d "$line" > /dev/null 2>&1; then
             # Succeeded. Do not keep this line.
@@ -158,7 +202,7 @@ _GIT_MAIN_WT=$(git -C "${CWD:-.}" worktree list --porcelain 2>/dev/null \
 WATCHER_SCRIPT="${_GIT_MAIN_WT:-$CWD}/.claude/hooks/lib/agent-completion-watcher.sh"
 WATCHER_PID_FILE="$HOME/.youros/subagents/completion-watcher.pid"
 
-if [ -x "$WATCHER_SCRIPT" ] && [ -z "${YOUROS_AGENT_NAME:-}" ]; then
+if [ "${YOUROS_DISABLE_COMPLETION_WATCHER:-0}" != "1" ] && [ -x "$WATCHER_SCRIPT" ] && [ -z "${YOUROS_AGENT_NAME:-}" ]; then
     if [ -f "$WATCHER_PID_FILE" ]; then
         OLD_PID=$(cat "$WATCHER_PID_FILE" 2>/dev/null)
         case "$OLD_PID" in
@@ -193,6 +237,10 @@ fi
 REPORT_SCRIPT="$CWD/scripts/session-start-report.sh"
 if [ -n "$CWD" ] && [ -x "$REPORT_SCRIPT" ] && [ -z "${YOUROS_AGENT_NAME:-}" ]; then
     bash "$REPORT_SCRIPT" "$CWD" >&2 || true
+fi
+
+if [ "$RUNTIME" = "gemini" ]; then
+    printf '{}\n'
 fi
 
 exit 0

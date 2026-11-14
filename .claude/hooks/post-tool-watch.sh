@@ -11,91 +11,152 @@ trap 'echo "$(date +%H:%M:%S.%N) $HOOK_NAME tool=${TOOL:-?} exit=$?" >> /tmp/hoo
 set -u
 INPUT=$(cat 2>/dev/null || true)
 
-# Single-pass parse: tool_name, file_path, command.
+# Single-pass parse: runtime, normalized tool_name, file_path, command.
 PARSED=$(INPUT_JSON="$INPUT" python3 <<'PY' 2>/dev/null
 import os, json, sys
 try:
     d = json.loads(os.environ.get("INPUT_JSON", "") or "{}", strict=False)
 except Exception:
     sys.exit(0)
-tool = (d.get("tool_name") or "").strip()
+event_name = (d.get("hook_event_name") or "").strip()
+raw_model = (d.get("model") or "").strip()
+if event_name in {"PreToolUse", "PostToolUse", "UserPromptSubmit", "Stop", "SubagentStop"}:
+    runtime = "claude"
+elif event_name in {
+    "BeforeTool", "AfterTool", "BeforeAgent", "AfterAgent",
+    "BeforeModel", "AfterModel", "BeforeToolSelection", "PreCompress",
+}:
+    runtime = "gemini"
+elif raw_model.lower().startswith("gemini"):
+    runtime = "gemini"
+elif raw_model.lower().startswith("claude"):
+    runtime = "claude"
+elif os.environ.get("GEMINI_PROJECT_DIR") or os.environ.get("GEMINI_SESSION_ID"):
+    runtime = "gemini"
+else:
+    runtime = "claude"
+
+raw_tool = (d.get("tool_name") or "").strip()
+TOOL_MAP = {
+    "replace": "Edit",
+    "write_file": "Write",
+    "run_shell_command": "Bash",
+    "ShellTool": "Bash",
+    "read_file": "Read",
+    "grep": "Grep",
+    "grep_search": "Grep",
+    "glob": "Glob",
+    "list_directory": "Glob",
+    "ls": "Glob",
+    "mcp_ostk_bash": "mcp__ostk__bash",
+    "mcp_ostk_shell": "mcp__ostk__shell",
+}
+tool = TOOL_MAP.get(raw_tool, raw_tool)
 ti = d.get("tool_input", {}) or {}
-path = ti.get("file_path", "") or ""
-cmd = ti.get("command") or ti.get("cmd") or ""
-sys.stdout.write(tool + "\x1f" + path + "\x1f" + cmd)
+file_path = ti.get("file_path") or ti.get("path") or ""
+cmd = (ti.get("command") or ti.get("cmd") or "")
+sys.stdout.write(runtime + "\x1f" + tool + "\x1f" + file_path + "\x1f" + cmd)
 PY
 )
 
 if [ -z "$PARSED" ]; then
+    if [ -n "${GEMINI_PROJECT_DIR:-}" ] || [ -n "${GEMINI_SESSION_ID:-}" ]; then
+        printf '{}\n'
+    fi
     exit 0
 fi
 
-IFS=$'\x1f' read -r TOOL FILE_PATH CMD <<<"$PARSED"
+IFS=$'\x1f' read -r RUNTIME TOOL FILE_PATH CMD <<<"$PARSED"
+
+if [ -z "${CLAUDE_PROJECT_DIR:-}" ] && [ -n "${GEMINI_PROJECT_DIR:-}" ]; then
+    export CLAUDE_PROJECT_DIR="$GEMINI_PROJECT_DIR"
+fi
 
 # Export HOOK_INPUT for functions that need the full payload
 export HOOK_INPUT="$INPUT"
 
-case "$TOOL" in
-    Edit|Write)
-        . "$LIB/rules/edit_postwatch.sh"
-        rule_enabled edit_postwatch && _edit_postwatch_check "$TOOL" "$FILE_PATH"
-        # bash_postwatch also covers Edit|Write for the retry-queue and native-block-recovery
-        . "$LIB/rules/bash_postwatch.sh"
-        rule_enabled bash_postwatch && _bash_postwatch_check "$TOOL" "$CMD"
-        ;;
-    Bash|Read|Grep|Glob)
-        . "$LIB/rules/bash_postwatch.sh"
-        rule_enabled bash_postwatch && _bash_postwatch_check "$TOOL" "$CMD"
-        ;;
-    Monitor)
-        # Detect Monitor internal error in ADHD mode: disarm sentinel + emit reminder.
-        . "$LIB/rules/adhd_monitor_pairing.sh"
-        if rule_enabled adhd_monitor_pairing && [ -f "$HOME/.youros/.adhd_mode" ]; then
-            MON_PARSED=$(INPUT_JSON="$INPUT" python3 <<'PY' 2>/dev/null
+_post_tool_watch_dispatch() {
+    case "$TOOL" in
+        Edit|Write)
+            . "$LIB/rules/edit_postwatch.sh"
+            rule_enabled edit_postwatch && _edit_postwatch_check "$TOOL" "$FILE_PATH"
+            # bash_postwatch also covers Edit|Write for the retry-queue and native-block-recovery
+            . "$LIB/rules/bash_postwatch.sh"
+            rule_enabled bash_postwatch && _bash_postwatch_check "$TOOL" "$CMD"
+            ;;
+        Bash|Read|Grep|Glob)
+            . "$LIB/rules/bash_postwatch.sh"
+            rule_enabled bash_postwatch && _bash_postwatch_check "$TOOL" "$CMD"
+            ;;
+        Monitor)
+            # Detect Monitor internal error in ADHD mode: disarm sentinel + emit reminder.
+            . "$LIB/rules/adhd_monitor_pairing.sh"
+            if rule_enabled adhd_monitor_pairing && [ -f "$HOME/.youros/.adhd_mode" ]; then
+                MON_PARSED=$(INPUT_JSON="$INPUT" python3 <<'PY' 2>/dev/null
 import os, json, sys
 US = '\x1f'
 try:
     d = json.loads(os.environ.get('INPUT_JSON','') or '{}', strict=False)
 except Exception:
     sys.exit(0)
-sid = (d.get('session_id') or '').strip() or os.environ.get('CLAUDE_SESSION_ID','').strip() or 'default'
+sid = (d.get('session_id') or '').strip() or os.environ.get('CLAUDE_SESSION_ID','').strip() or os.environ.get('GEMINI_SESSION_ID','').strip() or 'default'
 sentinel = os.path.join(os.path.expanduser('~'), '.youros', f'.adhd-monitor-armed-{sid}')
 resp = d.get('tool_response', '') or ''
 if isinstance(resp, dict):
-    resp = str(resp.get('output', '') or resp.get('content', '') or '')
+    resp = str(resp.get('output', '') or resp.get('content', '') or resp.get('llmContent', '') or resp.get('returnDisplay', '') or '')
 resp_lower = resp.lower()
 failed = any(x in resp_lower for x in ['internal error', 'missing due to', 'tool result missing', 'failed to start'])
 sys.stdout.write(sentinel + US + ('1' if failed else '0'))
 PY
-            )
-            IFS=$'\x1f' read -r MON_SENTINEL MON_FAILED <<<"${MON_PARSED:-}"
-            if [ "${MON_FAILED:-0}" = "1" ]; then
-                _adhd_monitor_pairing_disarm "Monitor" "${MON_SENTINEL:-}" "Monitor returned internal error"
-                printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"ADHD-MODE MONITOR FAILURE: Monitor returned an internal error and the sentinel has been disarmed. The next Agent spawn will be BLOCKED until a working Monitor is armed. IMMEDIATELY: (1) retry Monitor with a simpler command (a plain `while true; do sleep 60; echo tick; done` loop), OR (2) call ScheduleWakeup(delaySeconds=60) as a fallback heartbeat. Never continue in ADHD mode without a confirmed-running heartbeat."}}\n'
+                )
+                IFS=$'\x1f' read -r MON_SENTINEL MON_FAILED <<<"${MON_PARSED:-}"
+                if [ "${MON_FAILED:-0}" = "1" ]; then
+                    _adhd_monitor_pairing_disarm "Monitor" "${MON_SENTINEL:-}" "Monitor returned internal error"
+                    printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"ADHD-MODE MONITOR FAILURE: Monitor returned an internal error and the sentinel has been disarmed. The next Agent spawn will be BLOCKED until a working Monitor is armed. IMMEDIATELY: (1) retry Monitor with a simpler command (a plain `while true; do sleep 60; echo tick; done` loop), OR (2) call ScheduleWakeup(delaySeconds=60) as a fallback heartbeat. Never continue in ADHD mode without a confirmed-running heartbeat."}}\n'
+                fi
             fi
-        fi
-        ;;
-    mcp__ostk__bash|mcp__ostk__shell)
-        # Authoritative open-needle count after `ostk boot` — the [loadavg] line in
-        # boot output is unreliable (see feedback_boot_loadavg_needles_unreliable.md);
-        # this prints the real count alongside it so the model can't quote the wrong one.
-        if [[ "$CMD" =~ ^ostk[[:space:]]+boot ]]; then
-            # One definition of task (2026-07-18): the user-facing count is the
-            # visibility-filtered /api/tasks list, matching the Tasks page badge.
-            # The raw ledger (ostk work list) includes hidden acceptance rows and
-            # is only used as a labeled fallback when the backend is down.
-            _task_count=$(curl -sSk --connect-timeout 3 -m 5 https://127.0.0.1:8000/api/tasks 2>/dev/null | grep -o '"id"' | wc -l | tr -d ' ')
-            if [[ -n "$_task_count" && "$_task_count" != "0" ]]; then
-                printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"AUTHORITATIVE OPEN TASKS: %s (visibility-filtered /api/tasks, matches the Tasks page badge; never quote ostk work list as the task count — it includes hidden acceptance rows)."}}\n' "$_task_count"
-            else
-                _needle_count=$(ostk work list --status open 2>/dev/null | grep -c '^  →' || echo 0)
-                printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"OPEN ROWS IN RAW LEDGER: %s (backend unreachable; this raw ostk work list count includes hidden acceptance rows and is NOT the Tasks-page number)."}}\n' "$_needle_count"
+            ;;
+        mcp__ostk__bash|mcp__ostk__shell)
+            if [[ "$CMD" =~ ^ostk[[:space:]]+boot ]]; then
+                _api_base="${YOUROS_BACKEND_URL:-${TORIOS_API_BASE:-https://127.0.0.1:8000}}"
+                _task_count=$(curl -sSk --connect-timeout 3 -m 5 "${_api_base}/api/tasks" 2>/dev/null | grep -o '"id"' | wc -l | tr -d ' ')
+                if [[ -n "$_task_count" && "$_task_count" != "0" ]]; then
+                    printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"AUTHORITATIVE OPEN TASKS: %s (visibility-filtered /api/tasks, matches the Tasks page badge; never quote ostk work list as the task count -- it includes hidden acceptance rows)."}}\n' "$_task_count"
+                else
+                    _needle_count=$(ostk work list --status open 2>/dev/null | grep -c '^  →' || echo 0)
+                    printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"OPEN ROWS IN RAW LEDGER: %s (backend unreachable; this raw ostk work list count includes hidden acceptance rows and is NOT the Tasks-page number)."}}\n' "$_needle_count"
+                fi
             fi
-        fi
-        ;;
-    *)
-        exit 0
-        ;;
-esac
+            ;;
+        *)
+            return 0
+            ;;
+    esac
+}
+
+if [ "$RUNTIME" = "gemini" ]; then
+    _PTW_OUT="$(_post_tool_watch_dispatch)"
+    PTW_RAW="$_PTW_OUT" python3 <<'PY'
+import json, os
+
+raw = (os.environ.get("PTW_RAW") or "").strip()
+if not raw:
+    print("{}")
+else:
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, dict):
+            hso = parsed.get("hookSpecificOutput")
+            if isinstance(hso, dict) and hso.get("hookEventName") == "PostToolUse":
+                hso["hookEventName"] = "AfterTool"
+            print(json.dumps(parsed))
+        else:
+            print(json.dumps({"hookSpecificOutput": {"hookEventName": "AfterTool", "additionalContext": raw}}))
+    except Exception:
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "AfterTool", "additionalContext": raw}}))
+PY
+else
+    _post_tool_watch_dispatch
+fi
 
 exit 0

@@ -15,29 +15,86 @@ trap 'echo "$(date +%H:%M:%S.%N) $HOOK_NAME tool=${TOOL:-?} exit=$?" >> /tmp/hoo
 set -u
 INPUT=$(cat)
 
-# Single-pass JSON parse: extract tool_name and command.
+# Single-pass JSON parse: extract runtime, normalized tool_name, and command.
 PARSED=$(INPUT_JSON="$INPUT" python3 <<'PY' 2>/dev/null
 import os, json, sys
 try:
     d = json.loads(os.environ.get("INPUT_JSON", "") or "{}", strict=False)
 except Exception:
     sys.exit(0)
-tool = (d.get("tool_name") or "").strip()
+event_name = (d.get("hook_event_name") or "").strip()
+raw_model = (d.get("model") or "").strip()
+if event_name in {"PreToolUse", "PostToolUse", "UserPromptSubmit", "Stop", "SubagentStop"}:
+    runtime = "claude"
+elif event_name in {
+    "BeforeTool", "AfterTool", "BeforeAgent", "AfterAgent",
+    "BeforeModel", "AfterModel", "BeforeToolSelection", "PreCompress",
+}:
+    runtime = "gemini"
+elif raw_model.lower().startswith("gemini"):
+    runtime = "gemini"
+elif raw_model.lower().startswith("claude"):
+    runtime = "claude"
+elif os.environ.get("GEMINI_PROJECT_DIR") or os.environ.get("GEMINI_SESSION_ID"):
+    runtime = "gemini"
+else:
+    runtime = "claude"
+
+raw_tool = (d.get("tool_name") or "").strip()
+TOOL_MAP = {
+    "run_shell_command": "Bash",
+    "ShellTool": "Bash",
+    "mcp_ostk_bash": "mcp__ostk__bash",
+    "read_file": "Read",
+    "replace": "Edit",
+    "write_file": "Write",
+    "grep": "Grep",
+    "grep_search": "Grep",
+    "glob": "Glob",
+    "list_directory": "Glob",
+    "ls": "Glob",
+    "mcp_ostk_fs_ops": "mcp__ostk__fs_ops",
+    "codebase_investigator": "Agent",
+    "generalist": "Agent",
+}
+if raw_tool in TOOL_MAP:
+    tool = TOOL_MAP[raw_tool]
+elif raw_tool.startswith("mcp_ostk_needle"):
+    tool = "mcp__ostk__needle" + raw_tool[len("mcp_ostk_needle"):]
+elif raw_tool.startswith("mcp_ostk_add"):
+    tool = "mcp__ostk__add" + raw_tool[len("mcp_ostk_add"):]
+else:
+    tool = raw_tool
+
 ti = d.get("tool_input", {}) or {}
 cmd = (ti.get("command") or ti.get("cmd") or "")
-sys.stdout.write(tool + "\x1f" + cmd)
+sys.stdout.write(runtime + "\x1f" + tool + "\x1f" + cmd)
 PY
 )
 
 if [ -z "$PARSED" ]; then
+    if [ -n "${GEMINI_PROJECT_DIR:-}" ] || [ -n "${GEMINI_SESSION_ID:-}" ]; then
+        printf '{}\n'
+    fi
     exit 0
 fi
 
-IFS=$'\x1f' read -r TOOL CMD <<<"$PARSED"
+IFS=$'\x1f' read -r RUNTIME TOOL CMD <<<"$PARSED"
+
+if [ -z "${CLAUDE_PROJECT_DIR:-}" ] && [ -n "${GEMINI_PROJECT_DIR:-}" ]; then
+    export CLAUDE_PROJECT_DIR="$GEMINI_PROJECT_DIR"
+fi
+
+_finish_allow() {
+    if [ "${RUNTIME:-claude}" = "gemini" ]; then
+        printf '{}\n'
+    fi
+    exit 0
+}
 
 # Agent is handled by pre-agent-guard.sh; skip it here.
 case "$TOOL" in
-    Agent|Task) exit 0 ;;
+    Agent|Task) _finish_allow ;;
 esac
 
 # ---- Dispatch by tool ----
@@ -156,8 +213,8 @@ except Exception:
 
     *)
         # Unknown tool: no rules apply
-        exit 0
+        _finish_allow
         ;;
 esac
 
-exit 0
+_finish_allow

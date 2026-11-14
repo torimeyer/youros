@@ -18,6 +18,10 @@ __pycache__/
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
 .claude/worktrees/
+.gemini/*
+!.gemini/settings.json
+!.gemini/policies/
+!.gemini/policies/**
 # .mcp.json is gitignored because it contains a per-user Stitch API key.
 # The tracked template is .mcp.json.example. install.sh copies it into
 # place on first install so every user gets a working config skeleton

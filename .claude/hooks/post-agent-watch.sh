@@ -12,22 +12,7 @@ trap 'echo "$(date +%H:%M:%S.%N) $HOOK_NAME tool=${TOOL:-?} exit=$?" >> /tmp/hoo
 set -u
 INPUT=$(cat)
 
-# Verify tool is Agent
-TOOL=$(INPUT_JSON="$INPUT" python3 -c "
-import os, json, sys
-try:
-    d = json.loads(os.environ.get('INPUT_JSON','') or '{}')
-    print((d.get('tool_name') or '').strip())
-except Exception:
-    pass
-" 2>/dev/null)
-
-case "${TOOL:-}" in
-    Agent) : ;;
-    *) exit 0 ;;
-esac
-
-# Parse agent name and session_id from tool response
+# Parse runtime, tool_name, agent_name, and session_id in one pass
 AGENT_PARSED=$(INPUT_JSON="$INPUT" python3 <<'PY' 2>/dev/null
 import os, sys, json, re
 
@@ -36,14 +21,33 @@ raw = os.environ.get("INPUT_JSON", "") or "{}"
 try:
     d = json.loads(raw, strict=False)
 except Exception:
-    sys.exit(0)
+    d = {}
 
+event_name = (d.get("hook_event_name") or "").strip()
+raw_model = (d.get("model") or "").strip()
+if event_name in {"PreToolUse", "PostToolUse", "UserPromptSubmit", "Stop", "SubagentStop"}:
+    runtime = "claude"
+elif event_name in {
+    "BeforeTool", "AfterTool", "BeforeAgent", "AfterAgent",
+    "BeforeModel", "AfterModel", "BeforeToolSelection", "PreCompress",
+}:
+    runtime = "gemini"
+elif raw_model.lower().startswith("gemini"):
+    runtime = "gemini"
+elif raw_model.lower().startswith("claude"):
+    runtime = "claude"
+elif os.environ.get("GEMINI_PROJECT_DIR") or os.environ.get("GEMINI_SESSION_ID"):
+    runtime = "gemini"
+else:
+    runtime = "claude"
+
+tool = (d.get("tool_name") or "").strip()
 tr = d.get("tool_response") or {}
 haystack = ""
 if isinstance(tr, str):
     haystack = tr
 elif isinstance(tr, dict):
-    for key in ("stderr", "error", "output", "content", "message", "text"):
+    for key in ("stderr", "error", "output", "content", "message", "text", "llmContent", "returnDisplay"):
         v = tr.get(key)
         if isinstance(v, str):
             haystack += v + "\n"
@@ -67,11 +71,33 @@ if not spawn_name:
         pass
 
 session_id = (d.get("session_id") or "").strip()
-sys.stdout.write(f"{spawn_name}{US}{session_id}")
+sys.stdout.write(f"{runtime}{US}{tool}{US}{spawn_name}{US}{session_id}")
 PY
 )
 
-IFS=$'\x1f' read -r AGENT_NAME SESSION_ID <<<"${AGENT_PARSED:-}"
+RUNTIME="claude"
+TOOL=""
+AGENT_NAME=""
+SESSION_ID=""
+if [ -n "$AGENT_PARSED" ]; then
+    IFS=$'\x1f' read -r RUNTIME TOOL AGENT_NAME SESSION_ID <<<"$AGENT_PARSED"
+fi
+
+if [ -z "${CLAUDE_PROJECT_DIR:-}" ] && [ -n "${GEMINI_PROJECT_DIR:-}" ]; then
+    export CLAUDE_PROJECT_DIR="$GEMINI_PROJECT_DIR"
+fi
+
+_finish_watch() {
+    if [ "${RUNTIME:-claude}" = "gemini" ]; then
+        printf '{}\n'
+    fi
+    exit 0
+}
+
+case "${TOOL:-}" in
+    Agent|Task|codebase_investigator|generalist) : ;;
+    *) _finish_watch ;;
+esac
 
 # Export HOOK_INPUT for functions that need full payload
 export HOOK_INPUT="$INPUT"
@@ -86,4 +112,4 @@ if rule_enabled scaffold_commit_watcher && [ -n "$AGENT_NAME" ]; then
     _scaffold_commit_watcher_check "$TOOL" "${AGENT_NAME:-}" "${SESSION_ID:-}"
 fi
 
-exit 0
+_finish_watch

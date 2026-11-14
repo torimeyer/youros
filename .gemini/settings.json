@@ -1,0 +1,80 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$GEMINI_PROJECT_DIR/.claude/hooks/session-start.sh"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$GEMINI_PROJECT_DIR/.claude/hooks/session-end.sh"
+          }
+        ]
+      }
+    ],
+    "BeforeAgent": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$GEMINI_PROJECT_DIR/.claude/hooks/prompt-header.sh"
+          }
+        ]
+      }
+    ],
+    "BeforeTool": [
+      {
+        "matcher": "Agent|codebase_investigator|generalist",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$GEMINI_PROJECT_DIR/.claude/hooks/pre-agent-guard.sh"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$GEMINI_PROJECT_DIR/.claude/hooks/heartbeat-and-drain.sh"
+          },
+          {
+            "type": "command",
+            "command": "$GEMINI_PROJECT_DIR/.claude/hooks/pre-tool-guard.sh"
+          }
+        ]
+      }
+    ],
+    "AfterTool": [
+      {
+        "matcher": "Agent|codebase_investigator|generalist",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$GEMINI_PROJECT_DIR/.claude/hooks/complete-agent.sh"
+          },
+          {
+            "type": "command",
+            "command": "$GEMINI_PROJECT_DIR/.claude/hooks/post-agent-watch.sh"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$GEMINI_PROJECT_DIR/.claude/hooks/post-tool-watch.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

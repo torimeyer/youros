@@ -17,9 +17,9 @@ _SR_PREV_EPOCH=$(cat "${HOME}/.youros/hooks/last-user-turn.stamp" 2>/dev/null | 
 date +%s > "${HOME}/.youros/hooks/last-user-turn.stamp" 2>/dev/null || true
 
 # === CONFIG PRE-LOAD (1 python3 call replaces all rule_enabled/rule_param invocations) ===
-# Reads both JSON config files once and emits shell variable assignments.
-eval "$(python3 - "${_LOAD_RULE_DIR}/default-rules.json" "${HOME}/.youros/rules.json" <<'_CFGEOF' 2>/dev/null
-import json, sys
+# Reads both JSON config files once and emits shell variable assignments + runtime detection.
+eval "$(INPUT_JSON="$INPUT" python3 - "${_LOAD_RULE_DIR}/default-rules.json" "${HOME}/.youros/rules.json" <<'_CFGEOF' 2>/dev/null
+import json, os, sys
 
 def load(p):
     try:
@@ -32,6 +32,29 @@ def deep_merge(a, b):
         if isinstance(v, dict) and isinstance(out.get(k), dict): out[k] = deep_merge(out[k], v)
         else: out[k] = v
     return out
+
+try:
+    inp = json.loads(os.environ.get("INPUT_JSON", "") or "{}", strict=False)
+except Exception:
+    inp = {}
+event_name = (inp.get("hook_event_name") or "").strip()
+raw_model = (inp.get("model") or "").strip()
+if event_name in {"PreToolUse", "PostToolUse", "UserPromptSubmit", "Stop", "SubagentStop"}:
+    runtime = "claude"
+elif event_name in {
+    "BeforeTool", "AfterTool", "BeforeAgent", "AfterAgent",
+    "BeforeModel", "AfterModel", "BeforeToolSelection", "PreCompress",
+}:
+    runtime = "gemini"
+elif raw_model.lower().startswith("gemini"):
+    runtime = "gemini"
+elif raw_model.lower().startswith("claude"):
+    runtime = "claude"
+elif os.environ.get("GEMINI_PROJECT_DIR") or os.environ.get("GEMINI_SESSION_ID"):
+    runtime = "gemini"
+else:
+    runtime = "claude"
+print(f"_YOUROS_RUNTIME={runtime}")
 
 cfg = deep_merge(load(sys.argv[1]), load(sys.argv[2]))
 rules = cfg.get("rules", {})
@@ -51,13 +74,17 @@ def flatten(d, prefix=""):
     for k, v in d.items():
         full = f"{prefix}.{k}" if prefix else k
         if isinstance(v, dict):
-            flatten(v, full)
+            flatten(d[k], full)
         elif not isinstance(v, list):
             emit(full, v)
 
 flatten(rules)
 _CFGEOF
 )"
+
+if [ -z "${CLAUDE_PROJECT_DIR:-}" ] && [ -n "${GEMINI_PROJECT_DIR:-}" ]; then
+    export CLAUDE_PROJECT_DIR="$GEMINI_PROJECT_DIR"
+fi
 
 # Override rule functions with fast cached env-var lookups (zero python3 per call).
 # These replace the python3-spawning versions from load-rule.sh.
@@ -97,7 +124,7 @@ log_rule_fire() {
     fi
 
     ts=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
-    local session_id="${CLAUDE_SESSION_ID:-unknown}"
+    local session_id="${CLAUDE_SESSION_ID:-${GEMINI_SESSION_ID:-unknown}}"
 
     # JSON-escape a string (handles the simple strings used in rule keys/reasons)
     _je() { local s="$1"; s="${s//\\/\\\\}"; s="${s//\"/\\\"}"; echo -n "$s"; }
@@ -109,6 +136,7 @@ log_rule_fire() {
     return 0
 }
 
+_emit_prompt_header() {
 # ---- STANDING RULES (always emitted, infra) ----
 cat <<'EOF'
 STANDING RULES:
@@ -154,14 +182,12 @@ BACKEND_URL="${YOUROS_BACKEND_URL:-https://127.0.0.1:8000}"
 STAMP_FILE="${HOME}/.youros/hooks/agent-snapshot.stamp"
 
 _USER_MSG_FILE=$(mktemp -t user-msg-XXXXXX)
-trap 'rm -f "$_USER_MSG_FILE"' EXIT
 
-AGENTS_JSON=$(curl --silent --insecure --tlsv1.2 --tls-max 1.2 --connect-timeout 1 -m 2 \
+AGENTS_JSON=$(curl --silent --insecure --connect-timeout 1 -m 2 \
     "${BACKEND_URL}/api/agents" 2>/dev/null || echo "")
 
 if [ -n "$AGENTS_JSON" ]; then
     _AGENTS_FILE=$(mktemp -t agents-snap-XXXXXX)
-    trap 'rm -f "$_AGENTS_FILE"' EXIT
     printf '%s' "$AGENTS_JSON" > "$_AGENTS_FILE"
 else
     _AGENTS_FILE=""
@@ -180,7 +206,7 @@ python3 - "${_AGENTS_FILE:-}" <<'MEGAPY' 2>/dev/null
 import json, os, sys
 from datetime import datetime, timezone
 
-INCLUDE_SOURCES = {"claude-code", "task-bridge"}
+INCLUDE_SOURCES = {"claude-code", "gemini-cli", "task-bridge"}
 MAX_ROWS = 8
 TERMINAL_STATUSES = {"completed","failed","cancelled","terminated_stale","completed_timeout","stopped"}
 
@@ -219,7 +245,7 @@ for a in agents:
     if a.get("source") not in INCLUDE_SOURCES:
         continue
     name = a.get("name") or ""
-    if not name or name.startswith("claude-code-"):
+    if not name or name.startswith("claude-code-") or name.startswith("gemini-cli-"):
         continue
     if a.get("status") == "running":
         running.append({"name": name})
@@ -244,7 +270,7 @@ for a in agents:
     if a.get("source") not in INCLUDE_SOURCES:
         continue
     name = a.get("name") or ""
-    if not name or name.startswith("claude-code-"):
+    if not name or name.startswith("claude-code-") or name.startswith("gemini-cli-"):
         continue
     status = a.get("status")
     if status not in TERMINAL_STATUSES:
@@ -456,5 +482,23 @@ PY
   return 0
 }
 rule_enabled permission_deny_detector && _permission_deny_detector_check
+
+rm -f "$_USER_MSG_FILE" "${_AGENTS_FILE:-}" 2>/dev/null || true
+}
+
+if [ "${_YOUROS_RUNTIME:-claude}" = "gemini" ]; then
+    _PH_OUT="$(_emit_prompt_header)"
+    PH_RAW="$_PH_OUT" python3 <<'PY'
+import json, os
+
+raw = (os.environ.get("PH_RAW") or "").strip()
+if raw:
+    print(json.dumps({"hookSpecificOutput": {"hookEventName": "BeforeAgent", "additionalContext": raw}}))
+else:
+    print("{}")
+PY
+else
+    _emit_prompt_header
+fi
 
 exit 0

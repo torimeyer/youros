@@ -58,6 +58,22 @@ PENDING_COMPLETE="$HOME/.youros/subagents/pending-complete.jsonl"
 # derive tool_use_id, summary, and the AGENT_NAME to complete.
 INPUT=$(cat 2>/dev/null || true)
 
+RUNTIME="claude"
+if printf '%s' "$INPUT" | grep -qE '"hook_event_name"[[:space:]]*:[[:space:]]*"(BeforeTool|AfterTool|BeforeAgent|AfterAgent)"'; then
+    RUNTIME="gemini"
+elif ! printf '%s' "$INPUT" | grep -qE '"hook_event_name"[[:space:]]*:[[:space:]]*"(PreToolUse|PostToolUse|UserPromptSubmit)"'; then
+    if [ -n "${GEMINI_PROJECT_DIR:-}" ] || [ -n "${GEMINI_SESSION_ID:-}" ]; then
+        RUNTIME="gemini"
+    fi
+fi
+
+_finish_complete() {
+    if [ "$RUNTIME" = "gemini" ]; then
+        printf '{}\n'
+    fi
+    exit 0
+}
+
 # Debug: capture the PostToolUse payload so we can verify whether
 # Claude Code echoes tool_input.run_in_background back in PostToolUse.
 # The run_in_background guard below only skips /complete when we can
@@ -177,7 +193,7 @@ if [ "$RUN_IN_BACKGROUND" = "1" ]; then
         rm -f "$PER_ID_DIR/$SAFE_TUI_BG_CLEANUP.bg" 2>/dev/null || true
     fi
     : > "$HOME/.youros/subagents/last.bg" 2>/dev/null || true
-    exit 0
+    _finish_complete
 fi
 
 AGENT_NAME=""
@@ -198,7 +214,7 @@ if [ -z "$AGENT_NAME" ] && [ -f "$NAME_FILE" ]; then
 fi
 
 if [ -z "$AGENT_NAME" ]; then
-    exit 0
+    _finish_complete
 fi
 
 SUMMARY=$(INPUT_JSON="$INPUT" python3 <<'PY' 2>/dev/null || true
@@ -308,7 +324,7 @@ fi
 _AM_DEBT_LOG="$HOME/.youros/logs/merge-debt.log"
 mkdir -p "$(dirname "$_AM_DEBT_LOG")" 2>/dev/null || true
 
-_AM_PROJ="${CLAUDE_PROJECT_DIR:-}"
+_AM_PROJ="${CLAUDE_PROJECT_DIR:-${GEMINI_PROJECT_DIR:-}}"
 if [ -z "$_AM_PROJ" ]; then
     _AM_PROJ=$(git rev-parse --show-toplevel 2>/dev/null || true)
 fi
@@ -320,7 +336,7 @@ case "$_AM_PROJ" in
         _AM_SKIP=1 ;;
 esac
 case "$AGENT_NAME" in
-    claude-code-*)
+    claude-code-*|gemini-cli-*)
         echo "complete-agent: skip auto-merge (session row: $AGENT_NAME)" >&2
         _AM_SKIP=1 ;;
 esac
@@ -358,4 +374,4 @@ if [ "$_AM_SKIP" -eq 0 ] && [ -n "$_AM_PROJ" ]; then
     fi
 fi
 
-exit 0
+_finish_complete

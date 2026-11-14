@@ -34,20 +34,60 @@ extract() {
 }
 
 TOOL_NAME=$(extract tool_name)
+HOOK_EVENT=$(extract hook_event_name)
+MODEL_RAW=$(extract model)
+
+RUNTIME="claude"
+case "$HOOK_EVENT" in
+    PreToolUse|PostToolUse|UserPromptSubmit|Stop|SubagentStop)
+        RUNTIME="claude"
+        ;;
+    BeforeTool|AfterTool|BeforeAgent|AfterAgent|BeforeModel|AfterModel|BeforeToolSelection|PreCompress)
+        RUNTIME="gemini"
+        ;;
+    *)
+        case "$MODEL_RAW" in
+            [Gg]emini*) RUNTIME="gemini" ;;
+            [Cc]laude*) RUNTIME="claude" ;;
+            *)
+                if [ -n "${GEMINI_PROJECT_DIR:-}" ] || [ -n "${GEMINI_SESSION_ID:-}" ]; then
+                    RUNTIME="gemini"
+                fi
+                ;;
+        esac
+        ;;
+esac
 
 case "$TOOL_NAME" in
-    Agent) exit 0 ;;
+    Agent|Task|codebase_investigator|generalist)
+        if [ "$RUNTIME" = "gemini" ]; then
+            printf '{}\n'
+        fi
+        exit 0
+        ;;
 esac
+
+RUNTIME_PREFIX="claude-code"
+if [ "$RUNTIME" = "gemini" ]; then
+    RUNTIME_PREFIX="gemini-cli"
+fi
 
 # Resolve agent name
 if [ -n "${YOUROS_AGENT_NAME:-}" ]; then
     AGENT_NAME="${YOUROS_AGENT_NAME}"
 else
     SESSION_ID=$(extract session_id)
+    if [ -z "$SESSION_ID" ]; then
+        if [ "$RUNTIME" = "gemini" ]; then
+            SESSION_ID="${GEMINI_SESSION_ID:-${CLAUDE_SESSION_ID:-}}"
+        else
+            SESSION_ID="${CLAUDE_SESSION_ID:-${GEMINI_SESSION_ID:-}}"
+        fi
+    fi
     if [ -n "$SESSION_ID" ]; then
-        AGENT_NAME="claude-code-${SESSION_ID:0:10}"
+        AGENT_NAME="${RUNTIME_PREFIX}-${SESSION_ID:0:10}"
     else
-        AGENT_NAME="claude-code-$(hostname -s)-$$"
+        AGENT_NAME="${RUNTIME_PREFIX}-$(hostname -s)-$$"
     fi
 fi
 AGENT_NAME=$(echo "$AGENT_NAME" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9-' '-' | sed 's/--*/-/g' | sed 's/^-//;s/-$//')
@@ -61,9 +101,10 @@ if [ -f "$HOOKS_DIR/lib/drain-pending.sh" ]; then
 fi
 
 # Fully detached heartbeat
+API_BASE="${YOUROS_BACKEND_URL:-${TORIOS_API_BASE:-https://localhost:8000}}"
 (
     curl -sSk --connect-timeout 1 -m 2 \
-        -X POST "https://localhost:8000/api/agents/${AGENT_NAME}/heartbeat" \
+        -X POST "${API_BASE}/api/agents/${AGENT_NAME}/heartbeat" \
         > /dev/null 2>&1 || true
 ) </dev/null >/dev/null 2>&1 &
 disown 2>/dev/null || true
@@ -75,7 +116,7 @@ disown 2>/dev/null || true
     IDLE_SWEEP_INTERVAL="${YOUROS_IDLE_SWEEP_INTERVAL:-60}"
     IDLE_LOG="${YOUROS_IDLE_COMPLETE_LOG:-/tmp/idle-complete.log}"
     AGENTS_URL="${YOUROS_AGENTS_URL:-https://127.0.0.1:8000/api/agents}"
-    HEARTBEAT_IDLE_PY="${YOUROS_HEARTBEAT_IDLE_PY:-${CLAUDE_PROJECT_DIR:-$HOME/torios}/api/services/heartbeat_idle.py}"
+    HEARTBEAT_IDLE_PY="${YOUROS_HEARTBEAT_IDLE_PY:-${CLAUDE_PROJECT_DIR:-${GEMINI_PROJECT_DIR:-$HOME/torios}}/api/services/heartbeat_idle.py}"
 
     if [ "${YOUROS_IDLE_SWEEP_FORCE:-0}" != "1" ] && [ -f "$IDLE_SWEEP_STAMP" ]; then
         now=$(date +%s)
@@ -152,7 +193,7 @@ _daemon_alive() {
     kill -0 "$pid" 2>/dev/null
 }
 
-if ! _daemon_alive && [ -x "$WATCHER_SCRIPT" ]; then
+if [ "${YOUROS_DISABLE_COMPLETION_WATCHER:-0}" != "1" ] && ! _daemon_alive && [ -x "$WATCHER_SCRIPT" ]; then
     (
         YOUROS_BACKEND_URL="${YOUROS_BACKEND_URL:-https://127.0.0.1:8000}" \
         YOUROS_COMPLETION_ANNC="$ANNC_FILE" \
@@ -165,29 +206,41 @@ if ! _daemon_alive && [ -x "$WATCHER_SCRIPT" ]; then
 fi
 
 if [ ! -s "$ANNC_FILE" ]; then
+    if [ "$RUNTIME" = "gemini" ]; then
+        printf '{}\n'
+    fi
     exit 0
 fi
 
 TMP="${ANNC_FILE}.drain.$$"
-mv "$ANNC_FILE" "$TMP" 2>/dev/null || exit 0
+if ! mv "$ANNC_FILE" "$TMP" 2>/dev/null; then
+    if [ "$RUNTIME" = "gemini" ]; then
+        printf '{}\n'
+    fi
+    exit 0
+fi
 
-python3 - "$TMP" <<'PYEOF'
-import json, sys
+HOOK_RUNTIME="$RUNTIME" python3 - "$TMP" <<'PYEOF'
+import json, os, sys
 from datetime import datetime, timezone
 
-path = sys.argv[1]
+annc_path = sys.argv[1]
+runtime = os.environ.get("HOOK_RUNTIME", "claude")
 try:
-    with open(path, "r") as f:
+    with open(annc_path, "r") as f:
         rows = [json.loads(l.strip()) for l in f if l.strip()]
 except Exception:
+    if runtime == "gemini":
+        print("{}")
     sys.exit(0)
 
 if not rows:
+    if runtime == "gemini":
+        print("{}")
     sys.exit(0)
 
 now = datetime.now(timezone.utc)
-print()
-print("AGENT LANDED (detected mid-turn by completion watcher):")
+lines = ["", "AGENT LANDED (detected mid-turn by completion watcher):"]
 for r in rows:
     name         = r.get("name", "?")
     status       = r.get("status", "?")
@@ -201,8 +254,13 @@ for r in rows:
         age  = "?"
     label  = "done" if status == "completed" else status
     suffix = f" - {summary}" if summary else ""
-    print(f"- {name} [{label}] {age}{suffix}")
-print("Run git log --oneline -5 to see commits. Do not narrate these agents as still running.")
+    lines.append(f"- {name} [{label}] {age}{suffix}")
+lines.append("Run git log --oneline -5 to see commits. Do not narrate these agents as still running.")
+text = "\n".join(lines)
+if runtime == "gemini":
+    print(json.dumps({"hookSpecificOutput": {"hookEventName": "BeforeTool", "additionalContext": text.lstrip("\n")}}))
+else:
+    print(text)
 PYEOF
 
 rm -f "$TMP" 2>/dev/null || true
