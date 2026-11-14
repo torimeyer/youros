@@ -448,6 +448,10 @@ export default function OnboardingWizard() {
               humanfileValid={humanfileValid}
               humanfileWarning={humanfileWarning}
               onRecheck={runProviderDetect}
+              onTrustSigned={() => {
+                setHumanfileValid(true)
+                setHumanfileWarning(null)
+              }}
             />
           )}
           {step === 'Tracking' && (
@@ -1102,6 +1106,7 @@ function ConnectStep({
   humanfileValid,
   humanfileWarning,
   onRecheck,
+  onTrustSigned,
 }: {
   selectedProvider: string
   onSelectProvider: (name: string) => void
@@ -1121,9 +1126,57 @@ function ConnectStep({
   humanfileValid?: boolean | null
   humanfileWarning?: string | null
   onRecheck?: () => void
+  onTrustSigned?: () => void
 }) {
   const [googleOAuthAvailable, setGoogleOAuthAvailable] = useState(false)
   const [googleConnected, setGoogleConnected] = useState(false)
+  const [signingHumanfile, setSigningHumanfile] = useState(false)
+  const [humanfileSignedNotice, setHumanfileSignedNotice] = useState<string | null>(null)
+  const [humanfileSignFallback, setHumanfileSignFallback] = useState<{
+    message: string
+    manualCommand: string
+  } | null>(null)
+
+  const handleResignHumanfile = async () => {
+    setSigningHumanfile(true)
+    setHumanfileSignFallback(null)
+    try {
+      const resp = await api.post<{
+        signed?: boolean
+        humanfile_valid?: boolean
+        message?: string
+        manual_command?: string
+        requires_tty?: boolean
+      }>('/secrets/trust-sign')
+      if (resp?.signed) {
+        setHumanfileSignedNotice(resp.message || 'HUMANFILE signed and verified.')
+        onTrustSigned?.()
+        onRecheck?.()
+        api
+          .get<{ google_oauth_available?: boolean; google_connected?: boolean }>('/secrets/key-status')
+          .then((data) => {
+            setGoogleOAuthAvailable(data.google_oauth_available ?? false)
+            setGoogleConnected(data.google_connected ?? false)
+          })
+          .catch(() => {})
+      } else {
+        setHumanfileSignFallback({
+          message:
+            resp?.message ||
+            'Could not sign HUMANFILE automatically. Enter your passphrase in a terminal.',
+          manualCommand: resp?.manual_command || 'ostk trust sign --humanfile',
+        })
+      }
+    } catch (e) {
+      reportError('humanfile trust sign failed', e)
+      setHumanfileSignFallback({
+        message: 'Could not sign HUMANFILE automatically. Run the command below in your terminal.',
+        manualCommand: 'ostk trust sign --humanfile',
+      })
+    } finally {
+      setSigningHumanfile(false)
+    }
+  }
   type AtlassianProductInfo = { connected?: boolean; site?: string; method?: string | null; authenticated_today?: boolean }
   type AtlassianProducts = { jira?: AtlassianProductInfo; confluence?: AtlassianProductInfo }
   const [atlassianConnected, setAtlassianConnected] = useState<boolean | null>(null)
@@ -1176,6 +1229,17 @@ function ConnectStep({
           <span>Already connected: {detectedProvider}</span>
         </div>
       )}
+      {humanfileSignedNotice && humanfileValid !== false && (
+        <div
+          className="mb-4 p-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-left"
+          data-testid="humanfile-trust-verified"
+        >
+          <div className="flex items-center gap-2 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+            <Icon name="verified_user" size={16} />
+            <span>{humanfileSignedNotice}</span>
+          </div>
+        </div>
+      )}
       {humanfileValid === false && (
         <div
           className="mb-4 p-3 rounded-lg border border-amber-500/40 bg-amber-500/10 text-left"
@@ -1193,14 +1257,43 @@ function ConnectStep({
               <p className={`text-xs font-mono mb-2 ${subtextCls}`}>
                 ostk trust sign --humanfile
               </p>
-              <button
-                type="button"
-                onClick={() => onRecheck?.()}
-                className="px-3 py-1 rounded-md text-xs font-medium bg-amber-600 hover:bg-amber-500 text-white transition-colors"
-                data-testid="recheck-humanfile-trust"
-              >
-                Re-check signature
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  disabled={signingHumanfile}
+                  onClick={handleResignHumanfile}
+                  style={{ backgroundColor: 'var(--color-accent)' }}
+                  className="px-3 py-1 rounded-md text-xs font-medium text-white hover:opacity-90 disabled:opacity-60 transition-opacity"
+                  data-testid="resign-humanfile-trust"
+                >
+                  {signingHumanfile ? 'Signing...' : 'Re-sign HUMANFILE'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onRecheck?.()}
+                  className="px-3 py-1 rounded-md text-xs font-medium bg-amber-600 hover:bg-amber-500 text-white transition-colors"
+                  data-testid="recheck-humanfile-trust"
+                >
+                  Re-check signature
+                </button>
+              </div>
+              {humanfileSignFallback && (
+                <div
+                  data-testid="humanfile-sign-fallback"
+                  style={{
+                    backgroundColor: 'var(--color-surface, var(--theme-surface))',
+                    borderColor: 'var(--color-border, var(--theme-border))',
+                  }}
+                  className="mt-2.5 rounded-md border p-2.5 text-xs"
+                >
+                  <p className="mb-1 text-amber-700 dark:text-amber-300">
+                    {humanfileSignFallback.message}
+                  </p>
+                  <code className="block font-mono text-[11px] opacity-90">
+                    {humanfileSignFallback.manualCommand}
+                  </code>
+                </div>
+              )}
             </div>
           </div>
         </div>

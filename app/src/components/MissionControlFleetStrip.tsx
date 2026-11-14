@@ -6,6 +6,8 @@ import { TodayDigestPanel, type DigestData } from '../pages/TodayDigestPanel'
 interface RawSeat {
   id?: string
   session_id?: string
+  seat?: string
+  pid?: number | string
   name?: string
   agent?: string
   agent_name?: string
@@ -61,6 +63,57 @@ interface TrustStatusResponse {
     humanfile_warning?: string | null
     ostk_boot_ok?: boolean
   }
+}
+
+interface TrustSignResponse {
+  signed?: boolean
+  humanfile_valid?: boolean
+  trust?: {
+    ostk_available?: boolean
+    humanfile_valid?: boolean
+    humanfile_warning?: string | null
+  }
+  message?: string
+  manual_command?: string
+  requires_tty?: boolean
+}
+
+interface OstkRosterSeat {
+  seat: string
+  pid: number | null
+  health: string
+  age: string
+  session: string | null
+  role: string | null
+  serving: string | null
+  lineage: string
+  wake: string
+  ctx_pct: string
+  attested: string
+  verdict: string
+  verdict_category: 'valid' | 'impostor' | 'unverifiable'
+}
+
+interface OstkRosterResponse {
+  available: boolean
+  seats: OstkRosterSeat[]
+  counts: {
+    total: number
+    valid: number
+    impostor: number
+    unverifiable: number
+  }
+}
+
+function isValidOstkRoster(value: unknown): value is OstkRosterResponse {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as Partial<OstkRosterResponse>
+  return (
+    candidate.available === true &&
+    Array.isArray(candidate.seats) &&
+    Boolean(candidate.counts) &&
+    typeof candidate.counts === 'object'
+  )
 }
 
 interface DogfoodDailyBucket {
@@ -120,6 +173,8 @@ function isValidDogfoodTelemetry(value: unknown): value is DogfoodTelemetryRespo
 
 interface NormalizedSeat {
   key: string
+  pid: number | null
+  identifiers: string[]
   nudgeName: string
   displayName: string
   runtime: string
@@ -216,9 +271,26 @@ function normalizeSeats(payload: SessionsResponse | RawSeat[] | null): Normalize
       }
     }
 
+    const parsedPid =
+      typeof s.pid === 'number' && Number.isFinite(s.pid)
+        ? s.pid
+        : typeof s.pid === 'string' && /^\d+$/.test(s.pid.trim())
+          ? Number.parseInt(s.pid.trim(), 10)
+          : null
+    const rawIds = [s.seat, s.id, s.session_id, s.name, s.agent_name, s.agent, s.label]
+    const identifiers = Array.from(
+      new Set(
+        rawIds
+          .filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+          .map((v) => v.trim().toLowerCase()),
+      ),
+    )
+
     const repoSource = s.repo || s.project || s.worktree || s.workspace || s.cwd
     return {
       key: (s.id || s.session_id || nudgeName || `seat-${idx}`).trim(),
+      pid: parsedPid,
+      identifiers,
       nudgeName,
       displayName,
       runtime: detectRuntimeBadge(s),
@@ -231,6 +303,32 @@ function normalizeSeats(payload: SessionsResponse | RawSeat[] | null): Normalize
       activityCount: typeof s.activity_count === 'number' ? s.activity_count : Math.max(1, touchedFiles.length),
     }
   })
+}
+
+function matchRosterSeat(
+  seat: NormalizedSeat,
+  rosterSeats: OstkRosterSeat[],
+): OstkRosterSeat | null {
+  if (seat.pid !== null) {
+    const byPid = rosterSeats.find((r) => r.pid !== null && r.pid === seat.pid)
+    if (byPid) return byPid
+  }
+  if (seat.identifiers.length > 0) {
+    const idSet = new Set(seat.identifiers)
+    const byIdent = rosterSeats.find((r) => {
+      const rSeat = (r.seat || '').trim().toLowerCase()
+      const rSession = (r.session || '').trim().toLowerCase()
+      const rServing = (r.serving || '').trim().toLowerCase()
+      if (rSeat && idSet.has(rSeat)) return true
+      if (rSession && idSet.has(rSession)) return true
+      if (rServing && idSet.has(rServing)) return true
+      const stemMatch = rSeat.match(/^(.+)-p\d+$/)
+      if (stemMatch && idSet.has(stemMatch[1])) return true
+      return false
+    })
+    if (byIdent) return byIdent
+  }
+  return null
 }
 
 function computeConflicts(
@@ -278,6 +376,12 @@ function computeConflicts(
 export default function MissionControlFleetStrip() {
   const [sessionsPayload, setSessionsPayload] = useState<SessionsResponse | RawSeat[] | null>(null)
   const [trustStatus, setTrustStatus] = useState<TrustStatusResponse | null>(null)
+  const [rosterData, setRosterData] = useState<OstkRosterResponse | null>(null)
+  const [signingTrust, setSigningTrust] = useState(false)
+  const [trustSignFeedback, setTrustSignFeedback] = useState<{
+    message: string
+    manualCommand: string
+  } | null>(null)
   const [dogfoodTelemetry, setDogfoodTelemetry] = useState<DogfoodTelemetryResponse | null>(null)
   const [dogfoodOpen, setDogfoodOpen] = useState(false)
   const [digestData, setDigestData] = useState<DigestData | null>(null)
@@ -286,12 +390,13 @@ export default function MissionControlFleetStrip() {
   const [nudgedSeats, setNudgedSeats] = useState<Record<string, boolean>>({})
 
   const loadFleet = useCallback(async () => {
-    const [primarySessions, keyStatus, dogfood] = await Promise.all([
+    const [primarySessions, keyStatus, dogfood, roster] = await Promise.all([
       Promise.resolve(api.get<SessionsResponse | RawSeat[]>('/sessions')).catch(() => null),
       Promise.resolve(api.get<TrustStatusResponse>('/secrets/key-status')).catch(() => null),
       Promise.resolve(
         api.get<DogfoodTelemetryResponse>('/dashboard/dogfood-telemetry?days=14'),
       ).catch(() => null),
+      Promise.resolve(api.get<OstkRosterResponse>('/secrets/roster')).catch(() => null),
     ])
 
     let resolvedSessions = primarySessions
@@ -313,6 +418,9 @@ export default function MissionControlFleetStrip() {
     if (isValidDogfoodTelemetry(dogfood)) {
       setDogfoodTelemetry(dogfood)
     }
+    if (isValidOstkRoster(roster)) {
+      setRosterData(roster)
+    }
   }, [])
 
   useEffect(() => {
@@ -328,6 +436,12 @@ export default function MissionControlFleetStrip() {
     [sessionsPayload, seats],
   )
 
+  const humanfileInvalid = useMemo(() => {
+    if (!trustStatus) return false
+    const nested = trustStatus.ostk_trust
+    return trustStatus.humanfile_valid === false || nested?.humanfile_valid === false
+  }, [trustStatus])
+
   const trustInvalid = useMemo(() => {
     if (!trustStatus) return false
     const nested = trustStatus.ostk_trust
@@ -336,6 +450,49 @@ export default function MissionControlFleetStrip() {
     if (trustStatus.ostk_available === false || nested?.ostk_available === false) return true
     return false
   }, [trustStatus])
+
+  const handleResignTrust = async () => {
+    setSigningTrust(true)
+    setTrustSignFeedback(null)
+    try {
+      const resp = await Promise.resolve(api.post<TrustSignResponse>('/secrets/trust-sign')).catch(
+        () => null,
+      )
+      const refreshed = await Promise.resolve(
+        api.get<TrustStatusResponse>('/secrets/key-status'),
+      ).catch(() => null)
+      if (refreshed !== null) {
+        setTrustStatus(refreshed)
+      } else if (resp?.trust) {
+        setTrustStatus((prev) => ({ ...(prev ?? {}), ...resp.trust }))
+      }
+      if (resp && !resp.signed) {
+        setTrustSignFeedback({
+          message:
+            resp.message ||
+            'Could not sign HUMANFILE automatically. Enter your passphrase in a terminal.',
+          manualCommand: resp.manual_command || 'ostk trust sign --humanfile',
+        })
+      }
+    } finally {
+      setSigningTrust(false)
+    }
+  }
+
+  const rosterSummary = useMemo(() => {
+    if (!rosterData || !rosterData.available || rosterData.seats.length === 0) return null
+    const attested = typeof rosterData.counts?.valid === 'number' ? rosterData.counts.valid : 0
+    const impostor = typeof rosterData.counts?.impostor === 'number' ? rosterData.counts.impostor : 0
+    const activeCount = rosterData.seats.filter(
+      (r) => (r.health || '').toLowerCase() === 'active',
+    ).length
+    return {
+      attested,
+      activeCount,
+      impostor,
+      total: rosterData.counts?.total ?? rosterData.seats.length,
+    }
+  }, [rosterData])
 
   const trustTooltip =
     trustStatus?.humanfile_warning ||
@@ -441,6 +598,46 @@ export default function MissionControlFleetStrip() {
             <Icon name={trustInvalid ? 'warning' : 'verified_user'} size={13} />
             {trustInvalid ? 'HUMANFILE signature needs ostk trust sign' : 'ostk verified'}
           </span>
+          {humanfileInvalid && (
+            <button
+              type="button"
+              disabled={signingTrust}
+              onClick={handleResignTrust}
+              data-testid="mission-control-resign-btn"
+              style={{ backgroundColor: 'var(--color-accent)' }}
+              className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-60 transition-opacity"
+            >
+              <Icon name="key" size={12} />
+              {signingTrust ? 'Signing...' : 'Re-sign HUMANFILE'}
+            </button>
+          )}
+          {rosterSummary && (
+            <span
+              data-testid="mission-control-roster-pill"
+              style={{
+                backgroundColor: 'var(--color-surface, var(--theme-surface))',
+                borderColor: 'var(--color-border, var(--theme-border))',
+              }}
+              title={`ostk roster: ${rosterSummary.total} total, ${rosterSummary.attested} attested, ${rosterSummary.impostor} impostor`}
+              className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium text-slate-700 dark:text-slate-200"
+            >
+              <Icon name="verified" size={13} className="text-emerald-500" />
+              <span>Seats: {rosterSummary.attested} attested</span>
+              <span aria-hidden="true" className="opacity-50">
+                ·
+              </span>
+              <span>{rosterSummary.activeCount} active</span>
+            </span>
+          )}
+          {rosterSummary && rosterSummary.impostor > 0 && (
+            <span
+              data-testid="mission-control-impostor-badge"
+              className="inline-flex items-center gap-1 rounded-full border border-rose-500/50 bg-rose-500/20 px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide text-rose-600 dark:text-rose-300"
+            >
+              <Icon name="gpp_bad" size={13} />
+              IMPOSTOR SEAT DETECTED
+            </span>
+          )}
           {dogfoodTelemetry && (
             <button
               type="button"
@@ -484,6 +681,22 @@ export default function MissionControlFleetStrip() {
           Today across sessions
         </button>
       </div>
+
+      {trustSignFeedback && humanfileInvalid && (
+        <div
+          data-testid="mission-control-trust-sign-feedback"
+          style={{
+            backgroundColor: 'var(--color-surface, var(--theme-surface))',
+            borderColor: 'var(--color-border, var(--theme-border))',
+          }}
+          className="mt-2.5 flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs"
+        >
+          <span className="text-amber-700 dark:text-amber-300">{trustSignFeedback.message}</span>
+          <code className="rounded bg-amber-500/10 px-2 py-0.5 font-mono text-[11px] text-amber-700 dark:text-amber-200">
+            {trustSignFeedback.manualCommand}
+          </code>
+        </div>
+      )}
 
       {dogfoodTelemetry && dogfoodOpen && (
         <div
@@ -578,11 +791,23 @@ export default function MissionControlFleetStrip() {
 
       {seats.length > 0 && (
         <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-          {seats.map((seat) => (
+          {seats.map((seat) => {
+            const matchedRoster = rosterData ? matchRosterSeat(seat, rosterData.seats) : null
+            const verdictBadgeCls =
+              matchedRoster?.verdict_category === 'impostor'
+                ? 'border border-rose-500/40 bg-rose-500/20 text-rose-600 dark:text-rose-300 font-semibold'
+                : matchedRoster?.verdict_category === 'valid'
+                  ? 'border border-emerald-500/30 bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-semibold'
+                  : 'border border-amber-500/30 bg-amber-500/15 text-amber-600 dark:text-amber-400 font-medium'
+            return (
             <div
               key={seat.key}
               data-testid={`mission-control-seat-${seat.key}`}
-              className="rounded-lg border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 px-3 py-2 text-xs"
+              className={`rounded-lg border px-3 py-2 text-xs ${
+                matchedRoster?.verdict_category === 'impostor'
+                  ? 'border-rose-500/50 bg-rose-500/5'
+                  : 'border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90'
+              }`}
             >
               <div className="flex items-center justify-between gap-1.5 flex-wrap">
                 <div className="flex items-center gap-1.5 min-w-0">
@@ -595,7 +820,7 @@ export default function MissionControlFleetStrip() {
                     {seat.displayName}
                   </span>
                 </div>
-                <div className="flex items-center gap-1 shrink-0">
+                <div className="flex items-center gap-1 shrink-0 flex-wrap">
                   <span
                     className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
                       seat.runtime === 'Gemini'
@@ -605,6 +830,14 @@ export default function MissionControlFleetStrip() {
                   >
                     {seat.runtime}
                   </span>
+                  {matchedRoster && (
+                    <span
+                      data-testid="seat-verdict-badge"
+                      className={`rounded px-1.5 py-0.5 font-mono text-[10px] ${verdictBadgeCls}`}
+                    >
+                      {matchedRoster.verdict}
+                    </span>
+                  )}
                   {seat.repoBasename && (
                     <span
                       data-testid="seat-repo-badge"
@@ -644,7 +877,8 @@ export default function MissionControlFleetStrip() {
                 </div>
               )}
             </div>
-          ))}
+            )
+          })}
         </div>
       )}
 

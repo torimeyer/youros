@@ -24,6 +24,12 @@ _providers_lock: asyncio.Lock | None = None  # lazy-init to avoid import-time lo
 _ostk_trust_cache_value: dict | None = None
 _ostk_trust_cache_ts: float = 0.0
 
+_OSTK_SUBPROCESS_TIMEOUT: float = 5.0
+_OSTK_ROSTER_CACHE_TTL: float = 5.0
+_ostk_roster_cache_value: dict | None = None
+_ostk_roster_cache_ts: float = 0.0
+_ostk_roster_cache_cwd: str | None = None
+
 _VERTEX_GEMINI_TIMEOUT: float = 3.5
 
 
@@ -204,7 +210,7 @@ async def detect_bedrock() -> bool:
     return False
 
 
-async def detect_ostk_trust(force: bool = False) -> dict:
+async def detect_ostk_trust(force: bool = False, cwd: Path | None = None) -> dict:
     """Check ostk CLI availability and HUMANFILE signature trust posture.
 
     Runs ``ostk boot`` in a worker thread with a bounded timeout so the event
@@ -218,6 +224,7 @@ async def detect_ostk_trust(force: bool = False) -> dict:
     now = time.monotonic()
     if (
         not force
+        and cwd is None
         and _ostk_trust_cache_value is not None
         and now < _ostk_trust_cache_ts + _PROVIDERS_CACHE_TTL
     ):
@@ -230,17 +237,24 @@ async def detect_ostk_trust(force: bool = False) -> dict:
             "humanfile_valid": False,
             "humanfile_warning": "ostk CLI not found on PATH.",
         }
-        _ostk_trust_cache_value = res
-        _ostk_trust_cache_ts = now
+        if cwd is None:
+            _ostk_trust_cache_value = res
+            _ostk_trust_cache_ts = now
         return dict(res)
+
+    run_kwargs: dict = {
+        "capture_output": True,
+        "timeout": 3,
+        "text": True,
+    }
+    if cwd is not None:
+        run_kwargs["cwd"] = str(cwd)
 
     try:
         r = await asyncio.to_thread(
             subprocess.run,
             [ostk_bin, "boot"],
-            capture_output=True,
-            timeout=3,
-            text=True,
+            **run_kwargs,
         )
         combined = f"{r.stdout or ''}\n{r.stderr or ''}"
         lowered = combined.lower()
@@ -281,9 +295,280 @@ async def detect_ostk_trust(force: bool = False) -> dict:
             "humanfile_warning": "Could not verify ostk boot health.",
         }
 
-    _ostk_trust_cache_value = res
-    _ostk_trust_cache_ts = time.monotonic()
+    if cwd is None:
+        _ostk_trust_cache_value = res
+        _ostk_trust_cache_ts = time.monotonic()
     return dict(res)
+
+
+detect_ostk_trust_async = detect_ostk_trust
+
+
+_INTERACTIVE_SIGN_MARKERS = (
+    "passphrase",
+    "/dev/tty",
+    "no tty",
+    "not a tty",
+    "inappropriate ioctl",
+    "ioctl for device",
+    "pinentry",
+    "ssh-agent",
+    "ssh_auth_sock",
+    "agent refused operation",
+    "couldn't connect to agent",
+    "could not open a connection to your authentication agent",
+    "communication with agent failed",
+    "interactive",
+)
+
+
+def _reset_ostk_trust_cache() -> None:
+    """Invalidate cached ostk trust and provider detection snapshots."""
+    global _ostk_trust_cache_value, _ostk_trust_cache_ts
+    global _providers_cache_value, _providers_cache_ts
+    _ostk_trust_cache_value = None
+    _ostk_trust_cache_ts = 0.0
+    _providers_cache_value = None
+    _providers_cache_ts = 0.0
+
+
+def _reset_ostk_roster_cache() -> None:
+    """Invalidate cached ostk roster snapshot."""
+    global _ostk_roster_cache_value, _ostk_roster_cache_ts, _ostk_roster_cache_cwd
+    _ostk_roster_cache_value = None
+    _ostk_roster_cache_ts = 0.0
+    _ostk_roster_cache_cwd = None
+
+
+async def sign_ostk_humanfile(cwd: Path | None = None) -> dict:
+    """Non-interactively run `ostk trust sign --humanfile` and re-verify trust.
+
+    Uses a worker thread with stdin=DEVNULL and a 5s timeout so passphrase-protected
+    keys never hang the server or block the asyncio event loop.
+    """
+    from services.ostk import get_effective_root
+
+    effective_cwd = str(cwd or get_effective_root())
+    manual_command = "ostk trust sign --humanfile"
+    rc = -1
+    combined_output = ""
+    requires_tty = False
+    missing_binary = False
+    timed_out = False
+
+    try:
+        r = await asyncio.wait_for(
+            asyncio.to_thread(
+                subprocess.run,
+                ["ostk", "trust", "sign", "--humanfile"],
+                cwd=effective_cwd,
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=_OSTK_SUBPROCESS_TIMEOUT,
+                text=True,
+            ),
+            timeout=_OSTK_SUBPROCESS_TIMEOUT,
+        )
+        rc = r.returncode
+        combined_output = f"{r.stdout or ''}\n{r.stderr or ''}".strip()
+        lowered = combined_output.lower()
+        if rc != 0 and any(marker in lowered for marker in _INTERACTIVE_SIGN_MARKERS):
+            requires_tty = True
+    except FileNotFoundError:
+        missing_binary = True
+    except (asyncio.TimeoutError, subprocess.TimeoutExpired):
+        timed_out = True
+        requires_tty = True
+    except Exception as exc:
+        combined_output = str(exc).strip()
+        if any(marker in combined_output.lower() for marker in _INTERACTIVE_SIGN_MARKERS):
+            requires_tty = True
+
+    _reset_ostk_trust_cache()
+    trust = (
+        await detect_ostk_trust(force=True, cwd=cwd)
+        if cwd is not None
+        else await detect_ostk_trust(force=True)
+    )
+    humanfile_valid = bool(trust.get("humanfile_valid", False))
+    signed = bool(rc == 0 and humanfile_valid)
+    if signed:
+        requires_tty = False
+        message = "HUMANFILE signed and verified."
+    elif missing_binary:
+        message = (
+            "ostk CLI was not found on PATH. Install ostk and run "
+            f"`{manual_command}` in your terminal."
+        )
+    elif timed_out:
+        message = (
+            "Signing timed out waiting for non-interactive key access (your SSH or GPG key "
+            f"likely requires a passphrase prompt). Run `{manual_command}` in your terminal."
+        )
+    elif requires_tty:
+        message = (
+            "Your signing key requires an interactive passphrase or unlocked SSH/GPG agent. "
+            f"Run `{manual_command}` in your terminal to enter your passphrase."
+        )
+    elif rc == 0 and not humanfile_valid:
+        message = (
+            trust.get("humanfile_warning")
+            or f"Signed repo HUMANFILE, but verification still needs attention. Run `{manual_command}` in your terminal."
+        )
+    else:
+        first_line = next((ln.strip() for ln in combined_output.splitlines() if ln.strip()), "")
+        if first_line:
+            message = f"Could not sign HUMANFILE automatically ({first_line}). Run `{manual_command}` in your terminal."
+        else:
+            message = f"Could not sign HUMANFILE automatically. Run `{manual_command}` in your terminal."
+
+    return {
+        "signed": signed,
+        "humanfile_valid": humanfile_valid,
+        "trust": trust,
+        "message": message,
+        "manual_command": manual_command,
+        "requires_tty": requires_tty,
+    }
+
+
+def _empty_roster(available: bool) -> dict:
+    return {
+        "available": available,
+        "seats": [],
+        "counts": {"total": 0, "valid": 0, "impostor": 0, "unverifiable": 0},
+    }
+
+
+def _clone_roster(data: dict) -> dict:
+    return {
+        "available": bool(data.get("available", False)),
+        "seats": [dict(s) for s in data.get("seats", [])],
+        "counts": dict(data.get("counts", {"total": 0, "valid": 0, "impostor": 0, "unverifiable": 0})),
+    }
+
+
+def _looks_like_roster_table(raw_text: str) -> bool:
+    for raw_line in (raw_text or "").splitlines():
+        parts = raw_line.strip().split()
+        if len(parts) >= 3 and parts[0].lower() == "seat" and parts[1].lower() == "pid":
+            return True
+    return False
+
+
+def parse_ostk_roster(raw_text: str) -> dict:
+    """Parse `ostk roster` tabular output into structured seat verdicts and counts."""
+    seats: list[dict] = []
+    for raw_line in (raw_text or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if set(line) <= {"-", "=", " "}:
+            continue
+        parts = line.split(None, 11)
+        if len(parts) >= 3 and parts[0].lower() == "seat" and parts[1].lower() == "pid":
+            continue
+        if len(parts) < 12:
+            continue
+
+        (
+            seat_name,
+            pid_raw,
+            health,
+            age,
+            session_raw,
+            role_raw,
+            serving_raw,
+            lineage,
+            wake,
+            ctx_pct,
+            attested,
+            verdict_raw,
+        ) = parts
+
+        pid_val = int(pid_raw) if pid_raw.isdigit() else None
+        verdict = verdict_raw.strip()
+        verdict_upper = verdict.upper()
+        if verdict_upper.startswith("IMPOSTOR"):
+            verdict_category = "impostor"
+        elif verdict_upper.startswith("VALID"):
+            verdict_category = "valid"
+        else:
+            verdict_category = "unverifiable"
+
+        seats.append(
+            {
+                "seat": seat_name,
+                "pid": pid_val,
+                "health": health,
+                "age": age,
+                "session": None if session_raw == "-" else session_raw,
+                "role": None if role_raw == "-" else role_raw,
+                "serving": None if serving_raw == "-" else serving_raw,
+                "lineage": lineage,
+                "wake": wake,
+                "ctx_pct": ctx_pct,
+                "attested": attested,
+                "verdict": verdict,
+                "verdict_category": verdict_category,
+            }
+        )
+
+    counts = {
+        "total": len(seats),
+        "valid": sum(1 for s in seats if s["verdict_category"] == "valid"),
+        "impostor": sum(1 for s in seats if s["verdict_category"] == "impostor"),
+        "unverifiable": sum(1 for s in seats if s["verdict_category"] == "unverifiable"),
+    }
+    return {
+        "available": True,
+        "seats": seats,
+        "counts": counts,
+    }
+
+
+async def get_ostk_roster(cwd: Path | None = None, *, force: bool = False) -> dict:
+    """Run `ostk roster` off the event loop with a 5s timeout and 5s TTL cache."""
+    global _ostk_roster_cache_value, _ostk_roster_cache_ts, _ostk_roster_cache_cwd
+    from services.ostk import get_effective_root
+
+    effective_cwd = str(cwd or get_effective_root())
+    now = time.monotonic()
+    if (
+        not force
+        and _ostk_roster_cache_value is not None
+        and _ostk_roster_cache_cwd == effective_cwd
+        and now < _ostk_roster_cache_ts + _OSTK_ROSTER_CACHE_TTL
+    ):
+        return _clone_roster(_ostk_roster_cache_value)
+
+    try:
+        r = await asyncio.wait_for(
+            asyncio.to_thread(
+                subprocess.run,
+                ["ostk", "roster"],
+                cwd=effective_cwd,
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=_OSTK_SUBPROCESS_TIMEOUT,
+                text=True,
+            ),
+            timeout=_OSTK_SUBPROCESS_TIMEOUT,
+        )
+        stdout = r.stdout or ""
+        if r.returncode == 0 or _looks_like_roster_table(stdout):
+            parsed = parse_ostk_roster(stdout)
+        else:
+            parsed = _empty_roster(available=False)
+    except Exception:
+        parsed = _empty_roster(available=False)
+
+    _ostk_roster_cache_value = parsed
+    _ostk_roster_cache_ts = time.monotonic()
+    _ostk_roster_cache_cwd = effective_cwd
+    return _clone_roster(parsed)
 
 
 async def _run_full_detection() -> dict:
@@ -336,6 +621,7 @@ def _reset_provider_cache() -> None:
     _providers_lock = None
     _ostk_trust_cache_value = None
     _ostk_trust_cache_ts = 0.0
+    _reset_ostk_roster_cache()
 
 
 async def _refresh_provider_cache() -> None:
