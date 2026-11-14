@@ -327,4 +327,202 @@ describe('MissionControlFleetStrip (→3094)', () => {
     expect(mockedApiGet).toHaveBeenCalledWith('/dashboard/dogfood-telemetry?days=14')
     expect(screen.queryByTestId('mission-control-dogfood-pill')).toBeNull()
   })
+
+  it('renders inline Re-sign HUMANFILE button when humanfile_valid is false and refreshes key-status on success (->3115)', async () => {
+    let signed = false
+    mockedApiGet.mockImplementation((urlPath: string) => {
+      if (urlPath === '/sessions') {
+        return Promise.resolve({ sessions: [] })
+      }
+      if (urlPath === '/secrets/key-status') {
+        return Promise.resolve({
+          ostk_available: true,
+          humanfile_valid: signed,
+          humanfile_warning: signed ? null : 'HUMANFILE was modified since it was signed.',
+        })
+      }
+      return Promise.resolve(null)
+    })
+    mockedApiPost.mockImplementation((urlPath: string) => {
+      if (urlPath === '/secrets/trust-sign') {
+        signed = true
+        return Promise.resolve({
+          signed: true,
+          humanfile_valid: true,
+          trust: { ostk_available: true, humanfile_valid: true, humanfile_warning: null },
+          message: 'HUMANFILE signed and verified.',
+          manual_command: 'ostk trust sign --humanfile',
+          requires_tty: false,
+        })
+      }
+      return Promise.resolve({ ok: true })
+    })
+
+    renderStrip()
+
+    const resignBtn = await screen.findByTestId('mission-control-resign-btn')
+    expect(resignBtn).toHaveTextContent(/Re-sign HUMANFILE/i)
+
+    fireEvent.click(resignBtn)
+
+    await waitFor(() => {
+      expect(mockedApiPost).toHaveBeenCalledWith('/secrets/trust-sign')
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId('mission-control-trust-pill')).toHaveTextContent('ostk verified')
+    })
+    expect(screen.queryByTestId('mission-control-resign-btn')).toBeNull()
+  })
+
+  it('surfaces passphrase fallback message when inline Re-sign HUMANFILE returns signed: false (->3115)', async () => {
+    mockedApiGet.mockImplementation((urlPath: string) => {
+      if (urlPath === '/sessions') {
+        return Promise.resolve({ sessions: [] })
+      }
+      if (urlPath === '/secrets/key-status') {
+        return Promise.resolve({
+          ostk_available: true,
+          humanfile_valid: false,
+          humanfile_warning: 'HUMANFILE was modified since it was signed.',
+        })
+      }
+      return Promise.resolve(null)
+    })
+    mockedApiPost.mockImplementation((urlPath: string) => {
+      if (urlPath === '/secrets/trust-sign') {
+        return Promise.resolve({
+          signed: false,
+          humanfile_valid: false,
+          trust: { ostk_available: true, humanfile_valid: false },
+          message: 'Signing key requires an interactive passphrase.',
+          manual_command: 'ostk trust sign --humanfile',
+          requires_tty: true,
+        })
+      }
+      return Promise.resolve({ ok: true })
+    })
+
+    renderStrip()
+
+    const resignBtn = await screen.findByTestId('mission-control-resign-btn')
+    fireEvent.click(resignBtn)
+
+    const feedback = await screen.findByTestId('mission-control-trust-sign-feedback')
+    expect(feedback).toHaveTextContent(/interactive passphrase/i)
+    expect(feedback).toHaveTextContent('ostk trust sign --humanfile')
+  })
+
+  it('fetches /secrets/roster, renders attestation summary pill + IMPOSTOR SEAT DETECTED badge, and matches verdicts onto session rows (->3115)', async () => {
+    mockedApiGet.mockImplementation((urlPath: string) => {
+      if (urlPath === '/sessions') {
+        return Promise.resolve({
+          sessions: [
+            {
+              id: 'claude-seat-1',
+              name: 'claude-seat-1',
+              runtime: 'claude',
+              pid: 10421,
+              status: 'active',
+              activity: 'Editing secrets.py',
+            },
+            {
+              id: 'sess-g2',
+              name: 'gemini-auditor',
+              runtime: 'gemini',
+              status: 'active',
+              activity: 'Auditing roster',
+            },
+            {
+              id: 'rogue-worker',
+              name: 'rogue-worker',
+              runtime: 'claude',
+              pid: 22001,
+              status: 'active',
+              activity: 'Suspicious write',
+            },
+          ],
+          conflicts: [],
+        })
+      }
+      if (urlPath === '/secrets/key-status') {
+        return Promise.resolve({ ostk_available: true, humanfile_valid: true })
+      }
+      if (urlPath === '/secrets/roster') {
+        return Promise.resolve({
+          available: true,
+          seats: [
+            {
+              seat: 'claude-worker-pid',
+              pid: 10421,
+              health: 'active',
+              age: '45s',
+              session: null,
+              role: 'builder',
+              serving: '->3115',
+              lineage: 'root->claude',
+              wake: 'live',
+              ctx_pct: '18%',
+              attested: '45s',
+              verdict: 'VALID[attested]',
+              verdict_category: 'valid',
+            },
+            {
+              seat: 'gemini-seat-2',
+              pid: 10899,
+              health: 'active',
+              age: '12s',
+              session: 'sess-g2',
+              role: 'auditor',
+              serving: null,
+              lineage: 'root->gemini',
+              wake: 'poll',
+              ctx_pct: '7%',
+              attested: '12s',
+              verdict: 'VALID',
+              verdict_category: 'valid',
+            },
+            {
+              seat: 'rogue-worker',
+              pid: 22001,
+              health: 'active',
+              age: '3s',
+              session: 'sess-fake',
+              role: null,
+              serving: null,
+              lineage: 'lineage-unknown',
+              wake: 'poll?',
+              ctx_pct: '0%',
+              attested: '-',
+              verdict: 'IMPOSTOR[session-contradiction]',
+              verdict_category: 'impostor',
+            },
+          ],
+          counts: { total: 3, valid: 2, impostor: 1, unverifiable: 0 },
+        })
+      }
+      return Promise.resolve(null)
+    })
+
+    renderStrip()
+
+    expect(mockedApiGet).toHaveBeenCalledWith('/secrets/roster')
+
+    const rosterPill = await screen.findByTestId('mission-control-roster-pill')
+    expect(rosterPill).toHaveTextContent(/Seats:\s*2 attested/i)
+    expect(rosterPill).toHaveTextContent(/3 active/i)
+
+    const impostorBadge = await screen.findByTestId('mission-control-impostor-badge')
+    expect(impostorBadge).toHaveTextContent('IMPOSTOR SEAT DETECTED')
+
+    const seat1 = screen.getByTestId('mission-control-seat-claude-seat-1')
+    expect(within(seat1).getByTestId('seat-verdict-badge')).toHaveTextContent('VALID[attested]')
+
+    const seat2 = screen.getByTestId('mission-control-seat-sess-g2')
+    expect(within(seat2).getByTestId('seat-verdict-badge')).toHaveTextContent('VALID')
+
+    const rogueSeat = screen.getByTestId('mission-control-seat-rogue-worker')
+    expect(within(rogueSeat).getByTestId('seat-verdict-badge')).toHaveTextContent(
+      'IMPOSTOR[session-contradiction]',
+    )
+  })
 })

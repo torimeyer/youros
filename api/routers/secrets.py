@@ -107,6 +107,22 @@ async def key_status():
     }
 
 
+@router.post("/secrets/trust-sign")
+async def sign_trust_humanfile():
+    """Attempt non-interactive HUMANFILE signing via ostk and return updated trust state."""
+    from services import provider_detection as _pd
+
+    return await _pd.sign_ostk_humanfile()
+
+
+@router.get("/secrets/roster")
+async def get_roster():
+    """Return cryptographic ostk seat roster verdicts and summary counts."""
+    from services import provider_detection as _pd
+
+    return await _pd.get_ostk_roster()
+
+
 @router.post("/secrets/google/disconnect")
 async def disconnect_google():
     """Remove stored Google OAuth tokens."""

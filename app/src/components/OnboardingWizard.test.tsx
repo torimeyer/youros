@@ -1207,3 +1207,108 @@ describe('OnboardingWizard - Atlassian per-product detection (→2611)', () => {
     expect(screen.queryByTestId('atlassian-product-jira')).not.toBeInTheDocument()
   })
 })
+
+describe('OnboardingWizard - one-click HUMANFILE trust signing (->3115)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorageMock.clear()
+    window.history.replaceState({}, '', '/')
+    useAppStore.setState({ onboarded: false, osName: '', darkMode: false })
+  })
+
+  it('renders Re-sign HUMANFILE button when humanfile_valid is false, posts to /secrets/trust-sign, refreshes status, and shows verified state', async () => {
+    let signed = false
+    vi.mocked(api.get).mockImplementation((urlPath: string) => {
+      if (urlPath === '/providers/detect') {
+        return Promise.resolve({
+          claude_code: true,
+          ostk_available: true,
+          humanfile_valid: signed,
+          humanfile_warning: signed ? null : 'HUMANFILE was modified since it was signed.',
+        })
+      }
+      if (urlPath === '/secrets/key-status') {
+        return Promise.resolve({
+          ostk_available: true,
+          humanfile_valid: signed,
+          humanfile_warning: signed ? null : 'HUMANFILE was modified since it was signed.',
+        })
+      }
+      return Promise.resolve({})
+    })
+    vi.mocked(api.post).mockImplementation((urlPath: string) => {
+      if (urlPath === '/secrets/trust-sign') {
+        signed = true
+        return Promise.resolve({
+          signed: true,
+          humanfile_valid: true,
+          trust: { ostk_available: true, humanfile_valid: true, humanfile_warning: null },
+          message: 'HUMANFILE signed and verified.',
+          manual_command: 'ostk trust sign --humanfile',
+          requires_tty: false,
+        })
+      }
+      return Promise.resolve({})
+    })
+
+    render(<OnboardingWizard />)
+
+    const warning = await screen.findByTestId('humanfile-trust-warning')
+    const resignBtn = await screen.findByTestId('resign-humanfile-trust')
+    expect(warning).toContainElement(resignBtn)
+    expect(resignBtn).toHaveTextContent(/Re-sign HUMANFILE/i)
+
+    fireEvent.click(resignBtn)
+
+    await waitFor(() => {
+      expect(vi.mocked(api.post)).toHaveBeenCalledWith('/secrets/trust-sign')
+    })
+    await waitFor(() => {
+      expect(screen.queryByTestId('humanfile-trust-warning')).not.toBeInTheDocument()
+    })
+    expect(await screen.findByTestId('humanfile-trust-verified')).toHaveTextContent(
+      /HUMANFILE signed and verified/i,
+    )
+  })
+
+  it('displays passphrase fallback message and ostk trust sign --humanfile command when /secrets/trust-sign returns signed: false', async () => {
+    vi.mocked(api.get).mockImplementation((urlPath: string) => {
+      if (urlPath === '/providers/detect') {
+        return Promise.resolve({
+          claude_code: true,
+          ostk_available: true,
+          humanfile_valid: false,
+          humanfile_warning: 'HUMANFILE was modified since it was signed.',
+        })
+      }
+      return Promise.resolve({})
+    })
+    vi.mocked(api.post).mockImplementation((urlPath: string) => {
+      if (urlPath === '/secrets/trust-sign') {
+        return Promise.resolve({
+          signed: false,
+          humanfile_valid: false,
+          trust: {
+            ostk_available: true,
+            humanfile_valid: false,
+            humanfile_warning: 'HUMANFILE was modified since it was signed.',
+          },
+          message: 'Your signing key requires an interactive passphrase or unlocked SSH/GPG agent.',
+          manual_command: 'ostk trust sign --humanfile',
+          requires_tty: true,
+        })
+      }
+      return Promise.resolve({})
+    })
+
+    render(<OnboardingWizard />)
+
+    const resignBtn = await screen.findByTestId('resign-humanfile-trust')
+    fireEvent.click(resignBtn)
+
+    const fallback = await screen.findByTestId('humanfile-sign-fallback')
+    expect(fallback).toHaveTextContent(/interactive passphrase/i)
+    expect(fallback).toHaveTextContent('ostk trust sign --humanfile')
+    expect(screen.getByTestId('humanfile-trust-warning')).toBeInTheDocument()
+  })
+})
