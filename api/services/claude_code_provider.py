@@ -823,6 +823,7 @@ async def complete(
     system: Optional[str] = None,
     model: str = "claude-sonnet-4-6",
     max_tokens: int = 1024,
+    api_key: Optional[str] = None,
 ) -> Optional[str]:
     """One-shot non-streaming call through the local Claude CLI.
 
@@ -837,6 +838,10 @@ async def complete(
         _claude_log.debug("claude_complete: claude binary not found")
         return None
 
+    env = _build_subprocess_env()
+    if api_key and api_key.strip():
+        env["ANTHROPIC_API_KEY"] = api_key.strip()
+
     prompt = _messages_to_prompt(messages, system)
     args = [
         claude_path,
@@ -844,20 +849,21 @@ async def complete(
         "--output-format",
         "text",
         "--dangerously-skip-permissions",
-        # Block every tool — these are simple text inference calls and we
-        # do not want the CLI to run any actions.
-        "--disallowed-tools="
-        "Bash,Grep,Read,Glob,Edit,Write,WebFetch,WebSearch,Task,"
-        "TodoWrite,NotebookEdit,BashOutput,KillShell,ExitPlanMode,"
-        "SlashCommand,ToolSearch,AskUserQuestion,EnterPlanMode,"
-        "CronCreate,CronDelete,CronList,EnterWorktree,ExitWorktree,"
-        "ListMcpResourcesTool,Monitor,PushNotification,"
-        "ReadMcpResourceTool,RemoteTrigger,ScheduleWakeup,Skill,"
-        "TaskOutput",
+        # Disable all built-in tools, skills/slash commands, MCP servers, and
+        # session file persistence on stateless helper inference calls (->3118).
+        # Equals assignment on --tools="" plus "--" before prompt prevents
+        # Commander's variadic <tools...> parser from consuming the prompt.
+        '--tools=""',
+        "--disable-slash-commands",
+        "--no-session-persistence",
         "--strict-mcp-config",
-        prompt,
     ]
-    env = _build_subprocess_env()
+    if env.get("ANTHROPIC_API_KEY", "").strip():
+        # --bare skips hooks, LSP, plugin sync, keychain reads, and CLAUDE.md
+        # auto-discovery, authenticating strictly via ANTHROPIC_API_KEY.
+        # Omit on OAuth subscription calls where ANTHROPIC_API_KEY is absent.
+        args.append("--bare")
+    args.extend(["--", prompt])
     import subprocess
     try:
         # ->1806: run the fork+wait inside a worker thread. Forking the heavy
@@ -1096,23 +1102,17 @@ async def stream_chat(
     # Disable every tool for plain-text chat turns (e.g. All pill
     # broadcast). Without this, the CLI runs its full agent loop even
     # for casual questions because --dangerously-skip-permissions gives
-    # it unrestricted access. Using --disallowed-tools with = assignment
-    # (space-separated breaks the positional prompt argument) blocks
-    # every built-in tool, and --strict-mcp-config with no explicit
-    # --mcp-config blocks every MCP server so remote tools cannot fire
-    # either. The result is a pure text reply.
+    # it unrestricted access. Using --tools="" with = assignment disables
+    # every built-in tool cleanly without variadic consumption of the
+    # positional prompt, --disable-slash-commands blocks skills/commands,
+    # and --strict-mcp-config with no explicit --mcp-config blocks every
+    # MCP server so remote tools cannot fire either (->3118).
     if kwargs.get("disable_tools"):
-        args.append(
-            "--disallowed-tools="
-            "Bash,Grep,Read,Glob,Edit,Write,WebFetch,WebSearch,Task,"
-            "TodoWrite,NotebookEdit,BashOutput,KillShell,ExitPlanMode,"
-            "SlashCommand,ToolSearch,AskUserQuestion,EnterPlanMode,"
-            "CronCreate,CronDelete,CronList,EnterWorktree,ExitWorktree,"
-            "ListMcpResourcesTool,Monitor,PushNotification,"
-            "ReadMcpResourceTool,RemoteTrigger,ScheduleWakeup,Skill,"
-            "TaskOutput"
-        )
-        args.append("--strict-mcp-config")
+        args.extend([
+            '--tools=""',
+            "--disable-slash-commands",
+            "--strict-mcp-config",
+        ])
     else:
         # Tool-enabled chat turns: block the three native file-inspection
         # tools that have direct mcp__ostk__* equivalents.
@@ -1132,7 +1132,9 @@ async def stream_chat(
         _mcp_allowlist_cfg = _chat_mcp_config()
         if _mcp_allowlist_cfg:
             args.extend(["--mcp-config", _mcp_allowlist_cfg])
-    # Session persistence flags
+    # Session persistence flags: persist/resume when session_uuid is set
+    # for a resumable chat tab; pass --no-session-persistence on stateless
+    # helper/broadcast calls so no orphaned JSONL files accumulate (->3118).
     if session_uuid:
         if is_resume:
             args.extend(["--resume", session_uuid])
@@ -1141,9 +1143,13 @@ async def stream_chat(
             if system_prompt:
                 args.extend(["--append-system-prompt", system_prompt])
         _known_sessions.add(session_uuid)
+    else:
+        args.append("--no-session-persistence")
 
-    # Append the prompt as the final argument
-    args.append(prompt)
+    # Separate option flags (used by warm stream-json stdin mode) from the
+    # cold-spawn argv, which terminates options with "--" before the prompt.
+    _flag_args = list(args)
+    args.extend(["--", prompt])
 
     env = _build_subprocess_env()
 
@@ -1189,11 +1195,11 @@ async def stream_chat(
     _t_spawn: Optional[float] = None
     proc = None
     if tab_id:
-        # warm_args: same as args but --input-format stream-json inserted,
-        # the trailing prompt positional arg removed (prompt goes to the
-        # process's stdin as a JSON event), and --strict-mcp-config added
-        # to suppress MCP server loading on warm turns.
-        _warm_args = args[:2] + ["--input-format", "stream-json"] + args[2:-1]
+        # warm_args: same option flags as cold spawn with --input-format
+        # stream-json inserted, no trailing positional prompt (each turn's
+        # prompt goes to stdin as a JSON event), and --strict-mcp-config
+        # added to suppress MCP server loading on warm turns.
+        _warm_args = _flag_args[:2] + ["--input-format", "stream-json"] + _flag_args[2:]
         if "--strict-mcp-config" not in _warm_args:
             _warm_args.append("--strict-mcp-config")
         try:
