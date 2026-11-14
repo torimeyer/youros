@@ -203,4 +203,277 @@ describe('RepoSwitcher', () => {
       document.documentElement.style.removeProperty('--color-accent')
     }
   })
+
+  it('renders ostk readiness badges, live socket indicator, and uninitialized active-repo prompt (→3113)', async () => {
+    useAppStore.setState({ activeRepoPath: '/Users/dev/claude/raw-service' })
+    mockedGet.mockResolvedValueOnce({
+      active_repo_path: '/Users/dev/claude/raw-service',
+      repos: [
+        {
+          name: 'torios',
+          path: '/Users/dev/claude/torios',
+          is_active: false,
+          branch: 'main',
+          ostk_initialized: true,
+          ostk_socket_live: true,
+        },
+        {
+          name: 'alpha-lib',
+          path: '/Users/dev/claude/alpha-lib',
+          is_active: false,
+          branch: 'develop',
+          ostk_initialized: true,
+          ostk_socket_live: false,
+        },
+        {
+          name: 'raw-service',
+          path: '/Users/dev/claude/raw-service',
+          is_active: true,
+          branch: 'feat/init',
+          ostk_initialized: false,
+          ostk_socket_live: false,
+        },
+      ],
+    })
+
+    renderSwitcher()
+    fireEvent.click(screen.getByTestId('repo-switcher'))
+
+    const liveBadge = await screen.findByTestId('ostk-badge-torios')
+    expect(liveBadge.textContent).toContain('ostk')
+    expect(liveBadge.getAttribute('title')).toBe('ostk live')
+    expect(screen.getByTestId('ostk-live-dot-torios')).toBeInTheDocument()
+
+    const initBadge = screen.getByTestId('ostk-badge-alpha-lib')
+    expect(initBadge.textContent).toContain('ostk')
+    expect(initBadge.getAttribute('title')).toBe('ostk initialized')
+    expect(screen.queryByTestId('ostk-live-dot-alpha-lib')).not.toBeInTheDocument()
+
+    const uninitBadge = screen.getByTestId('ostk-badge-raw-service')
+    expect(uninitBadge.textContent).toContain('no .ostk')
+
+    expect(screen.getByTestId('ostk-uninitialized-banner')).toBeInTheDocument()
+    expect(screen.getByTestId('init-ostk-raw-service')).toBeInTheDocument()
+    expect(screen.queryByTestId('init-ostk-torios')).not.toBeInTheDocument()
+  })
+
+  it('initializes an uninitialized active repo via POST /projects/ostk-init, shows loading state, flips badge, and dispatches repo-change event (→3113)', async () => {
+    useAppStore.setState({ activeRepoPath: '/Users/dev/claude/beta-engine' })
+
+    mockedGet
+      .mockResolvedValueOnce({
+        active_repo_path: '/Users/dev/claude/beta-engine',
+        repos: [
+          {
+            name: 'beta-engine',
+            path: '/Users/dev/claude/beta-engine',
+            is_active: true,
+            branch: 'main',
+            ostk_initialized: false,
+            ostk_socket_live: false,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        active_repo_path: '/Users/dev/claude/beta-engine',
+        repos: [
+          {
+            name: 'beta-engine',
+            path: '/Users/dev/claude/beta-engine',
+            is_active: true,
+            branch: 'main',
+            ostk_initialized: true,
+            ostk_socket_live: false,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        active_repo_path: '/Users/dev/claude/beta-engine',
+        name: 'beta-engine',
+        ostk_initialized: true,
+        ostk_socket_live: false,
+      })
+
+    let resolveInit!: (val: unknown) => void
+    mockedPost.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveInit = resolve
+        }),
+    )
+
+    const eventEvents: CustomEvent[] = []
+    const listener = (ev: Event) => eventEvents.push(ev as CustomEvent)
+    window.addEventListener('myos:active-repo-changed', listener)
+
+    try {
+      renderSwitcher()
+      fireEvent.click(screen.getByTestId('repo-switcher'))
+
+      const initBtn = await screen.findByTestId('init-ostk-beta-engine')
+      expect(initBtn.textContent).toContain('Initialize ostk')
+
+      fireEvent.click(initBtn)
+
+      await waitFor(() => {
+        expect(screen.getByTestId('init-ostk-beta-engine').textContent).toContain('Initializing...')
+        expect(screen.getByTestId('init-ostk-beta-engine')).toBeDisabled()
+      })
+
+      expect(mockedPost).toHaveBeenCalledWith('/projects/ostk-init', {
+        path: '/Users/dev/claude/beta-engine',
+      })
+
+      resolveInit({
+        initialized: true,
+        path: '/Users/dev/claude/beta-engine',
+        ostk_initialized: true,
+        ostk_socket_live: false,
+        output: 'initialized ostk project',
+      })
+
+      await waitFor(() => {
+        expect(screen.getByTestId('ostk-badge-beta-engine').textContent).toContain('ostk')
+        expect(screen.getByTestId('ostk-badge-beta-engine').textContent).not.toContain('no .ostk')
+        expect(screen.queryByTestId('init-ostk-beta-engine')).not.toBeInTheDocument()
+        expect(screen.queryByTestId('ostk-uninitialized-banner')).not.toBeInTheDocument()
+      })
+
+      expect(eventEvents.length).toBeGreaterThanOrEqual(1)
+      expect(eventEvents[0].detail).toMatchObject({
+        path: '/Users/dev/claude/beta-engine',
+        ostk_initialized: true,
+      })
+    } finally {
+      window.removeEventListener('myos:active-repo-changed', listener)
+    }
+  })
+
+  it('surfaces inline error message and allows retry when POST /projects/ostk-init fails (→3113)', async () => {
+    mockedGet.mockResolvedValueOnce({
+      active_repo_path: '/Users/dev/claude/torios',
+      repos: [
+        {
+          name: 'torios',
+          path: '/Users/dev/claude/torios',
+          is_active: true,
+          branch: 'main',
+          ostk_initialized: true,
+          ostk_socket_live: true,
+        },
+        {
+          name: 'broken-repo',
+          path: '/Users/dev/claude/broken-repo',
+          is_active: false,
+          branch: 'main',
+          ostk_initialized: false,
+          ostk_socket_live: false,
+        },
+      ],
+    })
+    mockedPost.mockRejectedValueOnce(new Error('ostk binary is not installed'))
+
+    renderSwitcher()
+    fireEvent.click(screen.getByTestId('repo-switcher'))
+
+    const initBtn = await screen.findByTestId('init-ostk-broken-repo')
+    fireEvent.click(initBtn)
+
+    const alertEl = await screen.findByTestId('ostk-init-error')
+    expect(alertEl.textContent).toContain('ostk binary is not installed')
+    expect(screen.getByTestId('init-ostk-broken-repo')).not.toBeDisabled()
+    expect(screen.getByTestId('ostk-badge-broken-repo').textContent).toContain('no .ostk')
+  })
+
+  it('initializes an inactive sibling repo without firing active-repo-changed and preserves light/dark theme-mapped classes (→3113)', async () => {
+    document.documentElement.setAttribute('data-theme', 'light')
+    document.documentElement.style.setProperty('--color-accent', '#06b6d4')
+
+    mockedGet
+      .mockResolvedValueOnce({
+        active_repo_path: '/Users/dev/claude/torios',
+        repos: [
+          {
+            name: 'torios',
+            path: '/Users/dev/claude/torios',
+            is_active: true,
+            branch: 'main',
+            ostk_initialized: true,
+            ostk_socket_live: true,
+          },
+          {
+            name: 'sibling-app',
+            path: '/Users/dev/claude/sibling-app',
+            is_active: false,
+            branch: 'main',
+            ostk_initialized: false,
+            ostk_socket_live: false,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        active_repo_path: '/Users/dev/claude/torios',
+        repos: [
+          {
+            name: 'torios',
+            path: '/Users/dev/claude/torios',
+            is_active: true,
+            branch: 'main',
+            ostk_initialized: true,
+            ostk_socket_live: true,
+          },
+          {
+            name: 'sibling-app',
+            path: '/Users/dev/claude/sibling-app',
+            is_active: false,
+            branch: 'main',
+            ostk_initialized: true,
+            ostk_socket_live: false,
+          },
+        ],
+      })
+    mockedPost.mockResolvedValueOnce({
+      initialized: true,
+      path: '/Users/dev/claude/sibling-app',
+      ostk_initialized: true,
+      ostk_socket_live: false,
+      output: 'initialized ostk project',
+    })
+
+    const eventSpy = vi.fn()
+    window.addEventListener('myos:active-repo-changed', eventSpy)
+
+    try {
+      renderSwitcher()
+      fireEvent.click(screen.getByTestId('repo-switcher'))
+
+      const initBtn = await screen.findByTestId('init-ostk-sibling-app')
+      const liveBadge = screen.getByTestId('ostk-badge-torios')
+      const uninitBadge = screen.getByTestId('ostk-badge-sibling-app')
+
+      expect(liveBadge.className).toContain('accent-highlight')
+      expect(liveBadge.className).toContain('accent-border')
+      expect(uninitBadge.className).toContain('bg-slate-900')
+      expect(uninitBadge.className).toContain('border-slate-700')
+      expect(initBtn.className).toContain('bg-slate-900')
+      expect(initBtn.className).toContain('border-slate-700')
+      expect(initBtn.className).toContain('hover:bg-slate-700')
+
+      fireEvent.click(initBtn)
+
+      await waitFor(() => {
+        expect(mockedPost).toHaveBeenCalledWith('/projects/ostk-init', {
+          path: '/Users/dev/claude/sibling-app',
+        })
+        expect(screen.getByTestId('ostk-badge-sibling-app').textContent).toContain('ostk')
+        expect(screen.queryByTestId('init-ostk-sibling-app')).not.toBeInTheDocument()
+      })
+
+      expect(eventSpy).not.toHaveBeenCalled()
+    } finally {
+      window.removeEventListener('myos:active-repo-changed', eventSpy)
+      document.documentElement.removeAttribute('data-theme')
+      document.documentElement.style.removeProperty('--color-accent')
+    }
+  })
 })

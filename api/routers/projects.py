@@ -1,10 +1,11 @@
+import asyncio
 import base64
 import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Body, HTTPException, Query
 from pydantic import BaseModel
 
 from services import platform_helpers, recent_deletes
@@ -32,6 +33,22 @@ def _is_git_repo(path: Path) -> bool:
         return git_marker.is_dir() or git_marker.is_file()
     except OSError:
         return False
+
+
+def _ostk_repo_status(repo_dir: Path) -> dict:
+    """Return .ostk/ directory and daemon socket readiness flags for a repository."""
+    try:
+        ostk_initialized = (repo_dir / ".ostk").is_dir()
+    except OSError:
+        ostk_initialized = False
+    try:
+        ostk_socket_live = ostk_initialized and (repo_dir / ".ostk" / "ostk.sock").exists()
+    except OSError:
+        ostk_socket_live = False
+    return {
+        "ostk_initialized": ostk_initialized,
+        "ostk_socket_live": ostk_socket_live,
+    }
 
 
 def _read_git_branch(repo_path: Path) -> Optional[str]:
@@ -253,6 +270,32 @@ class ActiveRepoRequest(BaseModel):
     path: Optional[str] = None
 
 
+class OstkInitRequest(BaseModel):
+    path: Optional[str] = None
+    import_existing: bool = False
+
+
+def _validate_git_repo_dir(raw_path: str) -> Path:
+    """Resolve and validate that raw_path points to an existing git repository directory."""
+    if "\x00" in raw_path:
+        raise HTTPException(status_code=400, detail="Invalid repository path.")
+    try:
+        resolved = Path(raw_path).expanduser().resolve()
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid repository path: {exc}")
+
+    if not resolved.exists():
+        raise HTTPException(status_code=400, detail=f"Repository path does not exist: {resolved}")
+    if not resolved.is_dir():
+        raise HTTPException(status_code=400, detail=f"Repository path is not a directory: {resolved}")
+    if not _is_git_repo(resolved):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Directory is not a git repository (missing .git): {resolved}",
+        )
+    return resolved
+
+
 @router.get("/projects/repos")
 async def list_git_repos():
     """Discover local git repositories across standard workspace roots."""
@@ -306,6 +349,7 @@ async def list_git_repos():
             "path": resolved_str,
             "is_active": resolved == active_resolved,
             "branch": _read_git_branch(resolved),
+            **_ostk_repo_status(resolved),
         })
 
     repos.sort(
@@ -314,6 +358,22 @@ async def list_git_repos():
     return {
         "repos": repos,
         "active_repo_path": str(active_path),
+    }
+
+
+@router.get("/projects/active-repo")
+async def get_active_repo():
+    """Return metadata and ostk readiness status for the currently active git repository."""
+    effective = get_active_repo_path()
+    try:
+        resolved = effective.resolve()
+    except OSError:
+        resolved = effective
+    return {
+        "active_repo_path": str(effective),
+        "name": resolved.name,
+        "branch": _read_git_branch(resolved),
+        **_ostk_repo_status(resolved),
     }
 
 
@@ -329,33 +389,105 @@ async def set_active_repo(body: ActiveRepoRequest):
         invalidate_ttl_cache()
         sessions_router.reset_session_caches()
         effective = get_active_repo_path()
+        try:
+            effective_resolved = effective.resolve()
+        except OSError:
+            effective_resolved = effective
         return {
             "active_repo_path": str(effective),
             "name": effective.name,
+            **_ostk_repo_status(effective_resolved),
         }
 
-    try:
-        resolved = Path(raw_path).expanduser().resolve()
-    except OSError as exc:
-        raise HTTPException(status_code=400, detail=f"Invalid repository path: {exc}")
-
-    if not resolved.exists():
-        raise HTTPException(status_code=400, detail=f"Repository path does not exist: {resolved}")
-    if not resolved.is_dir():
-        raise HTTPException(status_code=400, detail=f"Repository path is not a directory: {resolved}")
-    if not _is_git_repo(resolved):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Directory is not a git repository (missing .git): {resolved}",
-        )
+    resolved = _validate_git_repo_dir(raw_path)
 
     settings_store_mod.save_settings({"active_repo_path": str(resolved)})
     invalidate_ttl_cache()
     sessions_router.reset_session_caches()
     effective = get_active_repo_path()
+    try:
+        effective_resolved = effective.resolve()
+    except OSError:
+        effective_resolved = effective
     return {
         "active_repo_path": str(effective),
         "name": resolved.name,
+        **_ostk_repo_status(effective_resolved),
+    }
+
+
+@router.post("/projects/ostk-init")
+async def init_ostk_repo(body: OstkInitRequest = Body(default_factory=OstkInitRequest)):
+    """Initialize ostk inside a local git repository asynchronously via ostk init."""
+    from routers import sessions as sessions_router
+    from services.ostk import get_effective_root, invalidate_ttl_cache
+
+    raw_path = (body.path or "").strip() if body.path is not None else ""
+    if not raw_path:
+        raw_path = str(get_effective_root())
+
+    resolved = _validate_git_repo_dir(raw_path)
+    had_ostk_before = (resolved / ".ostk").is_dir()
+
+    cmd = ["ostk", "init"]
+    if body.import_existing:
+        cmd.append("--import")
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            cwd=str(resolved),
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=503,
+            detail="ostk binary is not installed or not found on PATH.",
+        )
+
+    try:
+        stdout_bytes, stderr_bytes = await asyncio.wait_for(
+            proc.communicate(),
+            timeout=15.0,
+        )
+    except asyncio.TimeoutError:
+        try:
+            proc.kill()
+            await proc.wait()
+        except ProcessLookupError:
+            pass
+        raise HTTPException(
+            status_code=500,
+            detail="ostk init timed out after 15 seconds.",
+        )
+
+    stdout_text = (stdout_bytes or b"").decode("utf-8", errors="replace")
+    stderr_text = (stderr_bytes or b"").decode("utf-8", errors="replace")
+    status = _ostk_repo_status(resolved)
+    newly_created_ostk = not had_ostk_before and status["ostk_initialized"]
+
+    if proc.returncode != 0 and not newly_created_ostk:
+        summary = (stderr_text.strip() or stdout_text.strip() or "unknown error")[:400]
+        raise HTTPException(
+            status_code=500,
+            detail=f"ostk init failed (exit {proc.returncode}): {summary}",
+        )
+
+    try:
+        if resolved == get_effective_root().resolve():
+            invalidate_ttl_cache()
+            sessions_router.reset_session_caches()
+    except OSError:
+        pass
+
+    return {
+        "initialized": True,
+        "path": str(resolved),
+        "ostk_initialized": status["ostk_initialized"],
+        "ostk_socket_live": status["ostk_socket_live"],
+        "output": stdout_text.strip(),
     }
 
 
