@@ -470,3 +470,257 @@ async def test_digest_endpoint_session_fields(client, tmp_path):
     assert "label" in s
     assert "recent_activity" in s
     assert s["activity_count"] == 4
+
+
+# ---------------------------------------------------------------------------
+# GET /api/sessions ground-truth runtime merge & deduplication tests (->3121)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_sessions_isolated_when_sessions_dir_patched(client, tmp_path):
+    """When SESSIONS_DIR is patched without include_external=true, host runtime discovery is skipped."""
+    sessions_dir = tmp_path / "sessions"
+    now = datetime.now(timezone.utc)
+    recent = (now - timedelta(seconds=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    _write_session(sessions_dir, "claude-code-local-1", recent)
+    _write_session(sessions_dir, "gemini-worker-2", recent)
+    _write_session(sessions_dir, "ostk-seat-3", recent)
+
+    with patch("routers.sessions.SESSIONS_DIR", sessions_dir), \
+         patch("routers.agents.nudge_history", {}):
+        resp = await client.get("/api/sessions")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "sessions" in data
+    assert "conflicts" in data
+    assert len(data["sessions"]) == 3
+
+    by_id = {s["id"]: s for s in data["sessions"]}
+    assert by_id["claude-code-local-1"]["runtime"] == "claude"
+    assert by_id["gemini-worker-2"]["runtime"] == "gemini"
+    assert by_id["ostk-seat-3"]["runtime"] == "ostk"
+    assert all(s.get("external") is False for s in data["sessions"])
+
+
+@pytest.mark.asyncio
+async def test_get_sessions_merges_external_claude_and_gemini_when_include_external_true(client, tmp_path):
+    """GET /api/sessions?include_external=true merges external Claude & Gemini runtime sessions."""
+    sessions_dir = tmp_path / "sessions"
+    now = datetime.now(timezone.utc)
+    recent = (now - timedelta(seconds=20)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    _write_session(sessions_dir, "ostk-supervised-1", recent)
+
+    fake_external = [
+        {
+            "id": "ext-claude-interactive",
+            "session_id": "ext-claude-interactive",
+            "name": "torios-17",
+            "label": "torios-17",
+            "status": "idle",
+            "last_event_at": recent,
+            "age_seconds": 20,
+            "activity": "",
+            "recent_files": [],
+            "runtime": "claude",
+            "kind": "interactive",
+            "pid": 14165,
+            "cwd": "/Users/torimeyer/claude/torios",
+            "external": True,
+        },
+        {
+            "id": "ext-claude-bg",
+            "session_id": "ext-claude-bg",
+            "name": "claude-bg-daemon",
+            "label": "claude-bg-daemon",
+            "status": "active",
+            "last_event_at": recent,
+            "age_seconds": 10,
+            "activity": "Background task",
+            "recent_files": [],
+            "runtime": "claude",
+            "kind": "background",
+            "pid": 24100,
+            "cwd": "/Users/torimeyer/claude/torios",
+            "external": True,
+        },
+        {
+            "id": "ext-gemini-cli",
+            "session_id": "ext-gemini-cli",
+            "name": "ext-gemini-cli",
+            "label": "ext-gemini-cli",
+            "status": "active",
+            "last_event_at": recent,
+            "age_seconds": 15,
+            "activity": "Auditing routes",
+            "recent_files": [],
+            "runtime": "gemini",
+            "kind": "interactive",
+            "pid": None,
+            "cwd": "/Users/torimeyer/work/youros-core",
+            "project_slug": "youros-core",
+            "external": True,
+        },
+    ]
+
+    with patch("routers.sessions.SESSIONS_DIR", sessions_dir), \
+         patch("routers.agents.nudge_history", {}), \
+         patch("routers.sessions.discover_external_runtime_sessions", new=AsyncMock(return_value=fake_external)):
+        resp = await client.get("/api/sessions?include_external=true")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    by_id = {s["id"]: s for s in data["sessions"]}
+    assert set(by_id.keys()) == {
+        "ostk-supervised-1",
+        "ext-claude-interactive",
+        "ext-claude-bg",
+        "ext-gemini-cli",
+    }
+    assert by_id["ext-claude-interactive"]["external"] is True
+    assert by_id["ext-claude-interactive"]["kind"] == "interactive"
+    assert by_id["ext-claude-interactive"]["pid"] == 14165
+    assert by_id["ext-claude-bg"]["kind"] == "background"
+    assert by_id["ext-claude-bg"]["external"] is True
+    assert by_id["ext-gemini-cli"]["runtime"] == "gemini"
+    assert by_id["ext-gemini-cli"]["external"] is True
+
+
+@pytest.mark.asyncio
+async def test_get_sessions_deduplicates_and_enriches_matching_ostk_sessions(client, tmp_path):
+    """Matching id, pid (claude-code-p<pid>), or name enriches existing .ostk row instead of duplicating."""
+    sessions_dir = tmp_path / "sessions"
+    now = datetime.now(timezone.utc)
+    recent = (now - timedelta(seconds=25)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    # 1. Matches by PID suffix (-p14165)
+    _write_session(sessions_dir, "claude-code-p14165", recent)
+    # 2. Matches by exact session ID
+    _write_session(sessions_dir, "shared-uuid-1234", recent)
+    # 3. Matches by session name
+    _write_session(sessions_dir, "named-worker-7", recent)
+
+    fake_external = [
+        {
+            "id": "6b60ca12-6edc-46a2-9529-1edf91b1a73b",
+            "session_id": "6b60ca12-6edc-46a2-9529-1edf91b1a73b",
+            "name": "torios-17",
+            "status": "idle",
+            "last_event_at": recent,
+            "age_seconds": 25,
+            "activity": "",
+            "recent_files": [],
+            "runtime": "claude",
+            "kind": "interactive",
+            "pid": 14165,
+            "cwd": "/Users/torimeyer/claude/torios",
+            "external": True,
+        },
+        {
+            "id": "shared-uuid-1234",
+            "session_id": "shared-uuid-1234",
+            "name": "bg-runner",
+            "status": "active",
+            "last_event_at": recent,
+            "age_seconds": 25,
+            "activity": "",
+            "recent_files": [],
+            "runtime": "claude",
+            "kind": "background",
+            "pid": 55100,
+            "cwd": "/Users/torimeyer/claude/torios",
+            "external": True,
+        },
+        {
+            "id": "other-uuid-9999",
+            "session_id": "other-uuid-9999",
+            "name": "named-worker-7",
+            "status": "active",
+            "last_event_at": recent,
+            "age_seconds": 25,
+            "activity": "",
+            "recent_files": [],
+            "runtime": "gemini",
+            "kind": "interactive",
+            "pid": 77200,
+            "cwd": "/Users/torimeyer/work/repo",
+            "external": True,
+        },
+    ]
+
+    with patch("routers.sessions.SESSIONS_DIR", sessions_dir), \
+         patch("routers.agents.nudge_history", {}), \
+         patch("routers.sessions.discover_external_runtime_sessions", new=AsyncMock(return_value=fake_external)):
+        resp = await client.get("/api/sessions?include_external=true")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    # Zero duplicate rows emitted: still exactly 3 sessions
+    assert len(data["sessions"]) == 3
+    by_id = {s["id"]: s for s in data["sessions"]}
+
+    assert by_id["claude-code-p14165"]["pid"] == 14165
+    assert by_id["claude-code-p14165"]["runtime"] == "claude"
+    assert by_id["claude-code-p14165"]["kind"] == "interactive"
+    assert by_id["claude-code-p14165"]["external"] is False
+
+    assert by_id["shared-uuid-1234"]["pid"] == 55100
+    assert by_id["shared-uuid-1234"]["runtime"] == "claude"
+    assert by_id["shared-uuid-1234"]["kind"] == "background"
+    assert by_id["shared-uuid-1234"]["external"] is False
+
+    assert by_id["named-worker-7"]["pid"] == 77200
+    assert by_id["named-worker-7"]["runtime"] == "gemini"
+    assert by_id["named-worker-7"]["kind"] == "interactive"
+    assert by_id["named-worker-7"]["external"] is False
+
+
+@pytest.mark.asyncio
+async def test_active_and_coordination_merge_external_when_patched_or_requested(client, tmp_path):
+    """Patched discover_external_runtime_sessions merges into /sessions, /sessions/active, and /sessions/coordination."""
+    sessions_dir = tmp_path / "sessions"
+    now = datetime.now(timezone.utc)
+    recent = (now - timedelta(seconds=15)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    _write_session(sessions_dir, "ostk-local-a", recent)
+
+    fake_external = [
+        {
+            "id": "ext-gem-77",
+            "session_id": "ext-gem-77",
+            "name": "ext-gem-77",
+            "status": "idle",
+            "last_event_at": recent,
+            "age_seconds": 15,
+            "activity": "Reading specs",
+            "recent_files": [],
+            "runtime": "gemini",
+            "kind": "interactive",
+            "pid": None,
+            "cwd": "/Users/torimeyer/claude/torios",
+            "external": True,
+        }
+    ]
+
+    with patch("routers.sessions.SESSIONS_DIR", sessions_dir), \
+         patch("routers.agents.nudge_history", {}), \
+         patch("routers.sessions.discover_external_runtime_sessions", new=AsyncMock(return_value=fake_external)):
+        # Without query param: patched discover callable still triggers merge
+        s_resp = await client.get("/api/sessions")
+        a_resp = await client.get("/api/sessions/active")
+        c_resp = await client.get("/api/sessions/coordination?include_external=true")
+
+    assert s_resp.status_code == 200
+    assert s_resp.json()["count"] == 2
+    assert s_resp.json()["external_count"] == 1
+
+    assert a_resp.status_code == 200
+    assert a_resp.json()["count"] == 2
+    assert a_resp.json()["active_count"] == 1
+    assert a_resp.json()["idle_count"] == 1
+
+    assert c_resp.status_code == 200
+    coord_ids = {row["id"] for row in c_resp.json()["sessions"]}
+    assert coord_ids == {"ostk-local-a", "ext-gem-77"}
+
+
