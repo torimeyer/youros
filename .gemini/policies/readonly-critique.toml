@@ -1,0 +1,79 @@
+# Admin-tier read-only policy for Gemini CLI 0.57.0 spec critiques and read-only runs (->3120).
+#
+# Loaded via `--approval-mode plan --admin-policy .gemini/policies/readonly-critique.toml`.
+# Admin tier transforms `priority = 100` to `5 + 100/1000 = 5.100`, strictly overriding:
+# - Default `plan.toml` rules (`1.040` catch-all and `1.070` markdown/exit_plan_mode exceptions)
+# - User-tier trusted MCP server rules (`4.2` from `mcpServers.ostk.trust = true` in `~/.gemini/settings.json`)
+# - User-tier `--allowed-tools` (`4.3`) and interactive Always Allow rules (`4.95`)
+
+# 1. Deny built-in write, shell execution, memory mutation, and plan-mode escape tools.
+[[rule]]
+toolName = [
+  "write_file",
+  "replace",
+  "run_shell_command",
+  "save_memory",
+  "exit_plan_mode",
+  "write_todos"
+]
+decision = "deny"
+priority = 100
+denyMessage = "Read-only critique policy blocks file edits, shell execution, memory writes, and exiting plan mode."
+
+# 2. Deny mutating ostk MCP tools on server "ostk".
+[[rule]]
+mcpName = "ostk"
+toolName = [
+  "fs_ops",
+  "bash",
+  "spawn",
+  "interact",
+  "edit",
+  "fs_write",
+  "tack",
+  "nudge",
+  "session",
+  "context_store",
+  "context_evict",
+  "context_pin",
+  "context_release",
+  "context_restore"
+]
+decision = "deny"
+priority = 100
+denyMessage = "Read-only critique policy blocks mutating ostk MCP tools."
+
+# 3. Deny ostk MCP lock tool via canonical FQN so Gemini 0.57.0 typo validator accepts it cleanly.
+[[rule]]
+toolName = "mcp_ostk_lock"
+decision = "deny"
+priority = 100
+denyMessage = "Read-only critique policy blocks ostk lock mutations."
+
+# 4. Allow built-in read-only repository inspection tools.
+[[rule]]
+toolName = [
+  "read_file",
+  "read_many_files",
+  "grep_search",
+  "glob",
+  "list_directory"
+]
+decision = "allow"
+priority = 100
+
+# 5. Allow read-only ostk MCP inspection and search tools.
+[[rule]]
+mcpName = "ostk"
+toolName = [
+  "read",
+  "search",
+  "recall",
+  "recall_outline",
+  "recall_search",
+  "digest",
+  "help",
+  "roster"
+]
+decision = "allow"
+priority = 100

@@ -559,3 +559,38 @@ def test_adhoc_default_agentfile_parses_cleanly():
 async def test_unknown_named_skill_still_raises_value_error():
     with pytest.raises(ValueError, match="bogus-skill-zzz"):
         await GeminiCliRuntimeProvider().invoke_skill("bogus-skill-zzz")
+
+
+# ---------------------------------------------------------------------------
+# 6. Gemini 0.57.0 Read-Only Plan Mode & Admin Policy Tier (->3120)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_stream_chat_read_only_switches_yolo_to_plan_and_admin_policy():
+    proc = FakeProcess(
+        stdout_lines=[
+            _jsonl({"type": "message", "role": "assistant", "content": "plan mode ok", "delta": True}),
+            _jsonl({"type": "result", "status": "success", "stats": {"input_tokens": 4, "output_tokens": 3}}),
+        ],
+        return_code=0,
+    )
+    ws = FakeWebSocket()
+    with (
+        patch("services.gemini_cli_provider._find_gemini_binary", return_value="/usr/local/bin/gemini"),
+        patch("asyncio.create_subprocess_exec", new=AsyncMock(return_value=proc)) as mock_exec,
+    ):
+        reply = await stream_chat(
+            [{"role": "user", "content": "audit only"}],
+            ws,
+            read_only=True,
+        )
+
+    assert reply == "plan mode ok"
+    argv = list(mock_exec.call_args.args)
+    assert "--approval-mode" in argv
+    assert argv[argv.index("--approval-mode") + 1] == "plan"
+    assert "--admin-policy" in argv
+    assert argv[argv.index("--admin-policy") + 1] == str(gcp.get_readonly_policy_path())
+    assert "yolo" not in argv
+

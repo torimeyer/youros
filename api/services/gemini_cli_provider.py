@@ -108,6 +108,37 @@ def get_adhoc_agentfile_path() -> Path:
     return _REPO_ROOT / "agents" / "adhoc-default.agent"
 
 
+def get_readonly_policy_path() -> Path:
+    """Return the path to the Gemini 0.57.0 admin-tier read-only policy TOML."""
+    return _REPO_ROOT / ".gemini" / "policies" / "readonly-critique.toml"
+
+
+def build_gemini_readonly_args() -> list[str]:
+    """Return CLI flags enforcing Gemini Plan Mode plus the admin-tier read-only policy."""
+    return [
+        "--approval-mode",
+        "plan",
+        "--admin-policy",
+        str(get_readonly_policy_path()),
+    ]
+
+
+_READONLY_AGENTFILE_TOOLS: frozenset[str] = frozenset({
+    "file:read",
+    "read",
+    "search",
+    "web:search",
+    "web:read",
+})
+
+
+def _is_readonly_agentfile_tools(tools: Any) -> bool:
+    if not tools:
+        return False
+    normalized = {str(t).strip().lower() for t in tools if str(t).strip()}
+    return bool(normalized) and normalized.issubset(_READONLY_AGENTFILE_TOOLS)
+
+
 def resolve_gemini_cli_model(model: Optional[str]) -> Optional[str]:
     """Map an incoming model tag to a valid Gemini CLI 0.57.0 -m flag value.
 
@@ -315,6 +346,7 @@ class GeminiCliRuntimeProvider(_BaseRuntimeProvider):
         )
         from services.youros_paths import youros_home
 
+        kw_read_only = fields.pop("read_only", None)
         req = self._coerce_request(request, fields)
 
         gemini_bin = _find_gemini_binary()
@@ -325,6 +357,12 @@ class GeminiCliRuntimeProvider(_BaseRuntimeProvider):
             )
 
         extra = dict(req.extra or {})
+        explicit_read_only: Optional[bool] = None
+        if kw_read_only is not None:
+            explicit_read_only = bool(kw_read_only)
+        elif "read_only" in extra:
+            explicit_read_only = extra.get("read_only") is True
+
         repo_root = spawn_pipeline.resolve_target_repo(req.repo_path)
 
         reuse_wt_raw = extra.get("reuse_worktree_path")
@@ -402,6 +440,7 @@ class GeminiCliRuntimeProvider(_BaseRuntimeProvider):
                 ostk_signed_af = str(cand_af)
 
         if ostk_signed_af:
+            is_read_only = bool(explicit_read_only)
             ostk_bin = shutil.which("ostk") or "ostk"
             cmd: list[str] = [ostk_bin, "agentfile", "run", str(ostk_signed_af)]
         else:
@@ -417,9 +456,16 @@ class GeminiCliRuntimeProvider(_BaseRuntimeProvider):
                 recipe_path = get_adhoc_agentfile_path()
 
             recipe_prompt = ""
+            recipe_tools: list[str] = []
             if recipe_path and recipe_path.is_file():
                 cfg = parse_agentfile(recipe_path)
                 recipe_prompt = cfg.prompt or ""
+                recipe_tools = list(cfg.tools or [])
+
+            if explicit_read_only is not None:
+                is_read_only = explicit_read_only
+            else:
+                is_read_only = _is_readonly_agentfile_tools(recipe_tools)
 
             user_prompt = req.prompt or ""
             if "{{prompt}}" in recipe_prompt:
@@ -430,11 +476,18 @@ class GeminiCliRuntimeProvider(_BaseRuntimeProvider):
                 composed_prompt = user_prompt or recipe_prompt
 
             if worktree_path is not None:
-                wt_header = (
-                    f"[WORKTREE] Your isolated git worktree is: {worktree_path} "
-                    f"(branch: {branch_name or 'HEAD'}).\n"
-                    "Make all file edits inside this worktree and commit your changes before finishing."
-                )
+                if is_read_only:
+                    wt_header = (
+                        f"[WORKTREE] Your isolated git worktree is: {worktree_path} "
+                        f"(branch: {branch_name or 'HEAD'}).\n"
+                        "Inspect files inside this worktree in read-only plan mode; do not edit files or run mutating commands."
+                    )
+                else:
+                    wt_header = (
+                        f"[WORKTREE] Your isolated git worktree is: {worktree_path} "
+                        f"(branch: {branch_name or 'HEAD'}).\n"
+                        "Make all file edits inside this worktree and commit your changes before finishing."
+                    )
                 composed_prompt = f"{wt_header}\n\n{composed_prompt}".strip()
 
             try:
@@ -446,6 +499,11 @@ class GeminiCliRuntimeProvider(_BaseRuntimeProvider):
             except Exception:
                 pass
 
+            approval_args = (
+                build_gemini_readonly_args()
+                if is_read_only
+                else ["--approval-mode", "yolo"]
+            )
             # Never pass Gemini CLI's -w flag; worktrees are provisioned and reaped by spawn_pipeline.
             cmd = [
                 gemini_bin,
@@ -454,8 +512,7 @@ class GeminiCliRuntimeProvider(_BaseRuntimeProvider):
                 "--output-format",
                 "stream-json",
                 "--skip-trust",
-                "--approval-mode",
-                "yolo",
+                *approval_args,
             ]
             if mapped_cli_model is not None:
                 cmd.extend(["-m", mapped_cli_model])
@@ -514,6 +571,8 @@ class GeminiCliRuntimeProvider(_BaseRuntimeProvider):
             meta_record["needle_id"] = extra["needle_id"]
         if extra.get("handed_off_from"):
             meta_record["handed_off_from"] = extra["handed_off_from"]
+        if is_read_only:
+            meta_record["read_only"] = True
 
         try:
             import routers.agents as agents_mod
@@ -681,6 +740,8 @@ class GeminiCliRuntimeProvider(_BaseRuntimeProvider):
 
         repo_root = Path(__file__).resolve().parent.parent.parent
         cmd = [gemini_bin, "-p", prompt, "--skip-trust"]
+        if args.get("read_only") is True:
+            cmd.extend(build_gemini_readonly_args())
         logger.info("skills.run: gemini skill=%s recipe=%s", sid, recipe_path.name)
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -761,6 +822,12 @@ async def stream_chat(
 
     tab_id: Optional[str] = kwargs.get("tab_id")
     resolved_model: Optional[str] = resolve_gemini_cli_model(kwargs.get("model"))
+    read_only: bool = kwargs.get("read_only") is True
+    approval_args: list[str] = (
+        build_gemini_readonly_args()
+        if read_only
+        else ["--approval-mode", "yolo"]
+    )
 
     stored_sid = get_gemini_session_id(tab_id) if tab_id else None
     is_resume = bool(tab_id and stored_sid and len(messages) > 1)
@@ -794,8 +861,7 @@ async def stream_chat(
             "--output-format",
             "stream-json",
             "--skip-trust",
-            "--approval-mode",
-            "yolo",
+            *approval_args,
         ]
         if resolved_model is not None:
             args.extend(["-m", resolved_model])
@@ -1058,3 +1124,8 @@ async def stream_chat(
         pass
 
     return full_text
+
+
+# Aliases supporting both RuntimeProvider and provider naming conventions (->3120).
+GeminiCliProvider = GeminiCliRuntimeProvider
+stream_gemini_cli = stream_chat
