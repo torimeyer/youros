@@ -5,7 +5,7 @@ import os
 import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Any, Iterable, Optional
 from fastapi import APIRouter, Body, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
@@ -4644,17 +4644,28 @@ def _fill_transcript_bytes(agents: list) -> None:
             _ar["per_agent_transcript_bytes"] = _get_per_agent_transcript_bytes_cached(_ar_name)
 
 
-def _format_jsonl_transcript(jsonl_path: Path) -> str:
-    """Parse a Claude Code agent JSONL output file into a readable transcript.
+def _extract_parent_tool_use_id(entry: Any) -> Optional[str]:
+    """Extract parent_tool_use_id from a stream-json event or its nested message."""
+    if not isinstance(entry, dict):
+        return None
+    top_id = entry.get("parent_tool_use_id")
+    if isinstance(top_id, str) and top_id.strip():
+        return top_id.strip()
+    message = entry.get("message")
+    if isinstance(message, dict):
+        msg_id = message.get("parent_tool_use_id")
+        if isinstance(msg_id, str) and msg_id.strip():
+            return msg_id.strip()
+    return None
 
-    Each line is a JSON object representing one message. We pull out:
-      - Initial user prompts (string content) -> "User:"
-      - Assistant text blocks -> "Assistant:"
-      - Assistant tool_use blocks -> "[tool: <name>]"
-      - User tool_result blocks -> "Tool result:"
-    Malformed lines are skipped silently.
+
+def _parse_jsonl_transcript_entries(jsonl_path: Path) -> list[dict]:
+    """Parse a Claude Code JSONL transcript into structured speaker entries.
+
+    Preserves ``parent_tool_use_id`` and sets ``is_subagent: True`` on nested
+    subagent events forwarded when ``--forward-subagent-text`` is active.
     """
-    parts: list[str] = []
+    entries: list[dict] = []
     try:
         with open(jsonl_path, "r", errors="replace") as f:
             for line in f:
@@ -4671,59 +4682,199 @@ def _format_jsonl_transcript(jsonl_path: Path) -> str:
                 msg_type = entry.get("type")
                 message = entry.get("message") or {}
                 content = message.get("content") if isinstance(message, dict) else None
+                parent_id = _extract_parent_tool_use_id(entry)
+                is_subagent = bool(parent_id)
+                sub_prefix = f"[subagent: {parent_id}] " if is_subagent else ""
 
                 if msg_type == "assistant" and isinstance(content, list):
+                    thinking_chunks: list[str] = []
                     text_chunks: list[str] = []
                     tool_chunks: list[str] = []
                     for block in content:
                         if not isinstance(block, dict):
                             continue
                         btype = block.get("type")
-                        if btype == "text":
+                        if btype == "thinking" and is_subagent:
+                            thinking_val = block.get("thinking") or block.get("text") or ""
+                            if isinstance(thinking_val, str) and thinking_val.strip():
+                                thinking_chunks.append(thinking_val)
+                        elif btype == "text":
                             text = block.get("text") or ""
-                            if text.strip():
+                            if isinstance(text, str) and text.strip():
                                 text_chunks.append(text)
                         elif btype == "tool_use":
                             tool_name = block.get("name") or "tool"
                             tool_chunks.append(f"[tool: {tool_name}]")
+                    if thinking_chunks:
+                        entries.append({
+                            "role": "Assistant",
+                            "body": f"{sub_prefix}[thinking] " + "\n".join(thinking_chunks),
+                            "parent_tool_use_id": parent_id,
+                            "is_subagent": is_subagent,
+                        })
                     if text_chunks:
-                        parts.append("Assistant: " + "\n".join(text_chunks))
+                        entries.append({
+                            "role": "Assistant",
+                            "body": sub_prefix + "\n".join(text_chunks),
+                            "parent_tool_use_id": parent_id,
+                            "is_subagent": is_subagent,
+                        })
                     if tool_chunks:
-                        parts.append("Assistant: " + " ".join(tool_chunks))
+                        entries.append({
+                            "role": "Assistant",
+                            "body": sub_prefix + " ".join(tool_chunks),
+                            "parent_tool_use_id": parent_id,
+                            "is_subagent": is_subagent,
+                        })
                 elif msg_type == "user":
                     # Skip auto-injected runtime scaffolding (system
                     # reminders, image-source placeholders, wakeup pings).
-                    # Claude Code marks these ``isMeta: true``. Without
-                    # this skip the Agents "View transcript" modal repeats
-                    # the same Claude Code opening banner dozens of times
-                    # on scroll-up in a long session.
+                    # Claude Code marks these ``isMeta: true``.
                     if entry.get("isMeta") is True:
                         continue
                     if isinstance(content, str) and content.strip():
-                        line_text = "User: " + content.strip()
+                        body_text = sub_prefix + content.strip()
                         # Collapse consecutive identical user lines to one.
-                        if not parts or parts[-1] != line_text:
-                            parts.append(line_text)
+                        if not (
+                            entries
+                            and entries[-1]["role"] == "User"
+                            and entries[-1]["body"] == body_text
+                            and entries[-1]["parent_tool_use_id"] == parent_id
+                        ):
+                            entries.append({
+                                "role": "User",
+                                "body": body_text,
+                                "parent_tool_use_id": parent_id,
+                                "is_subagent": is_subagent,
+                            })
                     elif isinstance(content, list):
+                        user_text_chunks: list[str] = []
                         for block in content:
                             if not isinstance(block, dict):
                                 continue
-                            if block.get("type") == "tool_result":
+                            btype = block.get("type")
+                            if btype == "tool_result":
                                 result = block.get("content")
                                 if isinstance(result, str) and result.strip():
-                                    parts.append("Tool result: " + result.strip())
+                                    entries.append({
+                                        "role": "Tool result",
+                                        "body": sub_prefix + result.strip(),
+                                        "parent_tool_use_id": parent_id,
+                                        "is_subagent": is_subagent,
+                                    })
                                 elif isinstance(result, list):
                                     text_pieces: list[str] = []
                                     for sub in result:
                                         if isinstance(sub, dict) and sub.get("type") == "text":
                                             t = sub.get("text") or ""
-                                            if t.strip():
+                                            if isinstance(t, str) and t.strip():
                                                 text_pieces.append(t)
                                     if text_pieces:
-                                        parts.append("Tool result: " + "\n".join(text_pieces))
+                                        entries.append({
+                                            "role": "Tool result",
+                                            "body": sub_prefix + "\n".join(text_pieces),
+                                            "parent_tool_use_id": parent_id,
+                                            "is_subagent": is_subagent,
+                                        })
+                            elif btype == "text" and is_subagent:
+                                utext = block.get("text") or ""
+                                if isinstance(utext, str) and utext.strip():
+                                    user_text_chunks.append(utext.strip())
+                        if user_text_chunks:
+                            entries.append({
+                                "role": "User",
+                                "body": sub_prefix + "\n".join(user_text_chunks),
+                                "parent_tool_use_id": parent_id,
+                                "is_subagent": is_subagent,
+                            })
     except OSError:
-        return ""
-    return "\n\n".join(parts)
+        return []
+    return entries
+
+
+def _format_jsonl_transcript_from_entries(entries: list[dict]) -> str:
+    """Render structured JSONL transcript entries into speaker-prefixed text."""
+    return "\n\n".join(f"{e['role']}: {e['body']}" for e in entries)
+
+
+def _format_jsonl_transcript(jsonl_path: Path) -> str:
+    """Parse a Claude Code agent JSONL output file into a readable transcript.
+
+    Each line is a JSON object representing one message. We pull out:
+      - Initial user prompts (string content) -> "User:"
+      - Assistant text blocks -> "Assistant:"
+      - Assistant tool_use blocks -> "[tool: <name>]"
+      - User tool_result blocks -> "Tool result:"
+      - Forwarded nested subagent blocks (parent_tool_use_id set) -> "[subagent: <id>]"
+    Malformed lines are skipped silently.
+    """
+    return _format_jsonl_transcript_from_entries(
+        _parse_jsonl_transcript_entries(jsonl_path)
+    )
+
+
+def _extract_drain_stream_chunks(event: Any) -> tuple[list[str], bool, int]:
+    """Extract live transcript text chunks, model-activity flag, and open-tool delta.
+
+    Used by ``_drain_stdout`` so nested subagent blocks forwarded via
+    ``--forward-subagent-text`` are annotated cleanly with their
+    ``parent_tool_use_id`` and keep the silence watchdog updated.
+    """
+    if not isinstance(event, dict):
+        return [], False, 0
+
+    etype = event.get("type")
+    parent_id = _extract_parent_tool_use_id(event)
+    texts: list[str] = []
+    had_model = False
+    tool_delta = 0
+
+    if etype == "assistant":
+        msg = event.get("message")
+        blocks = msg.get("content", []) if isinstance(msg, dict) else []
+        if isinstance(blocks, list):
+            for block in blocks:
+                if not isinstance(block, dict):
+                    continue
+                btype = block.get("type")
+                if btype == "text":
+                    text = block.get("text", "")
+                    if isinstance(text, str) and text:
+                        had_model = True
+                        if parent_id:
+                            texts.append(f"\n[subagent: {parent_id}] {text}\n")
+                        else:
+                            texts.append(text)
+                elif btype == "thinking":
+                    had_model = True
+                    thinking_val = block.get("thinking") or block.get("text") or ""
+                    if parent_id and isinstance(thinking_val, str) and thinking_val.strip():
+                        texts.append(f"\n[subagent: {parent_id}] [thinking] {thinking_val}\n")
+                elif btype == "tool_use":
+                    had_model = True
+                    tool_delta += 1
+    elif etype == "user":
+        if event.get("isMeta") is not True:
+            msg = event.get("message")
+            ucontent = msg.get("content") if isinstance(msg, dict) else None
+            if isinstance(ucontent, list):
+                for ublock in ucontent:
+                    if not isinstance(ublock, dict):
+                        continue
+                    ubtype = ublock.get("type")
+                    if ubtype == "tool_result":
+                        had_model = True
+                        tool_delta -= 1
+                    elif parent_id and ubtype == "text" and (ublock.get("text") or "").strip():
+                        had_model = True
+            elif parent_id and isinstance(ucontent, str) and ucontent.strip():
+                had_model = True
+    elif etype in ("tool_result", "thinking"):
+        had_model = True
+        if etype == "tool_result":
+            tool_delta -= 1
+
+    return texts, had_model, tool_delta
 
 
 @router.get("/agents/{name}/transcript")
@@ -4803,9 +4954,11 @@ async def get_agent_transcript(name: str):
         actual_bytes = 0
 
     suffix = source.suffix.lower()
+    jsonl_entries: Optional[list[dict]] = None
     try:
         if suffix in (".output", ".jsonl") or _looks_like_jsonl(source):
-            content = _format_jsonl_transcript(source)
+            jsonl_entries = _parse_jsonl_transcript_entries(source)
+            content = _format_jsonl_transcript_from_entries(jsonl_entries)
         else:
             content = source.read_text(errors="replace")
     except OSError as exc:
@@ -4820,7 +4973,15 @@ async def get_agent_transcript(name: str):
             reason = f"Transcript for '{name}' is empty."
         return {"name": name, "content": "", "bytes": actual_bytes, "empty": True, "reason": reason}
 
-    return {"name": name, "content": content, "bytes": actual_bytes, "empty": False}
+    resp_payload: dict[str, Any] = {
+        "name": name,
+        "content": content,
+        "bytes": actual_bytes,
+        "empty": False,
+    }
+    if jsonl_entries is not None:
+        resp_payload["entries"] = jsonl_entries
+    return resp_payload
 
 
 def _looks_like_jsonl(path: Path) -> bool:
@@ -5612,6 +5773,53 @@ MODEL_MAP = {
     "opus": "claude-opus-5-5",
     "haiku": "claude-haiku-5-5",
 }
+
+
+def _build_claude_print_spawn_cmd(
+    model: str,
+    perm_mode: str,
+    budget: Optional[float] = None,
+) -> list[str]:
+    """Build the headless Claude Code 2.1.323 worker argv for ``--print`` spawns.
+
+    Keeps the legacy flag prefix intact up through ``--permission-mode``, then
+    appends:
+      - ``--forward-subagent-text`` so nested subagent text/thinking blocks
+        arrive on stream-json with ``parent_tool_use_id`` set.
+      - ``--max-budget-usd <amount>`` when ``budget`` is a positive number.
+      - ``--fallback-model sonnet`` when ``model`` is in the heavy primary
+        tier (``opus`` or ``fable``) so transient 529 Overloaded responses
+        fall back to Sonnet instead of aborting the worker. Omitted when
+        ``model`` is already Sonnet or Haiku because Claude CLI rejects
+        ``--fallback-model`` equal to ``--model``.
+    """
+    import math as _math
+
+    cmd = [
+        CLAUDE_BIN, "--print",
+        "--model", model,
+        "--output-format", "stream-json", "--verbose",
+        "--permission-mode", perm_mode,
+        "--forward-subagent-text",
+    ]
+    if budget is not None:
+        try:
+            budget_val = float(budget)
+        except (TypeError, ValueError):
+            budget_val = 0.0
+        if not _math.isnan(budget_val) and not _math.isinf(budget_val) and budget_val > 0:
+            formatted_budget = (
+                f"{budget_val:.2f}"
+                if round(budget_val, 2) == round(budget_val, 4)
+                else str(round(budget_val, 4))
+            )
+            cmd.extend(["--max-budget-usd", formatted_budget])
+
+    model_lower = (model or "").strip().lower()
+    if ("opus" in model_lower or "fable" in model_lower) and model_lower != "sonnet":
+        cmd.extend(["--fallback-model", "sonnet"])
+
+    return cmd
 
 
 def _spawn_quick_mode(body: "AgentSpawn") -> bool:
@@ -7304,12 +7512,11 @@ async def _legacy_bespoke_spawn(body: AgentSpawn, request: Request, response: Re
     # Map isolation level to Claude CLI permission mode
     _perm_mode = isolation_to_permission_mode(get_isolation_level())
 
-    cmd = [
-        CLAUDE_BIN, "--print",
-        "--model", model,
-        "--output-format", "stream-json", "--verbose",
-        "--permission-mode", _perm_mode,
-    ]
+    cmd = _build_claude_print_spawn_cmd(
+        model=model,
+        perm_mode=_perm_mode,
+        budget=body.budget,
+    )
 
     try:
         _spawn_env = {**os.environ}
@@ -7733,32 +7940,19 @@ async def _legacy_bespoke_spawn(body: AgentSpawn, request: Request, response: Re
                                 continue
                             try:
                                 event = json.loads(line.decode("utf-8", errors="replace"))
-                                etype = event.get("type")
-                                if etype == "assistant":
-                                    # stream-json wraps text in assistant.message.content[]
-                                    for block in event.get("message", {}).get("content", []):
-                                        btype = block.get("type")
-                                        if btype == "text":
-                                            text = block.get("text", "")
-                                            if text:
-                                                _had_model_output = True
-                                                _had_text_output = True
-                                                _last_model_output_at[0] = time.monotonic()
-                                                try:
-                                                    tfh.write(text.encode("utf-8", errors="replace"))
-                                                    tfh.flush()
-                                                except Exception:
-                                                    pass
-                                        elif btype in ("tool_use",):
-                                            _had_model_output = True
-                                            _last_model_output_at[0] = time.monotonic()
-                                            _open_tool_calls[0] += 1
-                                elif etype in _MODEL_EVENT_TYPES:
-                                    # tool_result etc: update watchdog, skip raw JSON in transcript
+                                _chunks, _evt_model, _tool_delta = _extract_drain_stream_chunks(event)
+                                if _evt_model:
                                     _had_model_output = True
                                     _last_model_output_at[0] = time.monotonic()
-                                    if etype == "tool_result":
-                                        _open_tool_calls[0] = max(0, _open_tool_calls[0] - 1)
+                                if _tool_delta:
+                                    _open_tool_calls[0] = max(0, _open_tool_calls[0] + _tool_delta)
+                                for _text_chunk in _chunks:
+                                    _had_text_output = True
+                                    try:
+                                        tfh.write(_text_chunk.encode("utf-8", errors="replace"))
+                                        tfh.flush()
+                                    except Exception:
+                                        pass
                                 # system/hook events: _had_any_byte already set; skip transcript
                             except (json.JSONDecodeError, UnicodeDecodeError, RecursionError, ValueError):
                                 # Non-JSON / pathological line. RecursionError + ValueError are caught here
@@ -7777,23 +7971,16 @@ async def _legacy_bespoke_spawn(body: AgentSpawn, request: Request, response: Re
                     if _json_buf.strip():
                         try:
                             event = json.loads(_json_buf.decode("utf-8", errors="replace"))
-                            etype = event.get("type")
-                            if etype == "assistant":
-                                for block in event.get("message", {}).get("content", []):
-                                    if block.get("type") == "text":
-                                        text = block.get("text", "")
-                                        if text:
-                                            _had_model_output = True
-                                            _had_text_output = True
-                                            try:
-                                                tfh.write(text.encode("utf-8", errors="replace"))
-                                                tfh.flush()
-                                            except Exception:
-                                                pass
-                                    elif block.get("type") in ("tool_use",):
-                                        _had_model_output = True
-                            elif etype in _MODEL_EVENT_TYPES:
+                            _chunks, _evt_model, _tool_delta = _extract_drain_stream_chunks(event)
+                            if _evt_model:
                                 _had_model_output = True
+                            for _text_chunk in _chunks:
+                                _had_text_output = True
+                                try:
+                                    tfh.write(_text_chunk.encode("utf-8", errors="replace"))
+                                    tfh.flush()
+                                except Exception:
+                                    pass
                         except (json.JSONDecodeError, UnicodeDecodeError):
                             try:
                                 tfh.write(_json_buf + b"\n")
