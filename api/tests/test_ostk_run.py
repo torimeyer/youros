@@ -53,7 +53,7 @@ async def test_run_agentfile_dry_run_builds_correct_argv():
 
     assert captured_cmd, "subprocess.run was never called"
     cmd = captured_cmd[0]
-    assert cmd[:3] == ["ostk", "run", "agents/builder.agent"]
+    assert cmd[:4] == ["ostk", "agentfile", "run", "agents/builder.agent"]
     assert "--dry-run" in cmd
     assert "--env-passthrough" not in cmd
     assert result["exit_code"] == 0
@@ -154,7 +154,7 @@ async def test_run_agentfile_combined_flags():
             )
 
     cmd = captured_cmd[0]
-    assert cmd[:3] == ["ostk", "run", "agents/builder.agent"]
+    assert cmd[:4] == ["ostk", "agentfile", "run", "agents/builder.agent"]
     assert "--env-passthrough" in cmd
     assert "--runtime" in cmd
     assert cmd[cmd.index("--runtime") + 1] == "qemu"
@@ -284,11 +284,11 @@ async def test_spawn_with_ostk_run_dry_run_succeeds():
 
     # Mock run_agentfile so no real ostk subprocess fires.
     _ostk_run_result = {
-        "stdout": "Would run: ostk run agents/builder.agent --dry-run",
+        "stdout": "Would run: ostk agentfile run agents/builder.agent --dry-run",
         "stderr": "",
         "exit_code": 0,
         "pid": None,
-        "cmd": ["ostk", "run", "agents/builder.agent", "--dry-run"],
+        "cmd": ["ostk", "agentfile", "run", "agents/builder.agent", "--dry-run"],
     }
 
     with patch("services.ostk.OstkService.run_agentfile", new=AsyncMock(return_value=_ostk_run_result)):

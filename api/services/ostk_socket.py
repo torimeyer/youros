@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from pathlib import Path
 from typing import Any, Optional
 
@@ -32,6 +33,7 @@ logger = logging.getLogger(__name__)
 SOCKET_PATH = PROJECT_ROOT / ".ostk" / "ostk.sock"
 MCP_PROTOCOL_VERSION = "2024-11-05"
 DEFAULT_TIMEOUT = 5.0
+CIRCUIT_RETRY_SECONDS = 60.0
 
 
 class OstkSocketError(Exception):
@@ -54,13 +56,31 @@ class OstkSocket:
     """
 
     def __init__(self, socket_path: Optional[Path] = None):
-        self._socket_path = socket_path or SOCKET_PATH
+        self._socket_path: Path = Path(socket_path) if socket_path is not None else SOCKET_PATH
         self._reader: Optional[asyncio.StreamReader] = None
         self._writer: Optional[asyncio.StreamWriter] = None
         self._request_id = 0
         self._connected = False
         self._handshake_done = False
         self._lock = asyncio.Lock()
+        self._failed_at: float = 0.0
+        self._circuit_retry_seconds: float = CIRCUIT_RETRY_SECONDS
+
+    @property
+    def socket_path(self) -> Path:
+        return self._socket_path
+
+    @property
+    def is_circuit_open(self) -> bool:
+        if self._failed_at <= 0.0:
+            return False
+        return (time.monotonic() - self._failed_at) < self._circuit_retry_seconds
+
+    def record_failure(self) -> None:
+        self._failed_at = time.monotonic()
+
+    def reset_circuit(self) -> None:
+        self._failed_at = 0.0
 
     @property
     def connected(self) -> bool:
@@ -77,14 +97,17 @@ class OstkSocket:
                 timeout=timeout,
             )
         except FileNotFoundError:
+            self.record_failure()
             raise OstkSocketError(
                 f"Socket not found: {self._socket_path}"
             )
         except (ConnectionRefusedError, OSError) as exc:
+            self.record_failure()
             raise OstkSocketError(
                 f"Cannot connect to ostk daemon: {exc}"
             )
         except asyncio.TimeoutError:
+            self.record_failure()
             raise OstkSocketError(
                 "Timed out connecting to ostk daemon"
             )
@@ -92,7 +115,12 @@ class OstkSocket:
         self._connected = True
         self._handshake_done = False
 
-        await self._handshake(timeout)
+        try:
+            await self._handshake(timeout)
+        except Exception:
+            self.record_failure()
+            raise
+        self.reset_circuit()
 
     async def _handshake(self, timeout: float = DEFAULT_TIMEOUT) -> None:
         """Perform the MCP initialize / initialized exchange."""
@@ -166,10 +194,13 @@ class OstkSocket:
                         timeout=timeout,
                     )
                 except Exception as exc:
+                    self.record_failure()
                     await self._close_internal()
                     raise OstkSocketError(
                         f"Socket call failed after reconnect: {exc}"
                     ) from exc
+
+            self.reset_circuit()
 
         # Extract text from MCP response
         if "error" in response:
@@ -314,41 +345,96 @@ class OstkSocket:
 
 
 # ---------------------------------------------------------------------------
-# Module-level singleton for connection pooling
+# Module-level per-repo socket pool + backward-compatible default singleton
 # ---------------------------------------------------------------------------
 
 _instance: Optional[OstkSocket] = None
+_pool: dict[Path, OstkSocket] = {}
 _instance_lock = asyncio.Lock()
 
 
-async def get_socket() -> OstkSocket:
-    """Return the module-level singleton OstkSocket, creating it on first use."""
+def _resolve_socket_path(cwd: str | Path | None = None) -> Path:
+    if cwd is None:
+        return SOCKET_PATH.resolve()
+    return (Path(cwd).expanduser().resolve() / ".ostk" / "ostk.sock").resolve()
+
+
+def get_ostk_socket(cwd: str | Path | None = None) -> OstkSocket:
+    """Return a pooled OstkSocket keyed by resolved repo socket path.
+
+    When ``cwd`` is None, returns (and populates) the default ``_instance``
+    bound to ``SOCKET_PATH`` for backward compatibility with zero-arg callers.
+    """
     global _instance
-    async with _instance_lock:
+    default_key = SOCKET_PATH.resolve()
+    if cwd is None:
         if _instance is None:
-            _instance = OstkSocket()
+            _instance = OstkSocket(socket_path=SOCKET_PATH)
+            _pool[default_key] = _instance
         return _instance
+
+    sock_path = Path(cwd).expanduser().resolve() / ".ostk" / "ostk.sock"
+    key = sock_path.resolve()
+    if key == default_key and _instance is not None:
+        _pool[key] = _instance
+        return _instance
+    sock = _pool.get(key)
+    if sock is None:
+        sock = OstkSocket(socket_path=sock_path)
+        _pool[key] = sock
+        if key == default_key and _instance is None:
+            _instance = sock
+    return sock
+
+
+def reset_ostk_socket() -> None:
+    """Clear both the default singleton and the per-repo socket pool."""
+    global _instance
+    _instance = None
+    _pool.clear()
+
+
+async def get_socket(cwd: str | Path | None = None) -> OstkSocket:
+    """Return the pooled OstkSocket for ``cwd`` (or default singleton when None)."""
+    async with _instance_lock:
+        return get_ostk_socket(cwd)
 
 
 async def call_tool(
     name: str,
     arguments: Optional[dict[str, Any]] = None,
     timeout: float = DEFAULT_TIMEOUT,
+    cwd: str | Path | None = None,
 ) -> str:
-    """Call an ostk tool via the persistent socket connection.
+    """Call an ostk tool via the persistent socket connection for ``cwd``.
 
-    This is the main entry point for OstkService. It manages the
-    singleton connection and raises OstkSocketError on failure so
-    the caller can fall back to subprocess.
+    This is the main entry point for OstkService and tool_executor. It manages
+    the pooled connection and raises OstkSocketError on failure so the caller
+    can fall back to subprocess.
     """
-    sock = await get_socket()
+    sock = await get_socket(cwd)
     return await sock.call_tool(name, arguments, timeout)
 
 
-async def close_socket() -> None:
-    """Close the module-level singleton socket, if open."""
+async def close_socket(cwd: str | Path | None = None) -> None:
+    """Close a repo's pooled socket, or all pooled sockets when ``cwd`` is None."""
     global _instance
     async with _instance_lock:
-        if _instance is not None:
-            await _instance.close()
-            _instance = None
+        if cwd is None:
+            seen: set[int] = set()
+            if _instance is not None:
+                seen.add(id(_instance))
+                await _instance.close()
+                _instance = None
+            for sock in list(_pool.values()):
+                if id(sock) not in seen:
+                    seen.add(id(sock))
+                    await sock.close()
+            _pool.clear()
+        else:
+            key = _resolve_socket_path(cwd)
+            sock = _pool.pop(key, None)
+            if sock is not None:
+                await sock.close()
+                if sock is _instance:
+                    _instance = None

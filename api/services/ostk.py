@@ -14,7 +14,10 @@ from typing import Optional, Union
 
 from config import PROJECT_ROOT, OSTK_DIR as _OSTK_DIR
 from services.atomic_io import atomic_write_text
+from services.ostk_socket import get_ostk_socket as _default_get_ostk_socket
 from services.youros_paths import youros_home
+
+get_ostk_socket = _default_get_ostk_socket
 
 _logger = logging.getLogger(__name__)
 
@@ -661,6 +664,7 @@ class OstkService:
     # `ostk os` CLI alias, which appends a cli.deprecated row to the
     # history log on every invocation and flooded the Activity feed (→2887).
     _SOCKET_RETRY_SECONDS = 60.0
+    _socket_failed_at: float = 0.0
 
     def __init__(self, cwd: str = None):
         self.__dict__["cwd"] = cwd
@@ -692,6 +696,17 @@ class OstkService:
             return None
 
         head = args[0]
+
+        if head == "ps" and len(args) == 1:
+            return ("ps", {})
+
+        if head == "show" and len(args) == 2:
+            sub = args[1]
+            if sub == "status":
+                return ("status", {})
+            if sub == "clock":
+                return ("clock", {})
+            return None
 
         if head == "os" and len(args) >= 2:
             sub = args[1]
@@ -766,48 +781,76 @@ class OstkService:
 
         return None
 
+    def _get_repo_socket(self):
+        try:
+            return get_ostk_socket(self.cwd)
+        except TypeError:
+            return get_ostk_socket()
+
     async def _run_socket(self, *args: str, timeout: int = 5) -> str:
         """Try to run an ostk command via the MCP socket transport."""
-        from services.ostk_socket import call_tool, OstkSocketError
+        from services.ostk_socket import OstkSocketError
 
         mapping = self._resolve_socket_tool(args)
         if mapping is None:
             raise OstkSocketError(f"No socket mapping for: {args}")
 
         tool_name, tool_args = mapping
-        return await call_tool(tool_name, tool_args, timeout=float(timeout))
+        sock = self._get_repo_socket()
+        return await sock.call_tool(tool_name, tool_args, timeout=float(timeout))
 
     def _socket_worth_trying(self) -> bool:
-        """True when the socket transport should be attempted.
+        """True when the socket transport should be attempted for self.cwd.
 
-        Unknown or healthy: always try. After a failure: try again once
-        the retry cooldown has elapsed, so a transient daemon hiccup does
-        not permanently degrade every call to the subprocess path (→2887).
-        Skip socket transport when the effective root points to an external
-        repository or worktree distinct from PROJECT_ROOT.
+        Looks up the pooled OstkSocket for ``self.cwd`` so any active repo with
+        a live ``.ostk/ostk.sock`` gets the Unix domain socket fast-path, while
+        respecting both the per-service retry cooldown and per-socket circuit
+        state (->2887, ->3112).
         """
-        import config as _config
-
-        if get_effective_root().resolve() != Path(_config.PROJECT_ROOT).resolve():
+        if self._socket_available is False and (
+            (time.monotonic() - self._socket_failed_at) < self._SOCKET_RETRY_SECONDS
+        ):
             return False
-        if self._socket_available is not False:
-            return True
-        return (time.monotonic() - self._socket_failed_at) >= self._SOCKET_RETRY_SECONDS
+
+        sock = self._get_repo_socket()
+        if getattr(sock, "is_circuit_open", False):
+            return False
+
+        run_socket_mocked = (
+            "_run_socket" in self.__dict__
+            or getattr(type(self), "_run_socket", None) is not _DEFAULT_RUN_SOCKET
+        )
+        get_socket_patched = get_ostk_socket is not _default_get_ostk_socket
+
+        if get_socket_patched or not run_socket_mocked:
+            sock_path = getattr(sock, "socket_path", None)
+            if sock_path is not None and not sock_path.exists():
+                return False
+
+        return True
+
+    async def _try_socket(self, *args: str, timeout: int = 5) -> Optional[str]:
+        """Attempt the MCP socket fast-path for ``self.cwd``; return None on fallback."""
+        if self._resolve_socket_tool(args) is None or not self._socket_worth_trying():
+            return None
+        try:
+            result = await self._run_socket(*args, timeout=timeout)
+            self._socket_available = True
+            return result
+        except Exception:
+            self._socket_available = False
+            self._socket_failed_at = time.monotonic()
+            return None
 
     async def _run(self, *args: str, timeout: int = 5) -> str:
         # Try socket transport first (fast path). Only commands that HAVE a
         # socket mapping are attempted: an unmapped command falling through
         # to the subprocess is normal and must not poison the availability
-        # latch for every other command (→2887).
-        if self._resolve_socket_tool(args) is not None and self._socket_worth_trying():
-            try:
-                result = await self._run_socket(*args, timeout=timeout)
-                self._socket_available = True
-                _maybe_invalidate_after_write(args)
-                return result
-            except Exception:
-                self._socket_available = False
-                self._socket_failed_at = time.monotonic()
+        # latch for every other command (->2887).
+        sock_result = await self._try_socket(*args, timeout=timeout)
+        if sock_result is not None:
+            _maybe_invalidate_after_write(args)
+            return sock_result
 
         # Fallback to subprocess
         import subprocess
@@ -2555,29 +2598,29 @@ class OstkService:
     # --- OS Status ---
 
     async def os_clock(self) -> dict:
-        """Run ``ostk os clock`` and parse the key-value output into a dict.
+        """Run ``ostk show clock`` and parse the key-value output into a dict.
 
         Returns a dict with keys like wall, session, kernel, swap,
-        last_gen, audit, and focus.
+        last_gen, audit, and focus (or first, last, elapsed, events).
         """
-        raw = await self._run("os", "clock")
+        raw = await self._run("show", "clock")
         result: dict[str, str] = {}
         for line in raw.splitlines():
             line = line.strip()
             if not line or line.startswith("─") or line.startswith("ostk"):
                 continue
-            # Lines look like:  "  wall      2026-04-20T17:46:04Z"
-            # Keys may be multi-word like "last gen"
-            m = re.match(r'^([\w][\w ]*?)\s{2,}(.+)$', line)
+            m = re.match(r"^([\w][\w ]*?):\s+(.+)$", line) or re.match(
+                r"^([\w][\w ]*?)\s{2,}(.+)$", line
+            )
             if m:
-                key = m.group(1).strip().replace(" ", "_")
+                key = m.group(1).strip().rstrip(":").replace(" ", "_")
                 value = m.group(2).strip()
                 result[key] = value
         return result
 
     async def os_status(self) -> str:
         try:
-            return await self._run("os", "status")
+            return await self._run("show", "status")
         except OstkError:
             return "no daemon running"
 
@@ -2590,7 +2633,7 @@ class OstkService:
     # --- Kernel / Agents ---
 
     async def kernel_ps(self) -> dict:
-        """Query ostk kernel ps for active agents.
+        """Query ostk ps for active agents.
 
         Returns a dict with 'raw' (the CLI output string), 'daemon_running'
         (bool), and 'agents' (list of parsed agent dicts when available).
@@ -2600,7 +2643,7 @@ class OstkService:
 
         async def _do_call() -> dict:
             try:
-                raw = await self._run("kernel", "ps")
+                raw = await self._run("ps")
             except OstkError:
                 raw = "no daemon running"
 
@@ -4649,7 +4692,7 @@ class OstkService:
         except json.JSONDecodeError:
             return []
 
-    # --- ostk run <Agentfile> wrapper (Tier 2.2) ---
+    # --- ostk agentfile run / validate wrappers (Tier 2.2, ->3112) ---
 
     async def run_agentfile(
         self,
@@ -4660,22 +4703,22 @@ class OstkService:
         cwd: str | None = None,
         env: dict[str, str] | None = None,
     ) -> dict:
-        """Wrap ``ostk run <agentfile> [--env-passthrough K] [--runtime R] [--dry-run]``.
+        """Wrap ``ostk agentfile run <agentfile> [--env-passthrough K] [--runtime R] [--dry-run]``.
 
         Returns a dict with stdout/stderr/exit_code/pid (pid is None; subprocess.run
         does not expose pid after completion). Dry-run mode emits what would happen
         without spawning anything.
 
-        ``cwd`` overrides the working directory the agent runs in (→1887: the
+        ``cwd`` overrides the working directory the agent runs in (->1887: the
         spawn path passes the short worktree cwd here so isolated agents do not
         inherit the server's checkout). ``env`` is a set of overrides merged
         over the parent environment; pair each key with ``env_passthrough`` so
-        ``ostk run`` forwards it into the agent process.
+        ``ostk agentfile run`` forwards it into the agent process.
         """
         import os as _os
         import subprocess
 
-        cmd: list[str] = ["ostk", "run", agentfile_path]
+        cmd: list[str] = ["ostk", "agentfile", "run", agentfile_path]
         if env_passthrough:
             for key in env_passthrough:
                 cmd += ["--env-passthrough", key]
@@ -4698,7 +4741,7 @@ class OstkService:
                 stdin=subprocess.DEVNULL,
             )
         except subprocess.TimeoutExpired:
-            raise OstkError(f"ostk run timed out after {timeout}s: {agentfile_path}")
+            raise OstkError(f"ostk agentfile run timed out after {timeout}s: {agentfile_path}")
 
         return {
             "stdout": result.stdout.strip(),
@@ -4708,7 +4751,121 @@ class OstkService:
             "cmd": cmd,
         }
 
+    async def validate_agentfile(
+        self,
+        agentfile_path: str,
+        cwd: str | None = None,
+    ) -> dict:
+        """Validate and lint an Agentfile via ``ostk agentfile validate`` and ``lint``.
 
+        Uses ``asyncio.create_subprocess_exec`` with ``stdin=DEVNULL`` and a 10s
+        timeout per invocation, returning a normalized structured payload.
+        """
+        effective_cwd = str(cwd or self.cwd)
+        name = Path(agentfile_path).stem
+
+        async def _exec_ostk(*sub_args: str) -> tuple[int, str, str]:
+            proc = await asyncio.create_subprocess_exec(
+                "ostk",
+                *sub_args,
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=effective_cwd,
+            )
+            try:
+                stdout_b, stderr_b = await asyncio.wait_for(
+                    proc.communicate(), timeout=10.0
+                )
+            except asyncio.TimeoutError as exc:
+                try:
+                    proc.kill()
+                except ProcessLookupError:
+                    pass
+                raise OstkError(
+                    f"ostk {' '.join(sub_args)} timed out after 10s"
+                ) from exc
+            rc = proc.returncode if proc.returncode is not None else 0
+            return (
+                rc,
+                stdout_b.decode("utf-8", errors="replace").strip(),
+                stderr_b.decode("utf-8", errors="replace").strip(),
+            )
+
+        val_rc, val_out, val_err = await _exec_ostk(
+            "agentfile", "validate", str(agentfile_path), "--json"
+        )
+        lint_rc, lint_out, lint_err = await _exec_ostk(
+            "agentfile", "lint", str(agentfile_path), "--json"
+        )
+
+        val_data: dict = {}
+        if val_out:
+            try:
+                parsed_val = json.loads(val_out)
+                if isinstance(parsed_val, dict):
+                    val_data = parsed_val
+            except json.JSONDecodeError:
+                val_data = {}
+
+        status = str(
+            val_data.get("status") or ("ok" if val_rc == 0 else "failed")
+        )
+        parse_state = str(
+            val_data.get("parse") or ("ok" if val_rc == 0 else "error")
+        )
+        parse_error = val_data.get("parse_error")
+        if parse_error is None and val_rc != 0 and not val_data:
+            parse_error = val_err or val_out or f"exit code {val_rc}"
+        signature = str(val_data.get("signature") or "unsigned")
+        sha256_raw = val_data.get("sha256")
+        sha256 = str(sha256_raw) if sha256_raw is not None else None
+        raw_diags = val_data.get("diagnostics")
+        diagnostics: list = list(raw_diags) if isinstance(raw_diags, list) else []
+
+        lint_items: list = []
+        if lint_out:
+            try:
+                parsed_lint = json.loads(lint_out)
+                if isinstance(parsed_lint, list):
+                    lint_items = parsed_lint
+                elif isinstance(parsed_lint, dict):
+                    lint_items = [parsed_lint]
+            except json.JSONDecodeError:
+                if parse_state == "ok" and lint_rc != 0:
+                    lint_items = [
+                        {"message": lint_err or lint_out, "severity": "error"}
+                    ]
+        elif parse_state == "ok" and lint_rc != 0 and lint_err:
+            lint_items = [{"message": lint_err, "severity": "error"}]
+
+        has_lint_error = (parse_state == "ok" and lint_rc != 0) or any(
+            isinstance(item, dict)
+            and str(item.get("severity", "")).lower() == "error"
+            for item in (diagnostics + lint_items)
+        )
+        valid = (
+            val_rc == 0
+            and status == "ok"
+            and parse_state == "ok"
+            and parse_error is None
+            and not has_lint_error
+        )
+
+        return {
+            "valid": valid,
+            "name": name,
+            "status": status,
+            "parse": parse_state,
+            "parse_error": parse_error,
+            "signature": signature,
+            "sha256": sha256,
+            "diagnostics": diagnostics,
+            "lint": lint_items,
+        }
+
+
+_DEFAULT_RUN_SOCKET = OstkService._run_socket
 ostk = OstkService()
 
 # --- Clock cache ---

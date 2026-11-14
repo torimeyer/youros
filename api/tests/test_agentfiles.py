@@ -247,10 +247,9 @@ class TestRunEndpoint:
             assert data["launched"] == "runner"
             assert data["pid"] == 12345
 
-            # Verify the command was called with correct args
+            # Verify the command was called with correct canonical args
             call_args = mock_exec.call_args[0]
-            assert "ostk" in call_args[0]
-            assert "run" in call_args
+            assert list(call_args[:3]) == ["ostk", "agentfile", "run"]
             assert "--env-passthrough" in call_args
             assert "API_KEY" in call_args
 

@@ -20,6 +20,7 @@ vi.mock('../lib/api', async (importOriginal) => {
 import { api } from '../lib/api'
 
 const mockedApiGet = vi.mocked(api.get)
+const mockedApiPost = vi.mocked(api.post)
 const mockedApiPut = vi.mocked(api.put)
 
 const mockFormData = {
@@ -148,5 +149,58 @@ describe('AgentfileEditor', () => {
     await waitFor(() => expect(screen.queryByText('Loading...')).toBeNull())
     expect(screen.getByText(/built-in setup/i)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /save changes/i })).toBeNull()
+  })
+
+  it('validates agentfile via toolbar button and shows valid + signature status', async () => {
+    mockedApiPost.mockResolvedValue({
+      valid: true,
+      name: 'my-bot',
+      status: 'ok',
+      parse: 'ok',
+      parse_error: null,
+      signature: 'unsigned',
+      sha256: 'abc123',
+      diagnostics: [],
+      lint: [],
+    })
+
+    renderEditor()
+    await waitFor(() => expect(screen.queryByText('Loading...')).toBeNull())
+
+    const validateBtn = screen.getByRole('button', { name: /validate/i })
+    fireEvent.click(validateBtn)
+
+    await waitFor(() => {
+      expect(mockedApiPost).toHaveBeenCalledWith('/agentfiles/my-bot/validate')
+    })
+
+    const banner = await screen.findByTestId('validation-banner')
+    expect(banner).toHaveTextContent(/Valid/i)
+    expect(banner).toHaveTextContent(/unsigned/i)
+  })
+
+  it('displays parse error and lint findings when validation fails', async () => {
+    mockedApiPost.mockResolvedValue({
+      valid: false,
+      name: 'my-bot',
+      status: 'failed',
+      parse: 'error',
+      parse_error: 'line 1: unknown directive: BOGUS',
+      signature: 'signed',
+      sha256: 'def456',
+      diagnostics: [{ message: 'unknown directive BOGUS' }],
+      lint: [{ rule: 'RESTART', message: 'HEALTHCHECK without RESTART policy' }],
+    })
+
+    renderEditor()
+    await waitFor(() => expect(screen.queryByText('Loading...')).toBeNull())
+
+    fireEvent.click(screen.getByRole('button', { name: /validate/i }))
+
+    const banner = await screen.findByTestId('validation-banner')
+    expect(banner).toHaveTextContent(/Parse error/i)
+    expect(banner).toHaveTextContent(/signed/i)
+    expect(banner).toHaveTextContent(/line 1: unknown directive: BOGUS/i)
+    expect(banner).toHaveTextContent(/HEALTHCHECK without RESTART policy/i)
   })
 })

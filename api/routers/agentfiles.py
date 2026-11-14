@@ -18,8 +18,10 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from config import AGENTS_DIR
+from config import AGENTS_DIR, PROJECT_ROOT
+import services.ostk as _ostk_mod
 from services.agentfile_parser import agentfile_to_form, form_to_agentfile
+from services.ostk import OstkError, ostk
 from services.youros_paths import youros_home
 
 router = APIRouter(tags=["agentfiles"])
@@ -276,11 +278,86 @@ async def create_agentfile(body: AgentfileCreate):
     return {"created": safe_name, "path": str(path)}
 
 
+def _validate_agentfile_name(name: str) -> None:
+    """Reject empty names or path traversal characters."""
+    if (
+        not name
+        or name in {".", ".."}
+        or "/" in name
+        or "\\" in name
+        or ".." in name
+        or "\x00" in name
+    ):
+        raise HTTPException(status_code=400, detail="Invalid agentfile name")
+
+
+@router.post("/agentfiles/{name}/validate")
+async def validate_agentfile(name: str):
+    """Validate and lint an Agentfile via ``ostk agentfile validate`` and ``lint``."""
+    _validate_agentfile_name(name)
+    effective_root = _ostk_mod.get_effective_root()
+
+    search_dirs: list[Path] = []
+    default_agents_dir = PROJECT_ROOT / "agents"
+    if AGENTS_DIR != default_agents_dir:
+        search_dirs.append(AGENTS_DIR)
+    search_dirs.append(effective_root / "agents")
+    if AGENTS_DIR not in search_dirs:
+        search_dirs.append(AGENTS_DIR)
+    search_dirs.append(USER_AGENTFILES_DIR)
+
+    agentfile_path: Path | None = None
+    for directory in search_dirs:
+        if not directory.exists():
+            continue
+        candidate = directory / f"{name}.agent"
+        try:
+            if (
+                candidate.resolve().parent == directory.resolve()
+                and candidate.is_file()
+            ):
+                agentfile_path = candidate
+                break
+        except OSError:
+            continue
+
+    if agentfile_path is None:
+        raise HTTPException(
+            status_code=404, detail=f"Agentfile '{name}' not found"
+        )
+
+    repo_agents_dir = effective_root / "agents"
+    if agentfile_path.parent == repo_agents_dir:
+        target_arg = f"agents/{name}.agent"
+    else:
+        resolved_root = effective_root.resolve()
+        resolved_af = agentfile_path.resolve()
+        try:
+            target_arg = str(resolved_af.relative_to(resolved_root))
+        except ValueError:
+            target_arg = str(resolved_af)
+
+    try:
+        result = await ostk.validate_agentfile(
+            target_arg, cwd=str(effective_root)
+        )
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=500,
+            detail="ostk CLI not found. Make sure ostk is installed and on PATH.",
+        )
+    except OstkError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    result["name"] = name
+    return result
+
+
 @router.post("/agentfiles/{name}/run")
 async def run_agentfile(name: str, body: Optional[AgentfileRunRequest] = None):
-    """Launch an agent from an Agentfile via ``ostk run``.
+    """Launch an agent from an Agentfile via ``ostk agentfile run``.
 
-    This calls ``ostk run <path>`` in a subprocess. The agent registers
+    This calls ``ostk agentfile run <path>`` in a subprocess. The agent registers
     itself with the ToriOS API on boot (via the BOOT directive), so it
     will appear in the Active tab automatically.
     """
@@ -297,8 +374,8 @@ async def run_agentfile(name: str, body: Optional[AgentfileRunRequest] = None):
     if agentfile_path is None:
         raise HTTPException(status_code=404, detail=f"Agentfile '{name}' not found")
 
-    # Build the ostk run command
-    cmd = ["ostk", "run"]
+    # Build the canonical ostk agentfile run command
+    cmd = ["ostk", "agentfile", "run"]
     for key in (body.env_passthrough or []):
         cmd.extend(["--env-passthrough", key])
     if body.runtime and body.runtime != "host":

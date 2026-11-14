@@ -479,6 +479,14 @@ class TestResolveSocketTool:
         result = self.svc._resolve_socket_tool(("kernel", "ps"))
         assert result == ("ps", {})
 
+    def test_canonical_ps(self):
+        result = self.svc._resolve_socket_tool(("ps",))
+        assert result == ("ps", {})
+
+    def test_canonical_show_status_and_clock(self):
+        assert self.svc._resolve_socket_tool(("show", "status")) == ("status", {})
+        assert self.svc._resolve_socket_tool(("show", "clock")) == ("clock", {})
+
     def test_kernel_reap(self):
         result = self.svc._resolve_socket_tool(("kernel", "reap"))
         assert result == ("reap", {})

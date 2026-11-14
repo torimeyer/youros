@@ -14,6 +14,32 @@ interface AgentfileFormData {
   source?: string;
 }
 
+interface ValidationFinding {
+  rule?: string;
+  severity?: string;
+  message?: string;
+  line?: number;
+}
+
+interface AgentfileValidationResult {
+  valid: boolean;
+  name: string;
+  status: string;
+  parse: string;
+  parse_error: string | null;
+  signature: string;
+  sha256: string | null;
+  diagnostics: Array<string | ValidationFinding>;
+  lint: Array<string | ValidationFinding>;
+}
+
+function formatFinding(item: string | ValidationFinding): string {
+  if (typeof item === "string") return item;
+  const prefix = item.rule ? `[${item.rule}] ` : "";
+  const loc = typeof item.line === "number" ? `line ${item.line}: ` : "";
+  return `${prefix}${loc}${item.message ?? JSON.stringify(item)}`;
+}
+
 const MODELS = [
   { value: "claude-sonnet-4-6", label: "Sonnet 4.6 (recommended)" },
   { value: "claude-haiku-4-5", label: "Haiku 4.5 (fast)" },
@@ -45,6 +71,8 @@ export default function AgentfileEditor() {
   const [rawText, setRawText] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [validating, setValidating] = useState(false);
+  const [validation, setValidation] = useState<AgentfileValidationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
@@ -101,6 +129,23 @@ export default function AgentfileEditor() {
     }
   };
 
+  const handleValidate = async () => {
+    if (!name) return;
+    setValidating(true);
+    setError(null);
+    try {
+      const res = await api.post<AgentfileValidationResult>(
+        `/agentfiles/${encodeURIComponent(name)}/validate`
+      );
+      setValidation(res);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Validation failed";
+      setError(msg);
+    } finally {
+      setValidating(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-48 text-slate-600 dark:text-slate-400 text-sm">
@@ -128,6 +173,24 @@ export default function AgentfileEditor() {
         </div>
         <div className="ml-auto flex items-center gap-2">
           <button
+            type="button"
+            onClick={handleValidate}
+            disabled={validating}
+            style={{
+              backgroundColor: "var(--color-surface, var(--theme-surface))",
+              borderColor: "var(--color-border, var(--theme-border))",
+              color: "var(--color-accent)",
+            }}
+            className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            aria-label="Validate"
+          >
+            <Icon
+              name={validating ? "progress_activity" : "verified"}
+              className={validating ? "text-sm animate-spin" : "text-sm"}
+            />
+            {validating ? "Validating..." : "Validate"}
+          </button>
+          <button
             onClick={() => setRawView(!rawView)}
             className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400 hover:text-white px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:border-slate-600 transition-colors"
             aria-label={rawView ? "Show form" : "View raw file"}
@@ -137,6 +200,69 @@ export default function AgentfileEditor() {
           </button>
         </div>
       </div>
+
+      {validation && (() => {
+        const hasParseError = validation.parse !== "ok" || Boolean(validation.parse_error);
+        const findings = [
+          ...(validation.diagnostics ?? []).map(formatFinding),
+          ...(validation.lint ?? []).map(formatFinding),
+        ];
+        const parseLabel = hasParseError
+          ? "Parse error"
+          : validation.valid
+            ? "Valid"
+            : "Validation issues";
+        const statusColor = validation.valid
+          ? "var(--color-accent)"
+          : "var(--color-error)";
+        return (
+          <div
+            data-testid="validation-banner"
+            style={{
+              backgroundColor: "var(--color-surface, var(--theme-surface))",
+              borderColor: validation.valid
+                ? "var(--color-border, var(--theme-border))"
+                : "var(--color-error)",
+              color: "var(--theme-text)",
+            }}
+            className="mb-4 rounded-lg border px-4 py-3 text-sm"
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <Icon
+                name={validation.valid ? "check_circle" : "error"}
+                className="text-base shrink-0"
+              />
+              <span className="font-medium" style={{ color: statusColor }}>
+                {parseLabel}
+              </span>
+              <span
+                style={{
+                  borderColor: "var(--color-border, var(--theme-border))",
+                  color: "var(--theme-text-muted)",
+                }}
+                className="text-xs px-2 py-0.5 rounded border"
+              >
+                {validation.signature || "unsigned"}
+              </span>
+            </div>
+            {validation.parse_error && (
+              <p
+                className="mt-2 text-xs font-mono"
+                style={{ color: "var(--color-error)" }}
+              >
+                {validation.parse_error}
+              </p>
+            )}
+            {findings.length > 0 && (
+              <ul className="mt-2 space-y-1 text-xs list-disc list-inside">
+                {findings.map((finding, idx) => (
+                  <li key={idx}>{finding}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        );
+      })()}
 
       {isBuiltin && (
         <div className="mb-4 flex items-start gap-2 bg-amber-500/10 border border-amber-500/30 rounded-lg px-4 py-3 text-amber-600 dark:text-amber-400 text-sm">
