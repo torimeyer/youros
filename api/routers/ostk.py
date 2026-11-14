@@ -4,9 +4,9 @@ import json
 import re
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Body, HTTPException
 from pydantic import BaseModel, field_validator
-from services import recent_deletes
+from services import ostk_context_pages, recent_deletes
 
 router = APIRouter(tags=["ostk"])
 
@@ -67,3 +67,52 @@ def delete_verb(name: str):
     _write_verbs(filtered)
     recent_deletes.record_id(f"verb:{name}")
     return {"verb": name, "status": "removed"}
+
+
+class ContextPageStoreRequest(BaseModel):
+    name: str
+    content: str
+    owner: str | None = None
+
+
+class ContextPagePinRequest(BaseModel):
+    unpin: bool = False
+
+
+@router.get("/ostk/context-pages")
+async def get_ostk_context_pages():
+    return await ostk_context_pages.list_context_pages()
+
+
+@router.post("/ostk/context-pages")
+async def post_ostk_context_page(body: ContextPageStoreRequest):
+    try:
+        return await ostk_context_pages.store_context_page(
+            body.name,
+            body.content,
+            owner=body.owner,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/ostk/context-pages/{name}/pin")
+async def pin_ostk_context_page(
+    name: str,
+    body: ContextPagePinRequest | None = Body(default=None),
+):
+    try:
+        return await ostk_context_pages.pin_context_page(
+            name,
+            unpin=bool(body.unpin) if body is not None else False,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/ostk/context-pages/{name}/restore")
+async def restore_ostk_context_page(name: str):
+    try:
+        return await ostk_context_pages.restore_context_page(name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
