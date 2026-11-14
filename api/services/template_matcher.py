@@ -78,8 +78,8 @@ BUILT_IN_TEMPLATES: list[dict[str, Any]] = [
         "name": "explain-plain",
         "aliases": ["elit"],
         "description": (
-            "Plain-language explanation of anything. No jargon, no omissions. "
-            "Covers every relevant point and uses analogies for technical concepts. "
+            "Plain-language explanation of anything. No jargon, no metaphors, no omissions. "
+            "Covers every relevant point directly with no analogies. "
             "Use when the user wants a non-technical explanation of something."
         ),
         "triggers": [
@@ -94,10 +94,10 @@ BUILT_IN_TEMPLATES: list[dict[str, Any]] = [
         "prompt": (
             "EXPLAIN-PLAIN MODE: Explain the subject in plain language so "
             "someone with no background in the field can follow it. No jargon. "
-            "Cover every relevant point. Do not skip material for brevity. Use "
-            "analogies for technical or abstract concepts. No code. No "
-            "em-dashes. Start with a one-paragraph summary, then go deeper in "
-            "clearly labeled sections."
+            "Cover every relevant point. Do not skip material for brevity. "
+            "Describe directly. No metaphors, no analogies, no 'it is like a...' "
+            "framing. No code. No em-dashes. Start with a one-paragraph summary, "
+            "then go deeper in clearly labeled sections."
         ),
     },
     {

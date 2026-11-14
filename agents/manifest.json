@@ -42,7 +42,7 @@
       }
     },
     "explain-plain": {
-      "desc": "Plain-language explanation of anything you point it at. No jargon, no omissions. Uses analogies for technical concepts.",
+      "desc": "Plain-language explanation of anything you point it at. No jargon, no metaphors, no omissions.",
       "aliases": [
         "elit"
       ],

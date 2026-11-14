@@ -486,3 +486,41 @@ def test_saa_template_requires_pointers_to_originals():
     prompt = saa["prompt"].lower()
     assert "original documents" in prompt
     assert "never hand an agent only your own summary" in prompt
+
+
+def test_elit_explain_plain_forbids_metaphors_and_analogies_everywhere():
+    """elit / explain-plain must explain directly with no metaphors or analogies (→3116)."""
+    import json
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parents[2]
+
+    # 1. Built-in chat template matcher
+    ep = next(t for t in BUILT_IN_TEMPLATES if t["name"] == "explain-plain")
+    assert "uses analogies" not in ep["description"].lower()
+    assert "use analogies" not in ep["prompt"].lower()
+    assert "no metaphors" in ep["prompt"].lower()
+    assert "no analogies" in ep["prompt"].lower()
+
+    # 2. agents/explain-plain.agent and agents/manifest.json
+    agentfile_text = (repo_root / "agents" / "explain-plain.agent").read_text(encoding="utf-8").lower()
+    assert "uses analogies" not in agentfile_text
+    assert "use analogies" not in agentfile_text
+    assert "no metaphors" in agentfile_text
+    assert "no analogies" in agentfile_text
+
+    manifest_data = json.loads((repo_root / "agents" / "manifest.json").read_text(encoding="utf-8"))
+    manifest_desc = manifest_data["templates"]["explain-plain"]["desc"].lower()
+    assert "uses analogies" not in manifest_desc
+    assert "no metaphors" in manifest_desc
+
+    # 3. chat_providers.py EXPLAIN-PLAIN COMMAND block
+    cp_text = (repo_root / "api" / "services" / "chat_providers.py").read_text(encoding="utf-8").lower()
+    assert "use analogies for technical" not in cp_text
+    assert "no metaphors" in cp_text
+
+    # 4. CLAUDE.md and GEMINI.md vocabulary definitions
+    for doc_name in ("CLAUDE.md", "GEMINI.md"):
+        doc_text = (repo_root / doc_name).read_text(encoding="utf-8").lower()
+        assert "uses analogies" not in doc_text
+        assert "no metaphors" in doc_text
