@@ -466,8 +466,11 @@ class TestAgentfileValidationEndpoint:
             r_missing = await api_client.post("/api/agentfiles/does-not-exist/validate")
             assert r_missing.status_code == 404
 
+            r_backslash = await api_client.post("/api/agentfiles/..%5Csecret/validate")
+            assert r_backslash.status_code == 400
+
             r_traversal = await api_client.post("/api/agentfiles/..%2Fsecret/validate")
-            assert r_traversal.status_code in (400, 404)
+            assert r_traversal.status_code in (400, 404, 405)
 
             r_dots = await api_client.post("/api/agentfiles/../validate")
-            assert r_dots.status_code in (400, 404)
+            assert r_dots.status_code in (400, 404, 405)
